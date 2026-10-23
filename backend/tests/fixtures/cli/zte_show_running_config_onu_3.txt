@@ -1,0 +1,43 @@
+interface gpon-olt_1/3/3
+  onu 32 type HG8245H5 sn HWTCB84F559F
+!
+interface gpon-onu_1/3/3:32
+  name Pelanggan Contoh
+  description zone_ZonaA_descr_Alamat contoh_odb_ODB-0001_authd_20260101
+  tcont 1 profile SMARTOLT-HFA_Lite-UP
+  tcont 2 profile SMARTOLT-VOIPMNG-10M
+  gemport 1 tcont 1
+  gemport 1 traffic-limit downstream SMARTOLT-HFA_Lite-DOWN
+  gemport 2 tcont 2
+  gemport 2 traffic-limit downstream SMARTOLT-VOIPMNG-10M
+  service-port 1 vport 1 user-vlan 15 vlan 15
+  service-port 2 vport 2 user-vlan 100 vlan 100
+!
+pon-onu-mng gpon-onu_1/3/3:32
+  voip protocol sip
+  flow 2 switch switch_0/1
+  flow mode 1 tag-filter vlan-filter untag-filter discard
+  flow mode 2 tag-filter vlan-filter untag-filter discard
+  flow 1 pri 0 vlan 15
+  flow 2 pri 2 vlan 100
+  gemport 1 flow 1
+  gemport 2 flow 2
+  switchport-bind switch_0/1 iphost 1
+  switchport-bind switch_0/1 iphost 2
+  switchport-bind switch_0/1 veip 1
+  ip-host 2 dhcp-enable enable ping-response enable traceroute-response enable
+  vlan-filter-mode iphost 1 tag-filter vlan-filter untag-filter discard
+  vlan-filter-mode iphost 2 tag-filter vlan-filter untag-filter discard
+  vlan-filter iphost 1 pri 0 vlan 15
+  vlan-filter iphost 2 pri 2 vlan 100
+  dhcp-ip ethuni eth_0/1 from-onu
+  dhcp-ip ethuni eth_0/2 from-onu
+  dhcp-ip ethuni eth_0/3 from-onu
+  dhcp-ip ethuni eth_0/4 from-onu
+  veip 1 port udp 1232 host 2
+  tr069-mgmt 1 state unlock
+  tr069-mgmt 1 acs http://192.0.2.1:7547 validate basic username acsuser password secret
+  tr069-mgmt 1 tag pri 2 vlan 100
+  security-mgmt 998 state enable mode forward ingress-type lan protocol web https
+  security-mgmt 999 state enable ingress-type lan protocol ftp telnet ssh snmp tr069
+!

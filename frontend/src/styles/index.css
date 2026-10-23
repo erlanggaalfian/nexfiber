@@ -1,0 +1,117 @@
+@import "tailwindcss";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
+
+/* Latin-only variable file; the package's wght.css would also bundle cyrillic/greek/vietnamese. */
+@font-face {
+  font-family: "IBM Plex Sans Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 600;
+  src: url("@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-normal.woff2")
+    format("woff2-variations");
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* DESIGN.md tokens. Tailwind defaults for color/radius/shadow are dropped so only these exist. */
+@theme {
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-transparent: transparent;
+  --color-app: var(--bg-app);
+  --color-surface: var(--bg-surface);
+  --color-sunken: var(--bg-sunken);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-fiber: var(--fiber);
+  --color-amber: var(--amber);
+  --color-up: var(--st-up);
+  --color-warn: var(--st-warn);
+  --color-down: var(--st-down);
+  --color-idle: var(--st-idle);
+
+  --font-sans: "IBM Plex Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --text-*: initial;
+  --text-xs: 11px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 18px;
+  --text-base: 14px;
+  --text-base--line-height: 20px;
+  --text-lg: 16px;
+  --text-lg--line-height: 22px;
+  --text-xl: 20px;
+  --text-xl--line-height: 26px;
+  --text-metric: 28px;
+  --text-metric--line-height: 32px;
+
+  --radius-*: initial;
+  --radius-sm: 3px;
+  --radius-md: 8px;
+
+  --shadow-*: initial;
+  --shadow-overlay: 0 4px 12px rgba(28, 27, 24, 0.14);
+  --shadow-modal: 0 12px 32px rgba(28, 27, 24, 0.22);
+}
+
+:root {
+  --bg-app: #f7f6f3;
+  --bg-surface: #ffffff;
+  --bg-sunken: #efede8;
+  --border: #d9d5cc;
+  --border-strong: #b4aea2;
+  --text: #1c1b18;
+  --text-muted: #5b574e;
+  --text-faint: #6b675b;
+  --fiber: #0f5c4a;
+  --amber: #b4540a;
+  --st-up: #1f6b3a;
+  --st-warn: #8a5b00;
+  --st-down: #a02020;
+  --st-idle: #5b574e;
+  --focus: var(--fiber);
+  color-scheme: light;
+}
+
+.dark {
+  --bg-app: #131412;
+  --bg-surface: #1b1c19;
+  --bg-sunken: #232420;
+  --border: #33352f;
+  /* DESIGN.md has no dark --border-strong; one step above --border keeps input edges visible. */
+  --border-strong: #4a4c45;
+  --text: #e8e6df;
+  --text-muted: #a9a69c;
+  --text-faint: #8e8b82;
+  --fiber: #4fb79b;
+  --amber: #e08a3c;
+  --st-up: #56b870;
+  --st-warn: #d9a33a;
+  --st-down: #e4707a;
+  --st-idle: #8e8b82;
+  --focus: var(--amber);
+  color-scheme: dark;
+}
+
+@layer base {
+  html {
+    font-size: 16px;
+  }
+  body {
+    @apply bg-app text-sm text-ink font-sans;
+    font-variant-numeric: tabular-nums;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+  }
+  * {
+    border-color: var(--border);
+  }
+}
