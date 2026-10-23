@@ -1,14 +1,19 @@
 # PRD — Nexfiber (Aplikasi Manajemen OLT/ONU, Greenfield)
-## Dokumen Final v3 — Nama Aplikasi Terkunci, Install/Update/Uninstall Jadi Bagian PRD
+## Dokumen Final v4 — Navigasi Header, Menu Lengkap, Peran Superadmin/Admin/User
 
-Status: **FINAL v3** — versi terakhir yang dipakai sebagai acuan development di VS Code. Tidak ada v4 kecuali ada perubahan keputusan produk, bukan sekadar perubahan redaksi.
-Disusun oleh: Product Manager, Backend Architect, UI/UX Designer, Database/Infra Specialist, DevOps/QA Engineer (kerja paralel, debat trade-off, disintesis oleh pemilik produk — Erlangga Alfian).
-Sifat: aplikasi BARU (greenfield), bukan migrasi/update dari aplikasi lama manapun (termasuk bukan dari SmartOLT). Data mulai kosong.
+Status: **FINAL v4** — menggantikan v3. Dipakai sebagai acuan development di VS Code.
+Disusun oleh: Product Manager, Backend Architect, UI/UX Designer, Database/Infra Specialist, DevOps/QA Engineer; disintesis oleh pemilik produk — Erlangga Alfian.
+Sifat: aplikasi BARU (greenfield). Data mulai kosong. Struktur menu sengaja dibuat semirip mungkin dengan aplikasi operasional yang sudah dipakai tim (supaya tanpa pelatihan ulang), tapi dibangun ulang dengan stack terbaru — tidak ada kode lama yang dipakai.
 
-**Apa yang berubah dari v2 → v3** (v3 ditulis ulang baris per baris, bukan tempel-tambal):
-1. Nama aplikasi dikunci: **Nexfiber**. Semua placeholder (`OLT-App`, `Fiberdesk`, `<app>`, `olt-api`/`olt-worker`, `olt_app`) diganti konsisten jadi `Nexfiber` / `nexfiber-api` / `nexfiber-worker` / `nexfiber_db` — di dokumen ini dan di 3 skrip bash pendamping.
-2. `install.sh`/`update.sh`/`uninstall.sh`, yang di v2 cuma dijelaskan konsepnya, sekarang **isinya disalin sebagai lampiran PRD** (bukan cuma rujukan ke file terpisah) — lihat Lampiran A di bagian paling bawah dokumen ini.
-3. Seluruh isi v2 (produk, arsitektur backend, design system, database/infra, DevOps/QA) tetap dipertahankan — tidak ada keputusan teknis yang dibalik di v3, karena tidak ada trade-off baru yang diajukan sejak v2.
+**Apa yang berubah dari v3 → v4** (keputusan produk baru, bukan redaksi):
+1. **Navigasi pindah ke header atas** (bukan sidebar kiri). Menu: Dashboard · Unconfigured · Configured · Settings ▾ · Logs. Lihat §3.3.
+2. **Semua menu ditulis lengkap** beserta isi tiap halaman (§3.4), termasuk Settings: OLT Management, User Management, ONU Types, Splitters, Speed Profile, VPN Tunnels, TR-069 Management.
+3. **Peran diganti jadi Superadmin / Admin / User** dengan kepemilikan OLT (menggantikan Admin/NOC/Teknisi). Lihat §3.7 dan tabel `users`/`olts` di §4.6.
+4. **Keputusan frontend dikunci**: react-router v7 (mode library), TanStack Query v5, font self-host `@fontsource`. Lihat §3.1.
+5. **Setup awal**: saat belum ada user, aplikasi membuka halaman Setup untuk membuat Superadmin pertama (tidak ada password default di `install.sh`).
+6. Log Aksi tetap tidak bisa dihapus dari UI (beda dari kebiasaan lama "Bersihkan Semua Log") — audit adalah syarat produk §2 tujuan 4.
+
+Dokumen lama `NEXFIBER-MENU.md` digantikan seluruhnya oleh §3.3–§3.7 dokumen ini.
 
 ---
 
@@ -25,7 +30,7 @@ Sifat: aplikasi BARU (greenfield), bukan migrasi/update dari aplikasi lama manap
 | 7 | CD otomatis ditolak, deploy manual 1 perintah (`update.sh`) | **Disetujui.** |
 | 8 | Tanpa target coverage test %; 6 modul kritis wajib 100% jalur utama, sisanya boleh 0% | **Disetujui.** |
 | 9 | TR-069/GenieACS keluar dari MVP, masuk Phase 2 | **Disetujui.** |
-| 10 | 3 peran RBAC tetap (Admin/NOC/Teknisi), bukan permission granular | **Disetujui.** Peran disimpan sebagai data agar peran baru bisa ditambah tanpa membongkar model otorisasi. |
+| 10 | 3 peran tetap **Superadmin / Admin / User** + kepemilikan OLT per Admin (diubah di v4, sebelumnya Admin/NOC/Teknisi) | **Disetujui.** Bukan permission granular. Pembatasan OLT dicek di backend pada setiap endpoint. Detail §3.7. |
 
 **Instruksi tambahan (sesi ini): gunakan versi stabil terbaru dari tiap komponen stack, dan pastikan tampilan UI terasa "bagus" (bukan generik AI-default).**
 Diterapkan sebagai update versi (arsitektur/filosofi stack tidak berubah — tetap boring/solo-dev-friendly, cuma dinaikkan ke rilis stabil terkini):
@@ -97,6 +102,8 @@ Di kantor, dual monitor, menerima telepon komplain. Butuh: cari pelanggan dalam 
 **3. Network Engineer / Admin ("Citra")**
 Pemilik teknis jaringan. Butuh: tambah OLT, definisikan VLAN dan speed profile, atur topologi splitter/ODP, lihat utilisasi port PON, audit log, kelola user. Satu-satunya yang boleh menyentuh pengaturan berisiko.
 
+Pemetaan ke peran (§3.7): Andi dan Budi = **User**; Citra = **Admin** (pemilik OLT-nya); kepala jaringan yang membagi OLT ke tiap Admin = **Superadmin**.
+
 ### Persona Sekunder
 **Owner ISP** — sesekali membuka dashboard untuk melihat jumlah pelanggan aktif dan kesehatan jaringan. Read-only, tidak perlu fitur khusus di MVP.
 
@@ -123,10 +130,10 @@ Definisi selesai MVP: seluruh siklus hidup pelanggan dasar (aktivasi → monitor
 | M3 | **Autorisasi ONU** | Satu form: pilih ONU unconfigured → isi data pelanggan (nama, ID, alamat) → pilih VLAN + speed profile + ONU type → eksekusi. Hasil berhasil/gagal dengan pesan yang bisa dibaca manusia, bukan dump CLI mentah. |
 | M4 | **Daftar & detail ONU** | Pencarian cepat by nama/serial/ID pelanggan/IP. Status (online, offline, LOS, dying-gasp, power-off), uptime, RX/TX power, jarak, port PON, profile terpasang. |
 | M5 | **Monitoring sinyal + histori** | Polling berkala seluruh ONU. Simpan time-series RX power, status, traffic. Grafik 24 jam / 7 hari / 30 hari pada halaman detail ONU. |
-| M6 | **Alert dasar** | Ambang batas RX power (warning/critical) dan deteksi ONU offline > N menit. Notifikasi ke Telegram/email. Daftar alert aktif di dashboard. |
+| M6 | **Alert dasar** | Ambang batas RX power (warning/critical) dan deteksi ONU offline > N menit, tampil di dashboard. Notifikasi Telegram/email **ditunda** sampai semua halaman MVP selesai. |
 | M7 | **Master VLAN & Speed Profile** | Definisi paket layanan (nama, VLAN, upstream/downstream Mbps) yang dipetakan ke profile di OLT. Teknisi memilih "Paket 20 Mbps", bukan mengetik angka. |
 | M8 | **Operasi ONU harian** | Reboot ONU, ubah speed profile, ubah VLAN, nonaktifkan/hapus ONU, ganti nama/deskripsi. Semua dengan konfirmasi untuk aksi destruktif. |
-| M9 | **User management & RBAC** | 3 peran tetap: Admin (semua), NOC (lihat + reboot + lihat sinyal, tidak boleh ubah konfigurasi OLT), Teknisi (aktivasi + lihat, tidak boleh hapus/ubah master data). Login, ganti password, nonaktifkan user. |
+| M9 | **User management & RBAC** | 3 peran: Superadmin (semua OLT, serahkan OLT ke Admin), Admin (OLT miliknya + User di bawahnya), User (operasional ONU di OLT Admin-nya, tanpa tambah/setting OLT). Login, ganti password, nonaktifkan user. Detail §3.7. |
 | M10 | **Audit log** | Setiap aksi yang mengubah state OLT tercatat: user, waktu, target ONU, aksi, command yang dikirim, respons OLT, berhasil/gagal. Read-only, tidak bisa dihapus dari UI. |
 | M11 | **Dashboard** | Jumlah ONU per status, OLT down, alert aktif, aktivasi hari ini. Satu layar, tanpa scroll di desktop. |
 | M12 | **UI mobile-usable** | Halaman aktivasi dan detail ONU harus benar-benar bisa dipakai di layar 390px. Sisanya cukup responsive seadanya. |
@@ -185,7 +192,8 @@ Prinsip kerja driver OLT yang wajib dipegang sejak MVP: **setiap command harus i
 - **US-13** — Sebagai admin, saya ingin menonaktifkan ONU pelanggan yang berhenti berlangganan, dengan konfirmasi eksplisit, agar tidak ada penghapusan tidak sengaja.
   *AC:* dialog konfirmasi menyebut nama pelanggan; aksi tercatat di audit log; ONU bisa diaktifkan kembali.
 - **US-14** — Sebagai admin, saya ingin melihat siapa mengubah apa dan kapan, agar bisa menelusuri saat terjadi insiden.
-- **US-15** — Sebagai admin, saya ingin memberi peran berbeda ke tiap staf, agar teknisi tidak bisa menghapus master data dan NOC tidak bisa mengubah konfigurasi OLT.
+- **US-15** — Sebagai Superadmin, saya ingin menyerahkan OLT ke Admin tertentu, dan sebagai Admin saya ingin membuat User yang hanya bisa mengoperasikan ONU di OLT saya, agar tiap tim hanya menyentuh jaringannya sendiri.
+  *AC:* User tidak melihat menu Settings OLT; membuka OLT di luar cakupan lewat URL/API dibalas 404.
 - **US-16** — Sebagai admin, saya ingin melihat utilisasi tiap port PON (jumlah ONU terdaftar vs kapasitas), agar tahu kapan harus menambah kartu atau splitter.
 
 ### Phase 2 (ringkas)
@@ -202,12 +210,12 @@ Prinsip kerja driver OLT yang wajib dipegang sejak MVP: **setiap command harus i
 3. **Ticketing / helpdesk.** Gunakan tool yang sudah ada. Produk ini memberi data, bukan mengelola tiket.
 4. **Manajemen perangkat non-GPON.** Switch, router core, mikrotik, radio wireless — di luar scope. Gunakan NMS umum (LibreNMS/Zabbix) untuk itu.
 5. **Mendeploy dan mengoperasikan GenieACS.** Phase 2 mengintegrasikan GenieACS sebagai sistem eksternal. Aplikasi ini bukan server ACS dan tidak akan mengimplementasikan protokol TR-069 sendiri.
-6. **Multi-tenant / white-label.** Satu instalasi = satu ISP. Tidak ada isolasi data antar-tenant, tidak ada reseller.
+6. **White-label / multi-ISP.** Satu instalasi = satu ISP. Pemisahan OLT per Admin (§3.7) adalah pembagian kerja di dalam satu ISP, bukan isolasi tenant: tidak ada branding per Admin, billing per Admin, atau database terpisah.
 7. **Migrasi data dari aplikasi lama.** Data mulai kosong. ONU existing masuk secara alami lewat discovery dari OLT (serial, port, status terbaca otomatis); yang perlu diisi manual hanya metadata pelanggan. *Bila volume pelanggan existing besar, solusinya adalah skrip import CSV sekali pakai yang dibuang setelah dipakai (bagian dari P4) — bukan modul migrasi permanen di dalam produk.*
 8. **Konfigurasi OLT tingkat lanjut.** Pengaturan uplink, LAG, routing, OSPF/BGP, firmware upgrade OLT tetap di CLI. Aplikasi ini mengelola siklus hidup ONU, bukan menggantikan konsol OLT.
 9. **High availability / clustering.** Satu instans. Downtime aplikasi tidak memutus layanan pelanggan — ONU tetap berjalan tanpa aplikasi. Backup harian cukup.
 10. **Monitoring real-time sub-detik.** Polling berkala (interval menit), bukan streaming. Lihat Trade-off #2.
-11. **Mobile app native.** Web responsive saja. Tidak ada build Android/iOS untuk dirawat.
+11. **Mobile app native.** Web responsive + PWA (bisa dipasang di layar utama Android, tampil penuh layar). Tidak ada build Android/iOS untuk dirawat.
 12. **Prediksi berbasis AI/ML.** Phase 2 memakai deteksi tren statistik sederhana (P7), bukan model ML.
 
 ---
@@ -257,7 +265,7 @@ Prinsip kerja driver OLT yang wajib dipegang sejak MVP: **setiap command harus i
 
 ### Trade-off #4: Tiga peran tetap, bukan RBAC granular
 
-**Usulan:** hanya Admin / NOC / Teknisi, hardcoded.
+**Usulan (direvisi v4):** hanya Superadmin / Admin / User sebagai ENUM Postgres 3 nilai (`users.role`), ditambah kepemilikan OLT per Admin. Menambah peran = migrasi Alembic, bukan tabel peran.
 
 **Pro:** RBAC berbasis permission granular adalah fitur yang terlihat murah tapi menyebar ke seluruh codebase dan menjadi sumber bug otorisasi permanen. Tiga peran menutupi kebutuhan nyata ISP dengan 5–15 staf.
 **Kontra:** organisasi yang tumbuh akan menemukan peran yang tidak pas (misal teknisi senior yang boleh hapus ONU).
@@ -335,7 +343,7 @@ app/
     errors.py              # deteksi string error (lihat 4.3)
   acs/genieacs.py          # klien NBI GenieACS
   models/                  # model SQLAlchemy (ORM)
-worker/
+worker/                    # v4: di repo berada di app/worker (dijalankan `python -m app.worker`); repositories/ opsional, query boleh di services
   main.py                  # loop: klaim job → eksekusi → tulis hasil
   handlers/                # 1 fungsi per job_type
   schedules.py             # APScheduler → enqueue job berkala
@@ -387,8 +395,8 @@ Tiga jadwal berbeda, karena biayanya berbeda jauh:
 | Job | Interval | Transport | Catatan |
 |---|---|---|---|
 | `sync_onu_status` | **1 menit** | SNMP bulkwalk | Murah (1 round-trip per tabel OID); interval dipercepat dari 3 menit → 1 menit agar ONU drop/up terdeteksi hampir seketika tanpa perlu real-time streaming. Update `status`, `last_seen_at`. |
-| `sync_onu_optical` | 15 menit | SNMP kalau `capabilities` mendukung, jika tidak CLI per-PON | Mahal. Simpan Rx/Tx. |
-| `sync_unconfigured` | 5 menit | CLI (`show gpon onu uncfg` / `show ont autofind all`) | Untuk layar pendaftaran ONU baru. |
+| `sync_onu_optical` | 15 menit | SNMP kalau `capabilities` mendukung, jika tidak CLI per-PON | Mahal. Simpan Rx/Tx. Rx OLT per ONU (ZTE) via CLI `show pon power olt-rx gpon-olt_<pon>`. |
+| `sync_unconfigured` | 1 menit | CLI (`show gpon onu uncfg` / `show ont autofind all`) | Untuk layar pendaftaran ONU baru. |
 | `backup_olt_config` | harian | CLI | Simpan ke `olt_config_backups`. |
 
 **Catatan beban (`sync_onu_status` @ 1 menit):** satu `bulkwalk` per OLT per menit, bukan per ONU — OLT GPON tetap menjawab satu tabel OID (`ifOperStatus`/vendor-MIB) dalam satu round-trip walaupun isinya ratusan ONU, jadi beban ke OLT tidak bertambah linear dengan jumlah ONU. Yang bertambah adalah tulis-DB: 1000 ONU × 1 baris/menit × 1440 menit/hari ≈ 1,44 juta baris/hari kalau disimpan mentah. **Mitigasi:** `sync_onu_status` hanya menulis baris baru ke `onu_signal_history`/log **saat status berubah** (`UPDATE ... WHERE status IS DISTINCT FROM new_status`), bukan tiap tick — tick yang tidak berubah hanya menyentuh `last_seen_at` di baris ONU itu sendiri (UPSERT 1 baris, bukan INSERT histori).
@@ -435,8 +443,8 @@ Aturan anti-penumpukan: scheduler **tidak** membuat job baru bila job sejenis un
 Konvensi: semua tabel punya `id BIGSERIAL PK`, `created_at`/`updated_at TIMESTAMPTZ`. Soft delete (`deleted_at`) hanya di `olts`, `onus`, `users` — entitas yang punya nilai historis.
 
 ### `users`
-`id`, `username` UNIQUE, `email` UNIQUE, `password_hash` (argon2), `full_name`, `role` ENUM(`admin`,`noc`,`teknisi`,`viewer`), `is_active`, `last_login_at`, `deleted_at`.
-Peran dipakai untuk membatasi aksi destruktif: hanya `admin`/`noc` boleh `delete`/`reboot` ONU.
+`id`, `username` UNIQUE, `email` UNIQUE NULL, `password_hash` (argon2), `full_name`, `role` ENUM(`superadmin`,`admin`,`user`), `admin_id` FK→`users` (wajib untuk `user`, NULL untuk lainnya), `must_change_password` BOOL, `is_active`, `last_login_at`, `deleted_at`.
+CHECK: `role='user'` ⇔ `admin_id IS NOT NULL`. Aturan akses lengkap di §3.7.
 
 ### `olts`
 `id`, `name`, `host` (inet), `vendor` ENUM(`zte`,`cdata`), `model` (`C300`,`C320`,`FD1602S-B1`), `firmware_version`,
@@ -445,7 +453,8 @@ Peran dipakai untuk membatasi aksi destruktif: hanya `admin`/`noc` boleh `delete
 `pon_port_count` (ZTE C320 16 / CDATA FD1602S-B1 **2** — dipakai memvalidasi input port),
 `max_onu_per_port`, `capabilities` JSONB, `location`, `latitude`, `longitude`,
 `status` ENUM(`online`,`offline`,`unreachable`), `last_sync_at`, `last_error`, `is_active`, `deleted_at`.
-Index: UNIQUE(`host`, `cli_port`).
+`owner_id` FK→`users` (Admin pemilik; wajib), `snmp_community_rw_enc` (opsional).
+Index: UNIQUE(`host`, `cli_port`); (`owner_id`).
 
 ### `pon_ports`
 `id`, `olt_id` FK, `slot`, `port`, `ifindex` (SNMP), `description`, `admin_state`, `oper_state`,
@@ -480,14 +489,23 @@ Index: UNIQUE(`olt_id`,`vlan_id`).
 ### `speed_profiles`
 `id`, `name`, `download_kbps`, `upload_kbps`, `olt_id` FK (NULL = berlaku untuk semua),
 `dba_profile_id`, `dba_type` (type1–4), `line_profile_id`, `srv_profile_id`,
-`tcont_id`, `description`, `is_active`.
+`tcont_id`, `direction` ENUM(`download`,`upload`), `description`, `is_active`.
 Catatan penting: ID profil ini adalah **cerminan objek yang sudah ada di OLT**, bukan sumber kebenaran. Aplikasi tidak membuat DBA/line profile otomatis di v1; teknisi memilih dari profil yang terdaftar. (Dibatasi sengaja — otomatisasi pembuatan profil ditambahkan setelah pola penamaan di lapangan stabil.)
 
 ### `splitters`
 `id`, `parent_id` FK self (splitter bertingkat: ODC → ODP), `olt_id` FK, `pon_port_id` FK,
 `name`, `code`, `type` ENUM(`odc`,`odp`), `ratio` (`1:8`,`1:16`,`1:32`,`1:64`),
 `capacity`, `used_ports`, `location`, `latitude`, `longitude`, `insertion_loss_db`, `notes`.
-Dipakai untuk menjawab "ONU mana saja yang mati karena satu ODP?" — korelasi padam massal.
+Dipakai untuk menjawab "ONU mana saja yang mati karena satu ODP?" — korelasi padam massal. Tambahan v4: `zone_id` FK→`zones`, `external_id`, `owner_id` FK→`users` (Admin).
+
+### Tabel tambahan v4 (dipakai menu Settings & form Otorisasi)
+- `zones`: `id`, `name`, `owner_id` FK→`users` (Admin). UNIQUE(`owner_id`,`name`).
+- `onu_types`: `id`, `pon_type` ENUM(`gpon`,`epon`,`xgpon`,`xgspon`), `name`, `eth_ports`, `wifi_ssids`, `voip_ports`, `catv` BOOL, `capability` ENUM(`bridging`,`bridging_routing`), `allow_custom_profiles` BOOL, `is_active`. Global (dikelola Superadmin).
+- `onu_presets`: `id`, `name`, `owner_id`, `onu_type_id`, `vlan`, `download_profile`, `upload_profile`, `onu_mode` ENUM(`routing`,`bridging`), `wan_mode` ENUM(`webpage`,`dhcp`,`static`,`pppoe`), `zone_id`, `splitter_id`. Nama profile dicocokkan per OLT saat dipakai.
+- `unconfigured_onus`: `olt_id`, `slot`, `port`, `serial_number`, `detect_type`, `rx_power_dbm`, `first_seen_at`, `last_seen_at`. UNIQUE(`olt_id`,`serial_number`); di-UPSERT oleh `sync_unconfigured`, dihapus saat ONU diotorisasi atau tidak terlihat lagi.
+- `vpn_tunnels` (Phase 2): `id`, `username`, `password_enc`, `client_ip`, `tunnel_ip`, `routes` CIDR[], `is_active`, `owner_id`.
+- `tr069_profiles` (Phase 2): `id`, `name`, `acs_url`, `username`, `password_enc`, `description`, `is_active`.
+- `onus` tambahan: `zone_id`, `splitter_port`, `contact`, `external_id`, `onu_type_id`, `preset_id`, `onu_mode`, `wan_mode`, `pppoe_username`, `pppoe_password_enc`, `mgmt_ip_mode`, `latitude`, `longitude`.
 
 ### `jobs` (antrean + histori, inti keputusan 4.5.A)
 `id`, `job_type` (`authorize_onu`,`delete_onu`,`reboot_onu`,`set_state`,`sync_onu_status`,`sync_onu_optical`,`sync_unconfigured`,`backup_olt_config`,`apply_speed_profile`,`tr069_push`),
@@ -517,7 +535,11 @@ Untuk interval sync, ambang alarm Rx (mis. `-27 dBm`), URL/kredensial GenieACS. 
 ### Relasi ringkas
 
 ```
+users(admin) ─< users(user)        (User terikat ke satu Admin)
+users(admin) ─< olts               (owner_id)
 users ─< activity_logs >─ onus
+zones ─< splitters ─< onus
+onu_types ─< onus, onu_presets
 olts ─< pon_ports ─< onus
 olts ─< vlans ─< onus
 olts ─< splitters ─< onus          (splitters juga self-referencing: ODC → ODP)
@@ -571,6 +593,9 @@ Tetap **React 19 + Vite 7 + TypeScript + Tailwind CSS v4** (naik dari asumsi v3 
 | Tabel | **TanStack Table + TanStack Virtual**, headless | Tabel 200 s/d 10.000 baris ONU butuh virtualisasi, column pinning, dan server-side sort/filter; komponen tabel siap pakai justru menghalangi. |
 | Chart | **uPlot** | Time-series Rx/traffic puluhan ribu titik; library chart umum terlalu berat untuk kebutuhan ini. |
 | Ikon | **Phosphor Icons** weight `regular`, dipakai selektif | Dipilih karena bukan set default yang menyeragamkan tampilan AI, dan punya glyph jaringan/perangkat yang relevan. Ikon dipakai hanya di sidebar dan status; tidak di tiap baris atau tiap label. |
+| Routing | **react-router v7, mode library** (`BrowserRouter` + `Routes`) | Tanpa framework mode/SSR/loader. Filter list disimpan di URL (`useSearchParams`). Route 404 wajib. Caddy wajib fallback SPA: semua path non-`/api` ke `index.html`. |
+| Data fetching | **TanStack Query v5** | `refetchInterval` 60 dtk untuk Dashboard/Configured, retry per blok, SSE job selesai → `invalidateQueries` key terkait. Tanpa optimistic update untuk aksi ke OLT. Tanpa Redux/Zustand untuk data server. |
+| Font | **`@fontsource` IBM Plex Sans + Mono, ikut ke-bundle** | Server ISP bisa tanpa internet keluar. Hanya weight 400/500/600, subset latin. Dilarang request ke Google Fonts/CDN. |
 | Form | **React Hook Form + Zod** | Form Auth ONU punya validasi berlapis (serial unik, VLAN range, profile cocok dengan OLT) yang harus jalan sebelum request dikirim ke perangkat. |
 
 ## 3.2 Design System (ringkas; detail token di `DESIGN.md`)
@@ -617,225 +642,187 @@ Dua level, hanya untuk elevasi nyata: `shadow-overlay` (dropdown/popover) dan `s
 
 Fokus: `outline: 2px solid var(--fiber)`, offset 1px. Tidak pernah dihapus.
 
-## 3.3 Struktur Menu / Navigasi
+## 3.3 Struktur Menu / Navigasi (header atas)
 
-Sidebar kiri permanen 208px, tanpa top-bar global penuh. Alasan: navigasi harus selalu terlihat agar operator berpindah antar OLT/ONU tanpa kehilangan konteks, dan baris atas layar lebih berharga untuk filter tabel daripada untuk logo.
-
-```
-Nexfiber                    [logo = wordmark teks, placeholder sampai brand final]
-─────────────────────────────
-Monitor
-  Ringkasan                  /
-  Alarm                      /alarms            (badge angka alarm aktif)
-Perangkat
-  OLT                        /olts
-  ONU                        /onus
-  Otorisasi menunggu         /onus/pending      (badge angka ONU unconfigured)
-Konfigurasi
-  Profile                    /profiles          (line, service, VLAN)
-  Template Provisioning      /templates
-Riwayat
-  Log Aksi                   /audit
-─────────────────────────────
-[tema: Sistem/Terang/Gelap]
-[nama operator, shift, logout]
-```
-
-Aturan navigasi:
-- Setiap item punya route nyata. Item yang belum dibangun tidak dipasang; kalau harus terlihat di roadmap, diberi label "Segera" yang tidak bisa diklik.
-- Badge angka hanya pada Alarm dan Otorisasi menunggu, karena keduanya adalah antrian kerja. Badge tanpa angka nyata tidak ditampilkan.
-- Breadcrumb hanya di layar detail: `OLT / OLT-SBY-01 / PON 1/1/3 / ONU 0021A3...`. Alasan: kedalaman hierarki GPON (OLT > slot/port > ONU) mudah membuat operator kehilangan posisi.
-- Context switcher OLT di kiri-atas area konten pada layar ONU/Alarm, karena filter "OLT mana" adalah filter paling sering dipakai.
-- Command palette `Ctrl/Cmd+K`: cari serial ONU, nama pelanggan, IP OLT, atau lompat ke route. Alasan: pencarian serial adalah aksi nomor satu operator saat telepon pelanggan masuk; satu shortcut memotong seluruh navigasi.
-- Keyboard global: `/` fokus pencarian tabel, `j/k` pindah baris, `Enter` buka detail, `Esc` tutup drawer/modal.
-
-## 3.4 Spesifikasi Layar
-
-### A. Ringkasan (Dashboard): `/`
-
-**Pekerjaan layar**: dalam 5 detik, jawab "ada yang perlu saya tangani sekarang?" dan beri jalan ke objeknya.
-
-Bukan sidebar + 4 stat card + chart + tabel. Hierarki dibalik: antrian kerja di atas, angka agregat sebagai footnote.
+Navigasi **horizontal di header**, bukan sidebar. Urutan dan nama menu sengaja sama dengan aplikasi yang sudah dipakai tim, supaya tanpa pelatihan ulang.
 
 ```
-┌ Sidebar ┬──────────────────────────────────────────────────────────────┐
-│         │ Ringkasan            [rentang: 24 jam ▾]  [Perbarui]        │
-│         ├──────────────────────────────────────────────────────────────┤
-│         │ PERLU TINDAKAN                                              │
-│         │ ┌──────────────────────────────────────────────────────────┐ │
-│         │ │ 12 ONU LOS lebih dari 15 menit        [Lihat daftar]    │ │
-│         │ │ 7 ONU menunggu otorisasi              [Buka antrian]    │ │
-│         │ │ 2 OLT gagal dipolling                 [Lihat OLT]       │ │
-│         │ └──────────────────────────────────────────────────────────┘ │
-│         ├──────────────────────────────────────────────────────────────┤
-│         │ ALARM TERBARU (8 baris, bukan feed tanpa batas)              │
-│         │ waktu | severity | OLT/PON | objek | pesan | [Tangani]      │
-│         ├──────────────────────────────────────────────────────────────┤
-│         │ KONDISI SINYAL                     │ KAPASITAS PON          │
-│         │ histogram Rx ONU online per bucket │ 6 PON port terpadat:   │
-│         │ (normal/waspada/buruk)             │ nama, terpakai/kapasitas│
-│         │ "Rx ONU online, 24 jam terakhir"   │ bar isi 1 warna        │
-│         ├──────────────────────────────────────────────────────────────┤
-│         │ 1.248 ONU online · 37 offline · 12 OLT  (baris teks, 13px)  │
-└─────────┴──────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│ [logo] Nexfiber   Dashboard  Unconfigured (3)  Configured  Settings ▾  Logs   ⌘K  ● Sistem aktif  [avatar ▾] │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+                                                Settings ▾
+                                                ├ OLT Management      /settings/olts
+                                                ├ User Management     /settings/users
+                                                ├ ONU Types           /settings/onu-types
+                                                ├ Splitters & Zone    /settings/splitters
+                                                ├ Speed Profile       /settings/speed-profiles
+                                                ├ VPN Tunnels         /settings/vpn          (Phase 2)
+                                                └ TR-069 Management   /settings/tr069        (Phase 2)
 ```
 
-Spesifikasi:
-- Blok "Perlu tindakan" adalah focal point tunggal: satu-satunya blok dengan `--bg-surface` di atas `--bg-app` plus tombol aksi. Baris yang hitungannya 0 **hilang**, tidak ditampilkan sebagai "0". Kalau semua 0: "Tidak ada yang perlu ditangani. Polling terakhir 14:32."
-- Angka agregat sebagai satu baris teks di bawah, bukan 4 kartu. Alasan: angka itu konteks, bukan keputusan; memberi mereka kartu besar membalik hierarki.
-- Tanpa delta "+12% minggu ini" kecuali periode pembanding nyata ada dan disebut namanya.
-- Chart punya pertanyaan di judulnya ("Rx ONU online, 24 jam terakhir"), bukan "Overview".
-- Setiap angka di layar ini adalah hasil query nyata; sebelum backend tersambung, nilainya `[DATA NYATA]`, bukan angka karangan.
-- States: loading = skeleton per blok dengan teks "Menarik ringkasan ..."; error per blok independen (satu blok gagal tidak mengosongkan layar), pesan menyebut penyebab + tombol Coba lagi; stale = teks "Data per 14:32, polling berikutnya 14:37".
-- Auto-refresh 60s dengan countdown kecil teks; tanpa animasi loop. Refresh tidak memindahkan posisi scroll.
-
-### B. List ONU: `/onus`
-
-**Pekerjaan layar**: menemukan ONU tertentu, atau menyaring kelompok ONU bermasalah, lalu bertindak.
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│ ONU            [OLT: semua ▾]                      [Export CSV]       │
-│ [cari serial / pelanggan / MAC            ]  (fokus: tombol "/")      │
-│ Status: Semua | Online | Offline/LOS | Rx waspada | Belum diotorisasi  │
-│ [+ filter: PON port ▾] [profile ▾] [kepadatan: compact ▾]             │
-├────────────────────────────────────────────────────────────────────────┤
-│ ST │ SERIAL       │ PELANGGAN   │ OLT/PON    │ RX ONU    │ UPTIME │ ⋯ │
-│ ●  │ 4857544..3A  │ ...         │ SBY-01 1/3 │ ▮▮▮ -21.4 │ 14d    │   │
-│ ●  │ ...          │             │            │ ▮▮▯ -26.1 │        │   │
-├────────────────────────────────────────────────────────────────────────┤
-│ 1.284 ONU · 50 per halaman · ‹ 1 2 3 ›     (3 terpilih: [Reboot] ...) │
-└────────────────────────────────────────────────────────────────────────┘
-```
-
-Kolom dipilih dari keputusan operator, bukan dari komponen tabel. Kolom penentu (Status, Rx) diletakkan paling awal:
-
-| Kolom | Lebar | Catatan |
+| Menu header | Route | Fungsi |
 |---|---|---|
-| Status | 32px | Titik 6px + tooltip teks; kolom sendiri agar bisa dipindai vertikal. |
-| Serial | 150px, mono | Klik = buka detail. Serial ditampilkan penuh, tidak dipotong. |
-| Pelanggan | fleksibel | Nama + ID layanan; kosong kalau belum dipetakan. |
-| OLT / PON | 130px, mono | Format `SBY-01 1/1/3`. |
-| Rx ONU | 120px, mono | Signal bar + nilai dBm; sortable. |
-| Rx OLT | 110px, mono | Tersembunyi di bawah 1440px. |
-| Profile | 120px | |
-| Uptime / Last down | 100px | |
-| Aksi | 40px | Menu baris: Detail, Reboot, Ubah profile, Deauthorize. Semua punya handler nyata. |
+| Dashboard | `/` | Kondisi seluruh jaringan dalam satu layar |
+| Unconfigured | `/unconfigured` | ONU baru yang terdeteksi OLT tapi belum diotorisasi. Badge angka = jumlahnya |
+| — form Otorisasi | `/unconfigured/authorize/:oltId/:serial` | Aktivasi ONU baru |
+| Configured | `/configured` | Daftar semua pelanggan/ONU terdaftar |
+| — Detail ONU | `/onu/:id` | Semua info + aksi satu ONU |
+| — Detail OLT | `/olt/:id` | Monitoring, VLAN, konfigurasi, daftar ONU satu OLT |
+| Settings ▾ | `/settings/*` | Master data & konfigurasi (isi dropdown di atas) |
+| Logs | `/logs` | Log aksi (audit) |
+| Avatar ▾ | — | Nama + peran, Ganti password, Tema terang/gelap, Logout |
 
-Perilaku:
-- Header lengket; kolom Serial lengket di bawah 1280px. Virtualisasi aktif di atas 200 baris.
-- Sort dan filter server-side; URL menyimpan state filter supaya operator bisa menempelkan link ke tiket.
-- Pilih banyak baris lewat checkbox pada hover/fokus; action bar muncul di footer tabel saat ada yang terpilih (bukan toolbar melayang). Aksi massal wajib dialog konfirmasi yang menyebut jumlah dan nama objek.
-- Baris terpilih: latar `--bg-sunken` + garis kiri 2px `--amber`. Garis kiri hanya di baris ini, karena ia menandai state nyata.
-- Kepadatan: compact 32px (default) dan comfortable 40px, tersimpan per pengguna.
-- States: kosong-pertama = "Belum ada ONU. Tambahkan OLT lalu jalankan discovery."; kosong-filter = "Tidak ada ONU yang cocok." + Hapus filter; error = "Gagal memuat ONU (HTTP 502 dari API). Coba lagi."; partial = banner "3 dari 12 OLT gagal dipolling, data mungkin kedaluwarsa" + daftar OLT.
-- Di bawah 768px tabel jadi daftar kartu: serial, status, Rx, OLT/PON, nama pelanggan; aksi via drawer; target sentuh 44px.
+Aturan header:
+- Tinggi 56px, sticky. Menu aktif ditandai garis bawah 2px warna `--fiber` + teks `--ink`; lainnya `--ink-2`.
+- Settings ▾ adalah dropdown (klik, bukan hover) dengan ikon Phosphor per item. Item Phase 2 tampil dengan label "Segera" dan tidak bisa diklik sampai fiturnya dibangun.
+- Menu yang tidak boleh dipakai peran tertentu **disembunyikan**, bukan dinonaktifkan (§3.7). User tidak melihat Settings sama sekali kecuali Speed Profile (hanya lihat).
+- Desktop (≥ 1024px): menu di header atas. Tablet & HP/Android (< 1024px): **navigasi bawah** 5 tab — Dashboard · Unconfigured · Configured · Logs · Lainnya (berisi Settings + Akun). Halaman detail/form memakai top bar dengan tombol ←. Spesifikasi: `DESIGN.md` §11.1.
+- `⌘K / Ctrl+K`: cari serial, nama pelanggan, PPPoE, atau IP OLT dari halaman mana pun. `/` fokus ke kotak cari halaman.
+- Indikator "● Sistem aktif" (`GET /api/system/status`): hijau bila worker & poller hidup (heartbeat < 2 menit), amber bila tertunda, merah bila mati. Klik = popover status worker, antrean job, poll terakhir.
 
-### C. Detail ONU: `/onus/:serial`
+## 3.4 Isi Setiap Halaman
 
-**Pekerjaan layar**: diagnosa satu ONU saat pelanggan sedang di telepon, lalu eksekusi satu perbaikan.
+Semua tabel: kolom bisa diurutkan, pagination 20/50/100/200 per halaman, filter disimpan di URL. Semua aksi yang menyentuh OLT membuat **job**; tombol berubah jadi status job (menunggu → berjalan → selesai/gagal) dan tidak ada optimistic update.
 
-Dua kolom: kiri = identitas dan metrik (lebar tetap 320px), kanan = tab riwayat/konfigurasi. Panel dibuka sebagai drawer dari list di bawah 1440px, sehingga operator tidak kehilangan konteks tabel.
+### 3.4.1 Login — `/login` dan Setup — `/setup`
+- Login: Username, Password, tombol **Masuk**. Gagal 5× dalam 15 menit → jeda 15 menit (rate-limit per IP + username).
+- Setup: hanya muncul saat tabel `users` kosong (instalasi baru). Isi Username, Nama, Password (min 12 karakter) → membuat **Superadmin pertama** lalu otomatis login. Setelah ada user, `/setup` selalu 404.
 
-```
-OLT / OLT-SBY-01 / PON 1/1/3 / ONU 4857544...3A        [Reboot] [Ubah ▾]
-┌─ IDENTITAS ─────────────┬─ [Sinyal] [Riwayat] [Konfigurasi] [Log] ────┐
-│ Status  ● Online 14d    │ Rx ONU, 24 jam terakhir                      │
-│ Serial  4857544...3A    │  (line chart uPlot, garis ambang -25/-27     │
-│ MAC     ...             │   ditandai, hover = nilai + waktu)           │
-│ OLT     OLT-SBY-01      │                                              │
-│ PON     1/1/3  ONU 12   │ Rx OLT, 24 jam terakhir                      │
-│ Profile res-100M        │                                              │
-│ VLAN    102             │ Counter 24 jam: CRC err, dropped, reboot     │
-│ Pelanggan / ID layanan  │ (tabel 3 baris, angka mono)                  │
-├─ SINYAL SEKARANG ───────┤                                              │
-│ Rx ONU  ▮▮▮ -21.4 dBm   │                                              │
-│ Rx OLT  ▮▮▯ -24.8 dBm   │                                              │
-│ Jarak   1.842 m         │                                              │
-│ Terukur 14:32:08        │                                              │
-└─────────────────────────┴──────────────────────────────────────────────┘
-```
+### 3.4.2 Dashboard — `/`
+Baris 1 — kartu ringkasan (klik = buka Configured/Unconfigured dengan filter terpasang):
+- Total OLT · ONU Online · ONU Offline (rinci LOS / Dying-gasp / Offline) · Unconfigured (+ tombol **Scan baru**).
 
-Spesifikasi:
-- Focal point: blok "Sinyal sekarang" dengan `text-metric` 28px mono. Alasan: angka ini yang diucapkan operator ke pelanggan dan ditulis ke tiket.
-- Signal bar selalu berdampingan dengan nilai dBm, tidak pernah menggantikannya; ambang -25/-27 digambar sebagai garis referensi di chart agar operator melihat posisi relatif, bukan hanya warna.
-- Aksi perangkat (Reboot, Ubah profile, Deauthorize) di kanan-atas. Semua memakai dialog konfirmasi yang menyebut serial penuh + nama pelanggan, dan menampilkan hasil nyata dari perangkat (sukses, timeout, ditolak) bukan toast optimistis. Alasan: reboot salah ONU memutus pelanggan yang benar.
-- Tab Log menampilkan siapa melakukan apa pada ONU ini, karena pertanyaan "ini kenapa berubah" muncul setiap hari.
-- States: loading = skeleton panel + "Mengambil status dari OLT-SBY-01 ..."; data lama = banner "Nilai terakhir 14:32, OLT tidak merespons sejak 14:35"; error = sebab + Coba lagi; ONU tidak ditemukan = "Serial ini tidak terdaftar di OLT mana pun" + tombol ke antrian otorisasi.
+Baris 2 — kualitas sinyal ONU (klik = Configured terfilter): **Critical** (≤ −28 dBm, atau > −8 terlalu kuat) · **Weak** (−27 s/d −28) · **Fair** (−25 s/d −27) · **Good** (−8 s/d −25). Empat bucket ini dipakai di **semua** tempat (tabel, kartu, filter, signal bar). Ambang bisa diubah di Settings → OLT (Phase 2: per OLT).
 
-### D. Form Auth ONU baru: `/onus/pending` lalu `/onus/authorize/:serial`
+Baris 3 — **Ringkasan OLT terdaftar**: Nama OLT · Alamat IP · Status SNMP (Up/Down + waktu poll terakhir) · CPU · RAM · Suhu board · ONU online/total · Aksi (**Monitor** → Detail OLT).
 
-**Pekerjaan layar**: mengubah ONU yang terdeteksi tapi belum dikonfigurasi menjadi layanan aktif, tanpa salah serial dan tanpa salah profile.
+Baris 4 — **Log aktivitas terakhir** (10 terbaru, link "Lihat semua" → Logs).
 
-Alur dua langkah, bukan satu form panjang:
+Grafik ONU online 24 jam per OLT **ditunda** (butuh tabel agregat per OLT per jam; dibuat bila diminta). Setiap blok query sendiri; satu blok gagal tidak merusak halaman. Auto-refresh 60 detik, berhenti saat tab tidak aktif.
 
-1. **Antrian** (`/onus/pending`): tabel ONU unconfigured, kolom: Serial (mono), OLT/PON, Vendor/model, Rx saat discovery, Terdeteksi sejak, tombol `Otorisasi`. Alasan: memilih objek dulu mencegah operator menyalin serial secara manual, sumber kesalahan paling umum.
-2. **Form otorisasi**: satu kolom lebar 560px, bukan grid dua kolom. Alasan: form dengan konsekuensi fisik dibaca berurutan, dan satu kolom menghilangkan ambiguitas urutan.
+### 3.4.3 Unconfigured — `/unconfigured`
+- Filter: **Tampilkan per OLT** (semua / pilih OLT), pagination.
+- Tombol **Scan ulang** (job `sync_unconfigured` ke OLT terpilih atau semua OLT dalam cakupan). Scan otomatis tiap 1 menit tetap berjalan di belakang.
+- Tabel: OLT · Shelf · Slot · Port PON · Nomor seri / MAC · Tipe deteksi (model ONU) · Rx saat terdeteksi · Pertama terlihat · Aksi (**Otorisasi**).
+- Kosong = "Tidak ada ONU baru. Scan terakhir 14:02." (bukan ilustrasi).
 
-```
-Otorisasi ONU
-┌──────────────────────────────────────────────────────────┐
-│ PERANGKAT  (read-only, dari discovery)                   │
-│ Serial 4857544...3A · OLT-SBY-01 · PON 1/1/3 · -22.1 dBm │
-├──────────────────────────────────────────────────────────┤
-│ Pelanggan                                                │
-│ ID layanan        [                      ]  (wajib)      │
-│   Format: SRV-00000. Dicek unik saat kehilangan fokus.   │
-│ Nama pelanggan    [                      ]  (wajib)      │
-│ Catatan alamat    [                      ]  (opsional)   │
-├──────────────────────────────────────────────────────────┤
-│ Layanan                                                  │
-│ Line profile      [pilih ▾]  (wajib, difilter per OLT)   │
-│ Service profile   [pilih ▾]  (wajib)                     │
-│ VLAN              [    ]  1 s/d 4094                     │
-│ Nama ONU di OLT   [auto: SRV-00000-...]  [ubah]          │
-├──────────────────────────────────────────────────────────┤
-│ Template          [pilih template ▾]  → mengisi 4 field  │
-│                   di atas, nilainya tetap bisa diedit    │
-├──────────────────────────────────────────────────────────┤
-│ Ringkasan perintah yang akan dikirim ke OLT-SBY-01       │
-│  (teks mono read-only, bisa disalin)                     │
-├──────────────────────────────────────────────────────────┤
-│ [Batal]                        [Otorisasi ONU]  (primer) │
-└──────────────────────────────────────────────────────────┘
-```
+### 3.4.4 Form Otorisasi — `/unconfigured/authorize/:oltId/:serial`
+Satu halaman, bukan wizard. Kolom terkunci (dari scan): OLT, Board/Port, Nomor seri.
 
-Spesifikasi:
-- Panel perangkat read-only di paling atas: operator wajib melihat serial yang akan diotorisasi sebelum mengisi apa pun.
-- **Ringkasan perintah** sebelum tombol submit adalah keputusan sengaja: operator NOC terbiasa dengan CLI dan ringkasan ini membuat aksi bisa diverifikasi sebelum menyentuh perangkat produksi. Bukan terminal palsu dekoratif, isinya perintah nyata yang akan dieksekusi.
-- Validasi: inline saat blur (bukan saat mengetik), ringkasan error di atas tombol submit kalau submit ditolak. Pesan menyebut field dan alasan: "VLAN 5000 di luar rentang 1 s/d 4094".
-- Placeholder jujur: `SRV-00000`, `nama pelanggan`. Tanpa `John Doe` atau `johndoe@example.com`.
-- Submit: tombol masuk state loading dengan teks "Mengirim ke OLT-SBY-01 ..." dan tidak bisa diklik dua kali. Hasil: sukses = pindah ke Detail ONU dengan banner "ONU diotorisasi, menunggu status online (maks 90 detik)"; gagal = form tetap terisi + pesan mentah dari OLT ditampilkan utuh di blok mono, karena pesan vendor adalah informasi diagnosa.
-- Draft form disimpan di local state sampai submit berhasil, supaya refresh atau telepon masuk tidak menghapus isian.
-- Keyboard: `Tab` berurutan, `Enter` di field terakhir tidak auto-submit (aksi destruktif butuh klik atau `Ctrl+Enter` eksplisit).
+| Field | Wajib | Catatan |
+|---|---|---|
+| Gunakan preset | — | Mengisi otomatis field di bawah; tombol **Simpan sebagai preset** |
+| Tipe ONU | ya | dari ONU Types; menentukan port Ethernet/WiFi yang tampil |
+| Kecepatan download | ya | dari Speed Profile OLT ini |
+| Kecepatan upload | ya | dari Speed Profile OLT ini |
+| Mode ONU | ya | Routing / Bridging |
+| Mode WAN | ya (routing) | Setup via webpage ONU / DHCP / Static IP / PPPoE |
+| PPPoE username + password | ya bila PPPoE | password dienkripsi |
+| VLAN ID | ya | dari VLAN yang ada di OLT (dibaca live, cache 5 menit) |
+| Zone | — | opsional |
+| Splitter (ODB) + port splitter | — | opsional; port terpakai tidak bisa dipilih |
+| Nama pelanggan | **ya** | backend menolak kosong |
+| Alamat / keterangan | — | |
+| Kontak (HP/WA) | — | |
+| ONU External ID | — | ID dari sistem billing |
+| Lokasi GPS | — | tombol **Gunakan GPS** (geolocation browser) |
 
-### E. List OLT: `/olts`
+Tombol **Otorisasi** (warna aksen amber) → job `authorize_onu`; halaman pindah ke Detail ONU yang menampilkan progres job. Index ONU dipilih otomatis (ID kosong terkecil di port itu). Gagal = pesan dari OLT + tombol **Coba lagi**, data form tetap.
 
-**Pekerjaan layar**: melihat kesehatan tiap OLT dan kapasitas PON-nya, lalu masuk ke OLT yang bermasalah.
+### 3.4.5 Configured — `/configured`
+- Kotak cari: nama, SN, alamat, PPPoE, external ID.
+- Filter multi-pilih: **OLT · Board · Port · Status · Sinyal · Tipe · Profile · VLAN · Zone · Splitter**. Tombol **Terapkan** dan **Reset**. Chip filter aktif tampil di atas tabel.
+- Tombol **Sync pelanggan** (job baca ulang ONU terdaftar dari OLT dalam cakupan) dan **Export CSV** (mengikuti filter).
+- Tabel: Status (online / LOS / dying-gasp / offline / nonaktif — warna + teks) · Nama pelanggan · Serial number · OLT & PON (`OLT · 1/2/3:7`) · VLAN · ODP/Splitter · Zone · Rx ONU · Rx OLT · Aksi (**Detail**).
+- Rx diwarnai sesuai ambang Critical/Weak/Fair/Good.
+- Pilih banyak baris → aksi massal: **Reboot**, **Ubah speed profile**, **Pindah zone** (job per ONU, ringkasan hasil di satu panel).
+- Auto-refresh status 60 detik.
 
-Komposisi berbeda dari List ONU secara sengaja: 12 s/d 50 baris, bukan ribuan, dan tiap baris punya sub-struktur (PON port). Jadi ini **daftar baris tinggi dengan ekspansi**, bukan grid padat.
+### 3.4.6 Detail ONU — `/onu/:id`
+Header: nama pelanggan, SN, `OLT · 1/2/3:7`, badge status, tombol **Cek ulang** (job baca live).
 
-```
-OLT                                        [+ Tambah OLT]
-┌──────────────────────────────────────────────────────────────────────┐
-│ ● OLT-SBY-01   10.20.1.11   ZTE C320   fw V2.1.0                     │
-│   Uptime 92d · Polling 14:32 (ok) · Suhu 46°C                        │
-│   ONU 312 online · 6 offline · 2 menunggu otorisasi                  │
-│   PON: ▮▮▮▮▮▮▮▮▯▯▯▯▯▯▯▯  8/16 port terpakai        [▾ Rincian PON]  │
-├──────────────────────────────────────────────────────────────────────┤
-│ ● OLT-SBY-02   ...                                                   │
-│ ● OLT-MLG-01   10.20.3.11  ⚠ Polling gagal sejak 14:05 (timeout)     │
-│   Data ONU di bawah ini per 14:05            [Coba hubungkan]        │
-└──────────────────────────────────────────────────────────────────────┘
-```
+Kartu **Info** (masing-masing bisa diedit lewat dialog kecil):
+- Identitas & lokasi: nama*, kontak, zone, ODB + port, alamat, external ID, latitude/longitude (link ke peta).
+- Tipe ONU · Preset konfigurasi · Tanggal otorisasi.
+- Sinyal: Rx ONU, Rx OLT, Tx, jarak, suhu, tegangan + **grafik histori 24 jam / 7 hari / 30 hari**.
+- Uptime, alasan offline terakhir (LOS / dying-gasp), waktu offline terakhir.
 
-Spesifikasi:
-- Satu baris = satu OLT, tinggi ~96px, berisi identitas, kesehatan polling, hitungan ONU, dan kapasitas PON. Alasan: operator memutuskan dari kombinasi empat fakta itu; memaksanya ke kolom-kolom sempit akan memotong semuanya.
-- Ekspansi "Rincian PON" membuka tabel kecil di dalam baris: port, ONU terpakai/kapasitas, Tx power, status. Alasan: data PON hanya relevan setelah operator memilih OLT.
-- OLT bermasalah tetap di posisi aslinya dengan banner kuning di dalam barisnya, tidak dipindah ke atas. Alasan: urutan daftar yang berubah sendiri membuat operator kehilangan tempat; penandaan visual sudah cukup pada jumlah baris sekecil ini.
-- Bar kapasitas PON satu warna (`--fiber`) dengan angka di sebelahnya, bukan donut. Alasan: pertanyaannya "masih ada ruang?", dan bar linier menjawab itu lebih cepat.
-- Aksi per OLT: Buka detail, Jalankan polling, Jalankan discovery ONU, Edit kredensial. Kredensial SNMP/CLI tidak pernah ditampilkan, hanya diganti.
-- States: kosong = "Belum ada OLT terdaftar. Tambahkan OLT untuk mulai menarik data ONU." + tombol Tambah OLT; loading = skeleton 3 baris; error = "Gagal memuat daftar OLT" + Coba lagi.
+Tab:
+1. **Status** — hasil baca live: fase, Rx/Tx, jarak, versi firmware.
+2. **Running config** — teks konfigurasi ONU dari OLT (read-only, bisa disalin).
+3. **Info software** — versi SW aktif/standby.
+4. **Speed & traffic** — profile download/upload + tombol ubah; grafik traffic (Phase 2).
+5. **Mode** — Mode ONU (Routing/Bridging), Mode WAN (webpage/DHCP/Static/PPPoE), sumber konfigurasi (OMCI/TR-069), IP manajemen (DHCP/Static + VLAN), akses remote (aktif/nonaktif).
+6. **Ethernet** — tabel port: Port · Admin state · Mode (LAN/Access/Hybrid/Trunk/Transparent) · VLAN · DHCP (No control/From ISP/From ONU/Forbidden) · **Configure**.
+7. **WiFi** — SSID per band, status, tombol ubah SSID/password (via TR-069; Phase 2).
+8. **TR-069** — status inform terakhir, profile ACS terpasang (Phase 2).
+
+Aksi (bawah, dikelompokkan, semua lewat konfirmasi):
+- Aman: **Reboot**, **Resync config**.
+- Mengubah layanan: **Ubah speed**, **Ubah VLAN**, **Replace ONU / ganti SN** (SN lama terkunci, isi SN baru → job hapus + otorisasi ulang di index yang sama), **Nonaktifkan / Aktifkan ONU**.
+- Berbahaya (merah, ketik SN untuk konfirmasi): **Restore factory**, **Hapus** (soft-delete di Nexfiber + hapus dari OLT).
+
+### 3.4.7 Detail OLT — `/olt/:id`
+Tab:
+1. **Monitoring** — status perangkat (uptime, CPU, RAM, suhu, versi), kartu/board terpasang, PON port (status, jumlah ONU, Tx), **Refresh status**. Grafik ONU online 24 jam ditunda (lihat §3.4.2).
+2. **VLANs** — tabel VLAN ID · Deskripsi · Tipe (management/layanan) · Tagged ports · Untagged ports · IP (vlanif) · Aksi. Tombol **Tambah VLAN** (ID, deskripsi ≤ 32 karakter, tandai management). Konfigurasi port uplink: Tagged/Untagged/None per port; edit port: auto-negotiation, speed, duplex. Semua lewat job **Simpan ke OLT**.
+3. **Konfigurasi** — nama/lokasi, tipe OLT (vendor+model), IP, protokol CLI (SSH/Telnet), port CLI, username, password, SNMP community RO/RW, port SNMP, **Pemilik (Admin)** — hanya Superadmin. Tombol **Simpan & verifikasi koneksi** (job `test_connection`, wajib lolos sebelum tersimpan). Management interface (IP manajemen OLT) read-only + Refresh.
+4. **Daftar ONU** — Nama · SN · PON port · Zone · ODB · Rx · Status · **Detail**; tombol **Buka di Configured** (filter OLT terpasang).
+
+User hanya melihat tab Monitoring dan Daftar ONU.
+
+### 3.4.8 Settings → OLT Management — `/settings/olts`
+- Tabel: Nama OLT · Alamat IP · Tipe · Pemilik (hanya terlihat Superadmin) · Status koneksi · ONU · Aksi (**View** → Detail OLT, **Hapus**).
+- **Tambah OLT baru**: nama/lokasi, tipe OLT, IP, protokol CLI (SSH/Telnet), port, username, password, port SNMP, SNMP community RO, SNMP community RW. Superadmin memilih pemilik (wajib); OLT yang ditambah Admin otomatis miliknya.
+- Tombol **Cek koneksi** (opsional sebelum simpan) dan **Simpan OLT**. Simpan menjalankan uji CLI + SNMP; gagal = tetap tersimpan dengan status "Tidak terhubung" dan alasan.
+- **Hapus** OLT: hanya bila tidak ada ONU aktif, atau ketik nama OLT untuk konfirmasi (ONU ikut soft-delete, tidak menyentuh perangkat).
+- Kredensial tidak pernah ditampilkan ulang; kolom password kosong = tidak diubah.
+
+### 3.4.9 Settings → User Management — `/settings/users`
+- Tabel: Username · Nama · Peran · Admin induk (untuk User) · Jumlah OLT (untuk Admin) · Aktif · Login terakhir · Dibuat · Aksi (**Edit**, **Akses OLT**, **Nonaktifkan**).
+- **Tambah user**: username, nama, password, peran. Superadmin bisa membuat Admin/User (User wajib memilih Admin induk); Admin hanya bisa membuat User (otomatis di bawah dirinya).
+- **Edit user**: password baru (kosong = tidak diubah), peran (Superadmin saja), Admin induk (Superadmin saja).
+- **Akses OLT** (Superadmin): centang OLT yang dimiliki seorang Admin — sama dengan memindah pemilik OLT.
+- User tidak dihapus, hanya dinonaktifkan (demi Logs). Admin yang masih memiliki OLT tidak bisa dinonaktifkan; OLT harus dipindah dulu. Superadmin terakhir tidak bisa dinonaktifkan.
+
+### 3.4.10 Settings → ONU Types — `/settings/onu-types`
+- Tabel: PON type · ONU type · Jumlah ONU · Ethernet · WiFi · VoIP · CATV · Capability · Aksi (**Edit**, **Hapus**).
+- Form tambah/edit: PON type (GPON/EPON/XG-PON/XGS-PON), nama tipe ONU (harus sama dengan nama tipe di OLT), jumlah port Ethernet, SSID WiFi, port VoIP, CATV, izinkan custom profile, capability (Bridging / Bridging+Routing).
+- Hapus diblok bila masih dipakai ONU.
+
+### 3.4.11 Settings → Splitters & Zone — `/settings/splitters`
+- Cari + filter Zone; tombol **Tambah**.
+- Tabel: Nama · External ID · Koordinat · ONU terpasang · Penggunaan (`5/8` port, bar kecil) · Zone · Aksi (**Edit**, **Hapus**).
+- Form: nama, external ID, jumlah port (1/2/4/8/16/32), comment, note, zone, latitude/longitude.
+- Halaman edit menampilkan **ONU terpasang**: Port · SN · Nama (link ke Detail ONU).
+- Zone dikelola di tab kecil di halaman yang sama (nama zone, jumlah splitter, jumlah ONU). Zone dan splitter milik Admin.
+
+### 3.4.12 Settings → Speed Profile — `/settings/speed-profiles`
+- Pilih OLT (wajib, profile ada di perangkat), lalu tab **Download profile** / **Upload profile**.
+- Tabel: Nama · Kecepatan · Tipe · Jumlah ONU · Aksi.
+- **Tambah speed profile**: arah (download/upload), nama, kecepatan (kbps) → job **Simpan ke OLT**. Hapus diblok bila dipakai ONU.
+- Tombol **Baca dari OLT** untuk menyinkronkan profile yang dibuat langsung di perangkat.
+
+### 3.4.13 Settings → VPN Tunnels — `/settings/vpn` (Phase 2)
+Untuk OLT di lokasi yang hanya bisa dicapai lewat tunnel.
+- Tabel: Status · Username · Client IP · Tunnel IP · Routes (subnet di belakang tunnel) · Aksi (**Edit**, **Setup MikroTik**, **Nonaktifkan**).
+- **Tambah VPN**: username, password, daftar route (+ Tambah route).
+- **Setup MikroTik**: tampilkan script siap salin + tombol **Aktifkan unduhan sertifikat (5 menit)**. Sertifikat unik per tunnel.
+- Implementasi server VPN di luar aplikasi (OpenVPN di host); Nexfiber hanya mengelola akun, route, dan script.
+
+### 3.4.14 Settings → TR-069 Management — `/settings/tr069` (Phase 2)
+- Tab **Profile TR-069**: Nama · ACS URL · Username · Status · Aksi; form tambah: nama, ACS URL, username, password, deskripsi.
+- Tab **Status TR-069**: tugas aktif & provisioning; inventaris perangkat (Manufacturer · Model · Serial · Versi SW · Rx · Inform terakhir) dari ACS.
+- ACS (mis. GenieACS) berjalan terpisah; Nexfiber hanya klien API-nya.
+
+### 3.4.15 Logs — `/logs`
+- Filter: kategori aksi (semua / otorisasi / reboot / ubah layanan / hapus / OLT / user / login), OLT, user, rentang tanggal, cari teks.
+- Tabel: Waktu · User · Target OLT · Target ONU · Kategori · Keterangan · Hasil (sukses/gagal). Klik baris = detail: command yang dikirim dan respons perangkat (password di-mask).
+- Pagination « ‹ 1 2 3 › ».
+- **Tidak ada tombol hapus log.** Log dibersihkan otomatis oleh retensi (default 365 hari, di `config.ini`).
+
+### 3.4.16 Akun (dropdown avatar)
+Ganti password (wajib password lama), tema terang/gelap/ikut sistem, logout. Sesi aktif bisa dicabut.
 
 ## 3.5 Trade-off yang perlu diputuskan pemilik produk
 
@@ -873,6 +860,41 @@ Setiap item di bawah ini adalah syarat terima, bukan saran:
 - Setiap tampilan data punya state kosong, loading, dan error yang menyebut **sebab** dan **tindakan berikutnya**.
 - Kontras AA diverifikasi di kedua tema sebelum rilis.
 - Seluruh alur bisa dijalankan tanpa mouse, dengan fokus yang terlihat.
+
+## 3.7 Peran & Kepemilikan OLT (v4)
+
+Tiga peran tetap:
+
+- **Superadmin** — melihat & mengelola semua OLT, menambah OLT lalu menyerahkannya ke Admin tertentu, memindah pemilik OLT, mengelola semua Admin & User, mengelola ONU Types, melihat semua log.
+- **Admin** — menambah OLT (otomatis jadi pemiliknya), mengelola OLT miliknya (setting, kredensial, VLAN, speed profile, hapus), membuat User di bawahnya, mengelola zone/splitter/preset miliknya.
+- **User** — semua kerja operasional di OLT milik Admin induknya: Dashboard, Unconfigured + otorisasi, Configured, Detail ONU (reboot, ubah speed/VLAN/mode, replace, nonaktifkan), lihat Detail OLT (Monitoring + Daftar ONU), Logs. **Tidak bisa** menambah OLT, mengubah setting OLT, mengelola user, hapus permanen ONU, atau restore factory.
+
+**Cakupan OLT**: Superadmin = semua OLT · Admin = OLT dengan `owner_id` = dirinya · User = OLT dengan `owner_id` = `admin_id`-nya.
+
+| Menu / aksi | Superadmin | Admin | User |
+|---|---|---|---|
+| Dashboard, Unconfigured, Configured | semua OLT | OLT miliknya | OLT Admin induk |
+| Otorisasi ONU | ya | ya | ya |
+| Reboot, resync, ubah speed/VLAN/mode, replace, nonaktifkan ONU | ya | ya | ya |
+| Restore factory, hapus ONU | ya | ya | — |
+| Detail OLT: Monitoring, Daftar ONU | ya | ya | ya |
+| Detail OLT: VLANs, Konfigurasi | ya | miliknya | — |
+| OLT Management: tambah | ya (pilih pemilik) | ya (milik sendiri) | — |
+| OLT Management: edit, hapus | ya | miliknya | — |
+| Pindah pemilik OLT | ya | — | — |
+| User Management | semua | User miliknya | — |
+| ONU Types | kelola | lihat | — |
+| Splitters & Zone, preset | semua | miliknya | lihat + pakai |
+| Speed Profile | semua OLT | OLT miliknya | lihat |
+| VPN Tunnels, TR-069 | ya | miliknya | — |
+| Logs | semua | OLT + user miliknya | OLT dalam cakupan |
+
+Aturan wajib:
+1. Satu OLT punya tepat satu pemilik (Admin). Satu User terikat ke tepat satu Admin. Superadmin bisa memiliki OLT juga.
+2. **Pembatasan dicek di backend pada setiap endpoint** (REST, SSE, export CSV, job). Menyembunyikan menu hanya kenyamanan, bukan keamanan. Implementasi: satu dependency FastAPI `scope_olt_ids(user)` yang dipakai setiap query ONU/OLT/log.
+3. Akses ke OLT/ONU di luar cakupan dibalas **404**, bukan 403, supaya keberadaan data Admin lain tidak bocor.
+4. Pemindahan pemilik OLT tercatat di Logs (dari siapa, ke siapa, oleh siapa). ONU, splitter, dan profile ikut OLT-nya.
+5. Superadmin pertama dibuat lewat halaman Setup (§3.4.1). Tidak ada akun/password default.
 
 ---
 
@@ -1107,7 +1129,7 @@ Konfigurasi wajib:
 
 - Aplikasi jalan sebagai **systemd service** (user non-root khusus, `Restart=always`), bukan `screen`/`nohup`.
 - Worker polling OLT = service systemd terpisah, supaya restart UI tidak memutus polling.
-- Secret di `/etc/olt-app/env`, mode `0600`, owner service user. Tidak pernah masuk git.
+- Secret di `/etc/nexfiber/env`, mode `0600`, owner service user. Tidak pernah masuk git.
 - Deploy: script `update.sh` → pull/upload artefak → `pg_dump` → migrasi → `systemctl restart`. Sederhana, bisa dibaca, bisa dijalankan dari SSH. Instalasi awal server baru lewat `install.sh` terpisah; bongkar server lewat `uninstall.sh` (lihat Bagian 5 §X.1).
 - **Docker opsional, tidak diwajibkan.** Untuk satu server dan satu developer, systemd + paket distro lebih sedikit lapisan yang bisa rusak. Kalau sudah nyaman Docker Compose, silakan — tapi jangan Kubernetes.
 
@@ -1845,7 +1867,7 @@ fi
 
 echo ""
 echo -e "${GREEN}==================================================${NC}"
-echo -e "${GREEN} ✅ OLT-APP BERHASIL DIINSTALL${NC}"
+echo -e "${GREEN} ✅ NEXFIBER BERHASIL DIINSTALL${NC}"
 echo -e "${GREEN}==================================================${NC}"
 echo ""
 echo -e "${CYAN}URL:${NC} http://${SERVER_NAME}/ (HTTPS otomatis jika domain publik mengarah ke server ini)"
@@ -1868,7 +1890,7 @@ echo ""
 echo -e "${CYAN}Log instalasi:${NC} ${LOG_FILE}"
 echo ""
 echo -e "${YELLOW}Langkah berikutnya:${NC}"
-echo "  1. Buka URL di browser, login dengan akun admin awal (lihat dokumentasi setup admin)"
+echo "  1. Buka URL di browser, buat akun Superadmin di halaman Setup (muncul otomatis saat belum ada user)"
 echo "  2. Untuk rilis berikutnya pakai: bash update.sh"
 echo "  3. Untuk bongkar server: bash uninstall.sh"
 echo ""

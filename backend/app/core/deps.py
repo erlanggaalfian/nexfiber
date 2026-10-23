@@ -6,7 +6,6 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
-from app.core.rbac import PermissionDenied, require_role
 from app.core.security import decode_access_token
 from app.models.user import User
 
@@ -34,14 +33,12 @@ async def _user_from_token(db: AsyncSession, token: str) -> User:
     return user
 
 
-def require_permission(allowed: set[str]) -> Callable:
-    """FastAPI dependency factory: raise 403 if current user's role isn't in `allowed`."""
+def require_roles(allowed: set[str]) -> Callable:
+    """Role gate (403). Data scope is separate: services filter by rbac.scope_olt_ids (404)."""
 
     def checker(user: User = Depends(get_current_user)) -> User:
-        try:
-            require_role(user.role, allowed)
-        except PermissionDenied as exc:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
+        if user.role not in allowed:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Peran Anda tidak boleh melakukan ini")
         return user
 
     return checker

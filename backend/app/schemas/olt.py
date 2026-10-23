@@ -15,10 +15,12 @@ class OltCreate(BaseModel):
     cli_password: str = Field(min_length=1)
     cli_enable_password: str | None = None
     snmp_community: str = Field(min_length=1)
+    snmp_community_rw: str | None = None
     snmp_port: int = Field(161, ge=1, le=65535)
     pon_port_count: int = Field(16, ge=1, le=128)
     max_onu_per_port: int = Field(128, ge=1, le=256)
     location: str | None = Field(None, max_length=255)
+    owner_id: int | None = None  # Superadmin only; Admin always owns what it creates (PRD 3.7)
 
 class OltUpdate(BaseModel):
     """Omitted fields stay unchanged; secrets are only overwritten when sent."""
@@ -31,6 +33,7 @@ class OltUpdate(BaseModel):
     cli_password: str | None = Field(None, min_length=1)
     cli_enable_password: str | None = None
     snmp_community: str | None = Field(None, min_length=1)
+    snmp_community_rw: str | None = None
     snmp_port: int | None = Field(None, ge=1, le=65535)
     pon_port_count: int | None = Field(None, ge=1, le=128)
     max_onu_per_port: int | None = Field(None, ge=1, le=256)
@@ -57,6 +60,7 @@ class OltOut(BaseModel):
     last_sync_at: datetime | None
     last_error: str | None
     is_active: bool
+    owner_id: int
 
     model_config = {"from_attributes": True}
 

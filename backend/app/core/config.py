@@ -1,8 +1,11 @@
+import configparser
+import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """App config, read from /etc/nexfiber/config.ini or .env (PRD 4.1/X.1)."""
+    """App config: config.ini at $NEXFIBER_CONFIG (written by install.sh), else .env for dev."""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -15,4 +18,13 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173"]
 
 
-settings = Settings()
+def _from_ini(path: str) -> dict:
+    ini = configparser.ConfigParser()
+    if not ini.read(path):
+        raise RuntimeError(f"NEXFIBER_CONFIG={path} tidak bisa dibaca")
+    secret = ini.get("app", "secret_key")
+    return {"database_url": ini.get("database", "url"),
+            "app_secret_key": secret, "jwt_secret_key": secret}
+
+_ini_path = os.environ.get("NEXFIBER_CONFIG")
+settings = Settings(**_from_ini(_ini_path)) if _ini_path else Settings()

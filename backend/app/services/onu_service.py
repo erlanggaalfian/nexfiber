@@ -1,4 +1,4 @@
-"""ONU operations. API side: cached reads from DB + enqueue jobs (one commit). Worker side:
+﻿"""ONU operations. API side: cached reads from DB + enqueue jobs (one commit). Worker side:
 OLT writes, each logged with raw_command/raw_output; ALLOW_WRITE_COMMANDS=false refuses all
 of them (PRD X.4).
 """
@@ -16,6 +16,7 @@ from app.core.exceptions import (
     NotFoundError,
     ValidationAppError,
 )
+from app.core.rbac import scope_olt_ids
 from app.drivers.base import OltDriver
 from app.drivers.types import AuthorizeRequest, DriverResult, ModifyRequest
 from app.models.job import Job
@@ -44,33 +45,33 @@ def _row(onu: Onu, olt_name: str, slot: int, port: int, profile_name: str | None
     return {**data, "olt_name": olt_name, "slot": slot, "port": port,
             "speed_profile_name": profile_name}
 
-async def search_onus(db: AsyncSession, *, q: str | None, olt_id: int | None,
+async def search_onus(db: AsyncSession, user: User, *, q: str | None, olt_id: int | None,
                       pon_port_id: int | None, state: str | None, speed_profile_id: int | None,
                       sort: str, page: int, size: int) -> tuple[list[OnuRow], int]:
     if sort.lstrip("-") not in onu_repo.SORT_COLUMNS:
         raise ValidationAppError(f"Unknown sort '{sort}'")
     rows, total = await onu_repo.search(
-        db, q=q, olt_id=olt_id, pon_port_id=pon_port_id, state=state,
+        db, scope_olt_ids(user), q=q, olt_id=olt_id, pon_port_id=pon_port_id, state=state,
         speed_profile_id=speed_profile_id, rx_warn_dbm=(await rx_thresholds(db))["warn"],
         sort=sort, page=page, size=size,
     )
     return [OnuRow(**_row(*r)) for r in rows], total
 
-async def _get_row(db: AsyncSession, serial: str):
-    row = await onu_repo.get_row_by_serial(db, serial)
+async def _get_row(db: AsyncSession, serial: str, user: User):
+    row = await onu_repo.get_row_by_serial(db, serial, scope_olt_ids(user))
     if row is None:
         raise NotFoundError(f"ONU {serial} not found")
     return row
 
-async def get_onu(db: AsyncSession, serial: str) -> OnuDetail:
-    return OnuDetail(**_row(*await _get_row(db, serial)))
+async def get_onu(db: AsyncSession, serial: str, user: User) -> OnuDetail:
+    return OnuDetail(**_row(*await _get_row(db, serial, user)))
 
-async def signal_history(db: AsyncSession, serial: str, range_: str) -> list:
-    onu = (await _get_row(db, serial))[0]
+async def signal_history(db: AsyncSession, serial: str, range_: str, user: User) -> list:
+    onu = (await _get_row(db, serial, user))[0]
     return await onu_repo.signal_history(db, onu.id, datetime.now(UTC) - SIGNAL_RANGES[range_])
 
-async def onu_logs(db: AsyncSession, serial: str, limit: int) -> list[OnuLog]:
-    onu = (await _get_row(db, serial))[0]
+async def onu_logs(db: AsyncSession, serial: str, limit: int, user: User) -> list[OnuLog]:
+    onu = (await _get_row(db, serial, user))[0]
     return [
         OnuLog(id=log.id, created_at=log.created_at, username=username, action=log.action,
                success=log.success, job_id=log.job_id, raw_command=log.raw_command,
@@ -78,25 +79,26 @@ async def onu_logs(db: AsyncSession, serial: str, limit: int) -> list[OnuLog]:
         for log, username in await onu_repo.logs(db, onu.id, limit)
     ]
 
-async def list_pending(db: AsyncSession, olt_id: int | None) -> list[PendingOnu]:
+async def list_pending(db: AsyncSession, olt_id: int | None, user: User) -> list[PendingOnu]:
     return [
         PendingOnu(id=u.id, olt_id=u.olt_id, olt_name=name, pon_port_id=u.pon_port_id,
                    slot=slot, port=port, serial_number=u.serial_number, onu_type=u.onu_type,
                    first_seen_at=u.first_seen_at, last_seen_at=u.last_seen_at)
-        for u, name, slot, port in await onu_repo.list_pending(db, olt_id)
+        for u, name, slot, port in await onu_repo.list_pending(db, olt_id, scope_olt_ids(user))
     ]
 
-async def list_vlans(db: AsyncSession, olt_id: int | None) -> list[Vlan]:
-    return await onu_repo.list_vlans(db, olt_id)
+async def list_vlans(db: AsyncSession, olt_id: int | None, user: User) -> list[Vlan]:
+    return await onu_repo.list_vlans(db, olt_id, scope_olt_ids(user))
 
-async def list_speed_profiles(db: AsyncSession, olt_id: int | None) -> list[SpeedProfile]:
-    return await onu_repo.list_speed_profiles(db, olt_id)
+async def list_speed_profiles(db: AsyncSession, olt_id: int | None,
+                              user: User) -> list[SpeedProfile]:
+    return await onu_repo.list_speed_profiles(db, olt_id, scope_olt_ids(user))
 
 async def customer_id_taken(db: AsyncSession, customer_id: str) -> bool:
     return await onu_repo.exists_customer_id(db, customer_id)
 
-async def _check_authorize(db: AsyncSession, body: AuthorizeBody) -> UnconfiguredOnu:
-    olt = await olt_repo.get_active(db, body.olt_id)
+async def _check_authorize(db: AsyncSession, body: AuthorizeBody, user: User) -> UnconfiguredOnu:
+    olt = await olt_repo.get_active(db, body.olt_id, scope_olt_ids(user))
     if olt is None:
         raise NotFoundError(f"OLT {body.olt_id} not found")
     pending = await onu_repo.get_pending(db, body.olt_id, body.serial_number)
@@ -120,7 +122,7 @@ async def _check_authorize(db: AsyncSession, body: AuthorizeBody) -> Unconfigure
 async def create_and_enqueue_authorize(db: AsyncSession, body: AuthorizeBody, user: User) -> int:
     """ONU row + authorize job in one commit (PRD 4.5.A atomicity argument)."""
     ensure_writes_allowed()
-    pending = await _check_authorize(db, body)
+    pending = await _check_authorize(db, body, user)
     onu = Onu(
         **body.model_dump(exclude={"onu_type"}),
         pon_port_id=pending.pon_port_id, onu_type=body.onu_type or pending.onu_type,
@@ -136,7 +138,7 @@ async def create_and_enqueue_authorize(db: AsyncSession, body: AuthorizeBody, us
 async def enqueue_onu_job(db: AsyncSession, serial: str, job_type: str, user: User,
                           payload: dict | None = None) -> int:
     ensure_writes_allowed()
-    onu = (await _get_row(db, serial))[0]
+    onu = (await _get_row(db, serial, user))[0]
     if onu.onu_index is None or onu.config_state != "success":
         raise ConflictError(f"ONU {serial} is not provisioned yet")
     if job_type == "apply_speed_profile" and await db.get(

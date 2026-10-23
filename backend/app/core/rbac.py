@@ -1,27 +1,26 @@
-"""Per-role permission checks (PRD decision: role is a Postgres ENUM, permissions hardcoded here
-— not a data-driven permissions table). Adding a 5th role later means adding it to the ENUM
-migration and to the sets below; no other model changes needed.
+﻿"""Roles & OLT scope (PRD 3.7). Superadmin = all OLTs, Admin = OLTs it owns, User = OLTs of
+its Admin. Out-of-scope reads answer 404 so other Admins' data never leaks.
 """
 
-# PRD M9 / Trade-off #4: admin = semua; noc = lihat + reboot + lihat sinyal, tidak ubah konfigurasi
-# OLT; teknisi = aktivasi + lihat, tidak boleh hapus/ubah master data; viewer = read-only.
-CAN_MANAGE_OLTS = {"admin"}
-CAN_MANAGE_MASTER_DATA = {"admin"}  # VLAN, speed profile, splitter CRUD
-CAN_AUTHORIZE_ONU = {"admin", "teknisi"}
-CAN_REBOOT_ONU = {"admin", "noc"}
-CAN_MODIFY_ONU = {"admin", "noc"}
-CAN_DELETE_ONU = {"admin", "noc"}  # PRD 4.6: "hanya admin/noc boleh delete/reboot ONU"
-CAN_MANAGE_USERS = {"admin"}
+from sqlalchemy import Select, select
 
+from app.models.olt import Olt
+from app.models.user import User
 
-class PermissionDenied(Exception):
-    pass
+SUPERADMIN, ADMIN, USER = "superadmin", "admin", "user"
+MANAGERS = {SUPERADMIN, ADMIN}  # manage OLTs, delete ONU, restore factory
 
+# None = no restriction; otherwise a subquery of allowed olts.id for `col.in_(scope)`.
+Scope = Select | None
 
-def require_role(role: str, allowed: set[str]) -> None:
-    if role not in allowed:
-        raise PermissionDenied(f"role '{role}' is not permitted to perform this action")
+def owner_of(user: User) -> int | None:
+    if user.role == SUPERADMIN:
+        return None
+    return user.id if user.role == ADMIN else user.admin_id
 
-def permissions_for(role: str) -> list[str]:
-    """Names like 'authorize_onu' (CAN_ prefix stripped) so the UI can hide forbidden actions."""
-    return sorted(k[4:].lower() for k, v in globals().items() if k.startswith("CAN_") and role in v)
+def scope_olt_ids(user: User) -> Scope:
+    owner = owner_of(user)
+    return None if owner is None else select(Olt.id).where(Olt.owner_id == owner)
+
+def scoped(stmt: Select, olt_col, scope: Scope) -> Select:
+    return stmt if scope is None else stmt.where(olt_col.in_(scope))

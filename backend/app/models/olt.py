@@ -38,6 +38,10 @@ class Olt(TimestampMixin, Base):
     cli_enable_password_enc: Mapped[bytes | None] = mapped_column(nullable=True)
     snmp_version: Mapped[str] = mapped_column(String(10), nullable=False, default="2c")
     snmp_community_enc: Mapped[bytes] = mapped_column(nullable=False)
+    snmp_community_rw_enc: Mapped[bytes | None] = mapped_column(nullable=True)
+    owner_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=False, index=True
+    )
     snmp_port: Mapped[int] = mapped_column(Integer, nullable=False, default=161)
     pon_port_count: Mapped[int] = mapped_column(Integer, nullable=False)
     max_onu_per_port: Mapped[int] = mapped_column(Integer, nullable=False, default=128)

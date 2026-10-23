@@ -1,10 +1,23 @@
-from fastapi import FastAPI, Request
+from datetime import UTC, datetime, timedelta
+
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.db import get_db
+from app.core.deps import get_current_user
 from app.core.exceptions import AppError
+from app.core.rbac import scope_olt_ids, scoped
+from app.models.job import Job
+from app.models.setting import Setting
+from app.models.user import User
+from app.repositories import olt_repo
 from app.routers import auth, jobs, master_data, olts, onus
+
+WORKER_ALIVE = timedelta(minutes=2)
 
 app = FastAPI(title="Nexfiber API")
 
@@ -25,6 +38,22 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 @app.get("/healthz")
 async def healthz() -> dict:
     return {"status": "ok"}
+
+@app.get("/api/system/status")
+async def system_status(
+    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """PRD 3.3 header indicator + popover. Worker alive = heartbeat < 2 min (c12)."""
+    hb = await db.get(Setting, "worker_heartbeat")
+    last = hb.updated_at if hb else None
+    scope = scope_olt_ids(user)
+    queued = scoped(select(func.count(Job.id)).where(Job.status == "pending"), Job.olt_id, scope)
+    return {
+        "worker_alive": last is not None and datetime.now(UTC) - last < WORKER_ALIVE,
+        "worker_heartbeat_at": last,
+        "jobs_pending": await db.scalar(queued),
+        "last_poll_at": await olt_repo.last_sync_at(db, scope),
+    }
 
 
 for module in (auth, olts, onus, jobs, master_data):

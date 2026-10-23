@@ -8,13 +8,16 @@ import logging
 import signal
 import socket
 from collections import defaultdict
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy.dialects.postgresql import insert
 
 from app.core.db import SessionLocal
 from app.core.exceptions import CommandRejectedError, ForbiddenError, NotFoundError
 from app.drivers.factory import build_driver
 from app.models.job import Job
 from app.models.olt import Olt
+from app.models.setting import Setting
 from app.repositories import job_repo
 from app.worker.handlers import HANDLERS, NotImplementedPhase2
 from app.worker.schedules import start_scheduler
@@ -23,6 +26,7 @@ log = logging.getLogger("nexfiber.worker")
 
 POLL_INTERVAL_S = 1
 STALE_CHECK_INTERVAL_S = 60
+HEARTBEAT_INTERVAL_S = 30
 # Must exceed the longest job incl. time spent waiting on its OLT lock behind other jobs.
 STALE_AFTER = timedelta(minutes=15)
 WORKER_NAME = f"{socket.gethostname()}:worker"
@@ -77,15 +81,30 @@ async def release_stale() -> None:
         if released:
             log.warning("requeued %s stale job(s)", released)
 
+async def heartbeat() -> None:
+    """Read by GET /api/system/status (PRD 3.4: worker aktif bila < 2 menit)."""
+    value = {"at": datetime.now(UTC).isoformat(), "worker": WORKER_NAME}
+    stmt = insert(Setting).values(key="worker_heartbeat", value=value)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[Setting.key], set_={"value": value, "updated_at": datetime.now(UTC)}
+    )
+    async with SessionLocal() as db:
+        await db.execute(stmt)
+        await db.commit()
+
 async def run(stop: asyncio.Event) -> None:
     tasks: set[asyncio.Task] = set()
     loop = asyncio.get_running_loop()
     next_stale_check = 0.0
+    next_heartbeat = 0.0
     while not stop.is_set():
         try:
             if loop.time() >= next_stale_check:
                 await release_stale()
                 next_stale_check = loop.time() + STALE_CHECK_INTERVAL_S
+            if loop.time() >= next_heartbeat:
+                await heartbeat()
+                next_heartbeat = loop.time() + HEARTBEAT_INTERVAL_S
             while (claimed := await claim_one()) is not None:
                 task = asyncio.create_task(run_job(*claimed))
                 tasks.add(task)

@@ -39,7 +39,7 @@ def start_scheduler() -> AsyncIOScheduler:
 
     add("sync_onu_status", "interval", minutes=1)
     add("sync_onu_optical", "interval", minutes=15)
-    add("sync_unconfigured", "interval", minutes=5)
+    add("sync_unconfigured", "interval", minutes=1)
     add("backup_olt_config", "cron", hour=2)  # PRD only says "harian"; 02:00 = quiet hours
     scheduler.start()
     return scheduler

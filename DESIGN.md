@@ -1,14 +1,22 @@
-# DESIGN.md: Fiberdesk NOC Console
+# DESIGN.md: Nexfiber
 
-Dokumen arah desain (sumber identitas). `antislop.md` dipakai di atas dokumen ini sebagai filter, bukan sebagai sumber gaya.
+Dokumen arah desain dan tata letak layar. Pasangan `PRD-FINAL.md` (v4): PRD menentukan **apa** isi tiap halaman (§3.3–§3.7), dokumen ini menentukan **bagaimana tampilannya**. Bila bertentangan soal tampilan, dokumen ini yang menang; soal fitur/hak akses, PRD yang menang. `antislop.md` dipakai sebagai filter di atas keduanya.
+
+Selera pemilik produk (wajib diikuti):
+- **Simpel, padat, modern.** Satu layar menjawab satu pekerjaan.
+- **Tanpa teks penjelas panjang.** Label pendek; keterangan hanya bila mencegah salah aksi, maksimal satu baris.
+- **Tanpa popup bantuan / tooltip "?"** di samping label.
+- **Tanpa garis pemisah berlebih.** Pemisahan memakai jarak dan latar; garis hanya di tabel dan tepi panel.
+- **Tanpa penomoran berulang** (tidak ada "1. … 2. …" di judul section, langkah, atau kartu).
+- Tata letak dikerjakan **persis** seperti wireframe §11–§12; elemen yang sejajar di wireframe harus sejajar di build.
 
 ## 1. Identitas
 
 - **Produk**: konsol operasional manajemen OLT/ONU untuk tim NOC ISP fiber (GPON).
-- **Pengguna**: operator NOC shift 24/7, teknisi lapangan via laptop, supervisor. Internal, bukan publik.
-- **Pekerjaan layar**: menemukan ONU/OLT yang bermasalah, membaca angka sinyal, dan mengambil satu tindakan (auth, reboot, assign profile, buka tiket).
+- **Pengguna**: Superadmin, Admin (pemilik OLT), User (operator & teknisi lapangan). Internal, bukan publik.
+- **Pekerjaan layar**: menemukan ONU/OLT yang bermasalah, membaca angka sinyal, dan mengambil satu tindakan (otorisasi, reboot, ubah speed/VLAN).
 - **Karakter**: panel instrumen, bukan brosur. Padat, tenang, terbaca saat mata lelah jam 3 pagi.
-- **Motif identitas**: *signal bar*: balok horizontal 3 segmen setinggi 4px yang memetakan Rx power ke bucket (baik / waspada / buruk / LOS). Dipakai konsisten di tabel, kartu detail, dan ringkasan OLT. Alasan: satu bahasa visual untuk satu-satunya angka yang paling sering dibaca operator, dan ia membawa informasi (bukan dekorasi garis warna).
+- **Motif identitas**: *signal bar*: balok horizontal 3 segmen setinggi 4px yang memetakan Rx power ke bucket (Good / Fair / Weak / Critical / LOS, sama dengan PRD §3.4.2). Dipakai konsisten di tabel, kartu detail, dan ringkasan OLT. Alasan: satu bahasa visual untuk satu-satunya angka yang paling sering dibaca operator, dan ia membawa informasi (bukan dekorasi garis warna).
 
 ## 2. Dial
 
@@ -67,9 +75,11 @@ Ambang Rx ONU (GPON, dBm) yang memetakan status, sebagai nilai default yang dapa
 
 | Rentang | Status |
 |---|---|
-| -8 s/d -25 | normal (`--st-up`) |
-| di bawah -25 s/d -27 | waspada (`--st-warn`) |
-| di bawah -27, atau di atas -8 (terlalu kuat) | buruk (`--st-down`) |
+| -8 s/d -25 | **Good** (`--st-up`, 3 segmen) |
+| di bawah -25 s/d -27 | **Fair** (`--st-warn`, 2 segmen) |
+| di bawah -27 s/d -28 | **Weak** (`--st-warn`, 1 segmen) |
+| -28 ke bawah, atau di atas -8 (terlalu kuat) | **Critical** (`--st-down`, 1 segmen) |
+| LOS / tanpa nilai | kosong + teks `LOS` |
 | tanpa sinyal / LOS / Dying Gasp | down (`--st-down`, label berbeda) |
 
 Alasan: ambang teknis ditulis di DESIGN.md supaya warna tidak pernah ditentukan ad hoc di dalam komponen, dan supaya operator tahu angka yang dipakai UI sama dengan angka di tiket.
@@ -164,7 +174,7 @@ Dua level saja, dan hanya untuk elevasi nyata.
 | `shadow-overlay` | `0 4px 12px rgba(28,27,24,0.14)` | Dropdown, popover, context menu |
 | `shadow-modal` | `0 12px 32px rgba(28,27,24,0.22)` | Dialog, drawer |
 
-Panel, kartu, tabel, dan sidebar **tidak** memakai shadow; pemisahan memakai `--border` dan perbedaan latar. Alasan: shadow adalah penanda "elemen ini melayang di atas yang lain"; jika semuanya melayang, elevasi tidak lagi memberi tahu apa pun.
+Panel, kartu, tabel, dan header **tidak** memakai shadow; pemisahan memakai `--border` dan perbedaan latar. Alasan: shadow adalah penanda "elemen ini melayang di atas yang lain"; jika semuanya melayang, elevasi tidak lagi memberi tahu apa pun.
 
 Fokus: `outline: 2px solid var(--fiber); outline-offset: 1px` di light, `--amber` di dark. Tidak pernah `outline: none` tanpa pengganti.
 
@@ -205,7 +215,7 @@ Balok lebar 48px tinggi 4px, radius 0, terbagi jadi segmen terisi sesuai bucket 
 | Kosong (belum ada data) | Sebab + satu aksi: "Belum ada OLT terdaftar. Tambahkan OLT untuk mulai menarik data ONU." |
 | Kosong (filter) | "Tidak ada ONU yang cocok dengan filter ini." + tombol Hapus filter |
 | Loading | Skeleton baris setinggi baris asli, maksimal 8 baris, plus teks "Menarik data dari OLT ..." |
-| Error | Penyebab + tindakan: "Gagal terhubung ke OLT-SBY-01 (timeout 10s). Coba lagi atau periksa jalur manajemen." + tombol Coba lagi |
+| Error | Penyebab + tindakan: "Gagal terhubung ke [nama OLT] (timeout 10s). Coba lagi atau periksa jalur manajemen." + tombol Coba lagi |
 | Sebagian gagal | Banner di atas tabel: "3 dari 12 OLT gagal dipolling. Data di bawah mungkin kedaluwarsa." + daftar OLT |
 
 ### Data placeholder
@@ -216,16 +226,291 @@ Selama belum terhubung ke perangkat nyata, sel kosong dibiarkan kosong atau dibe
 
 | Lebar | Perilaku |
 |---|---|
-| >= 1440px | Sidebar penuh + tabel + panel detail samping |
-| 1024 s/d 1439px | Sidebar penuh, panel detail jadi drawer |
-| 768 s/d 1023px | Sidebar jadi ikon, kolom tabel sekunder disembunyikan |
-| < 768px | Tabel jadi daftar kartu (serial, status, Rx, OLT/PON), aksi lewat drawer, target sentuh 44px |
+| >= 1280px | Header penuh (semua menu tampil), konten max-width 1440px di tengah |
+| 1024 s/d 1279px | Header penuh, label "● Sistem aktif" menyusut jadi titik saja, kolom tabel sekunder disembunyikan |
+| 768 s/d 1023px | Menu header hilang, diganti **navigasi bawah** (§11.1); header jadi top bar ringkas |
+| < 768px | Sama dengan di atas + tabel jadi daftar kartu (§12.10), aksi lewat bottom sheet, target sentuh 48px |
 
 Tanpa overflow horizontal di level halaman; scroll horizontal hanya di dalam container tabel.
 
 ## 10. Aksesibilitas
 
+- Header punya `skip link` "Langsung ke konten" untuk keyboard; menu header adalah `nav` dengan `aria-current="page"` di menu aktif; dropdown Settings bisa dibuka dengan `Enter`/`↓` dan ditutup `Esc`.
 - Kontras teks minimum 4.5:1, teks besar 3:1, sudah diverifikasi pada tabel token di atas untuk kedua tema.
 - Status tidak pernah disampaikan oleh warna saja: selalu ada teks dan/atau bentuk.
 - Seluruh alur dapat dioperasikan dengan keyboard: `Tab` berurutan sesuai visual, `Enter` membuka baris, `Esc` menutup drawer/modal, `/` fokus ke pencarian, `j/k` pindah baris di tabel.
 - Fokus terlihat di setiap elemen interaktif.
+
+## 11. Kerangka aplikasi & header
+
+Tidak ada sidebar. Semua navigasi ada di **header atas**.
+
+```
+┌───────────────────────────────────────────────────────────────────────────────────────────────┐
+│ ◆ Nexfiber │ Dashboard  Unconfigured 3  Configured  Settings ▾  Logs │ [⌕ Cari… ⌘K]  ● Sistem aktif  (EA)▾ │
+└───────────────────────────────────────────────────────────────────────────────────────────────┘
+  ↑ logo       ↑ menu kiri, rata kiri setelah logo                        ↑ grup kanan, rata kanan
+┌───────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Judul halaman                                                   [aksi sekunder] [aksi primer] │  ← baris judul
+│ (konten halaman)                                                                              │
+└───────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+| Elemen | Spesifikasi |
+|---|---|
+| Header | Tinggi 56px, sticky, latar `--bg-surface`, garis bawah 1px `--border`, tanpa shadow, tanpa blur |
+| Logo | Ikon 20px + "Nexfiber" 15px/600 `--ink`; klik = Dashboard |
+| Menu | 13px/500, padding horizontal 12px, jarak antar menu 4px. Normal `--text-muted`; hover `--text` + latar `--bg-sunken` radius-sm; **aktif** `--text` + garis bawah 2px `--fiber` menempel di tepi bawah header |
+| Badge Unconfigured | Angka mono 11px di kotak radius-sm latar `--amber` teks putih, hanya tampil bila > 0. Satu-satunya badge di header |
+| Settings ▾ | Klik (bukan hover) membuka dropdown 240px, `shadow-overlay`, radius-md. Item: ikon Phosphor 16px + label 13px, tinggi 36px. Item Phase 2: teks `--text-faint` + label "Segera" 11px di kanan, tidak bisa diklik. Menu Settings ikut aktif saat berada di `/settings/*` |
+| Cari | Input 240px tinggi 32px, placeholder "Cari SN, nama, PPPoE, IP OLT", hint `⌘K` mono di kanan dalam input. Hasil = command palette di tengah layar (lebar 560px), dikelompokkan: ONU · OLT |
+| Sistem aktif | Titik 6px + teks 12px. Hijau = worker & poller sehat; amber = tertunda; merah = mati. Tanpa pulse. Klik = popover status (worker, job antre, poll terakhir) |
+| Avatar | Lingkaran 28px berisi inisial (satu-satunya bentuk bulat di app). Dropdown: nama + peran (teks, bukan badge), Ganti password, Tema (Sistem/Terang/Gelap), Logout |
+| Baris judul | Judul `text-xl` di kiri, aksi halaman di kanan, satu baris, tinggi 48px, margin bawah 12px. Tanpa breadcrumb, kecuali halaman detail: tautan kecil "← Configured" / "← OLT Management" di atas judul |
+
+Urutan menu dan isi dropdown **tetap**, hanya disembunyikan sesuai peran (PRD §3.7):
+
+```
+Settings ▾
+  ⚙ OLT Management        (ikon HardDrives)
+  ⚙ User Management       (ikon Users)
+  ⚙ ONU Types             (ikon Cpu)
+  ⚙ Splitters & Zone      (ikon TreeStructure)
+  ⚙ Speed Profile         (ikon Gauge)
+  ─────────────            ← satu-satunya pemisah: memisahkan fitur Phase 2
+  ⚙ VPN Tunnels   Segera  (ikon ShieldCheck)
+  ⚙ TR-069        Segera  (ikon Broadcast)
+```
+
+Desktop (≥ 1024px) memakai header di atas. Tablet & HP (< 1024px) memakai **navigasi bawah**, lihat §11.1.
+
+Ikon: Phosphor `regular` 16px di menu/dropdown/tombol, 20px di header.
+
+### 11.1 Navigasi bawah (Android / HP / tablet, < 1024px)
+
+Gaya aplikasi Android modern (pola Material 3 navigation bar), tapi tetap memakai token Nexfiber.
+
+```
+┌─────────────────────────────────────┐
+│ Configured                    ⌕ (EA)│  ← top bar 56px: judul halaman · cari · avatar
+├─────────────────────────────────────┤
+│                                     │
+│  (konten, kartu §12.10)             │
+│                                     │
+├─────────────────────────────────────┤
+│  ⌂        ⊕³        ☰       ≡      ⋯ │
+│ Dashboard Unconfig Configured Logs Lainnya │  ← 64px + safe-area bawah
+└─────────────────────────────────────┘
+```
+
+| Posisi | Tab | Ikon Phosphor | Isi |
+|---|---|---|---|
+| 1 | Dashboard | `House` | `/` |
+| 2 | Unconfigured | `PlusCircle` + badge angka | `/unconfigured` |
+| 3 | Configured | `ListBullets` | `/configured` |
+| 4 | Logs | `ClockCounterClockwise` | `/logs` |
+| 5 | Lainnya | `DotsThreeCircle` | Halaman daftar: grup **Settings** (semua sub-menu sesuai peran) · grup **Akun** (Ganti password, Tema, Logout) |
+
+Spesifikasi:
+- Bar: tinggi 64px + `env(safe-area-inset-bottom)`, latar `--bg-surface`, garis atas 1px `--border`, tanpa shadow, tanpa blur.
+- Item: ikon 24px di atas label 12px/500, label **selalu tampil** (tidak hanya di tab aktif). Area sentuh penuh 1/5 lebar × 64px.
+- **Aktif**: ikon berganti weight `fill`, warna `--fiber`; di belakang ikon ada indikator 56×32px latar `--fiber` 12% radius 16px (satu-satunya bentuk membulat penuh, dipakai sebagai penanda posisi, bukan tombol). Label aktif `--text` 600; tidak aktif `--text-muted`.
+- Ganti tab: indikator membesar dari tengah 150ms ease-out; tanpa animasi lain. Hormati `prefers-reduced-motion` (tanpa animasi).
+- Badge Unconfigured: angka mono 11px latar `--amber` teks putih, menempel di pojok kanan atas ikon; `99+` bila lebih. Tidak tampil bila 0.
+- Ketuk tab yang sedang aktif = scroll ke atas + refresh data.
+- Bar **tetap terlihat** saat scroll (posisi stabil lebih penting dari ruang ekstra). Disembunyikan saat keyboard terbuka.
+- Bar hanya tampil di 5 halaman utama. Halaman turunan (Detail ONU, Detail OLT, form Otorisasi, sub-menu Settings) memakai top bar dengan tombol **←** dan tanpa navigasi bawah, sehingga tombol aksi bawah (mis. **Otorisasi**) punya tempat sendiri. Tombol back Android mengikuti riwayat yang sama.
+- Top bar: judul `text-lg`, ikon cari (membuka pencarian layar penuh), avatar. Tanpa logo di HP agar judul halaman yang terbaca.
+- Pull-to-refresh di Dashboard, Unconfigured, Configured, Logs.
+- Aksi primer halaman (mis. **Scan ulang**, **Tambah OLT**) di HP menjadi tombol bulat-sudut 56px di kanan bawah, 16px di atas navigasi bawah. Maksimal satu per halaman.
+- Tema: `theme-color` meta mengikuti `--bg-surface` terang/gelap agar status bar Android menyatu.
+
+**Bisa dipasang seperti aplikasi (PWA)**: `manifest.webmanifest` dengan `display: standalone`, ikon 192/512px (maskable), `start_url: "/"`, warna mengikuti token. Pengguna Android memilih "Tambahkan ke layar utama" lalu Nexfiber terbuka penuh layar tanpa bilah browser. Tanpa cache offline: data jaringan harus selalu live. Tidak ada ikon di depan menu header utama (Dashboard…Logs), karena teks sudah pendek dan jelas.
+
+## 12. Tata letak per halaman
+
+Lebar konten maks 1440px, padding 16px. Wireframe di bawah adalah desktop ≥ 1280px; perilaku mobile ditulis di bawah tiap wireframe.
+
+### 12.1 Login `/login` & Setup `/setup`
+
+```
+                ◆ Nexfiber
+        ┌─────────────────────────┐
+        │ Username  [           ] │
+        │ Password  [           ] │
+        │ [        Masuk        ] │   ← tombol --fiber penuh lebar (bukan amber: tidak mengubah jaringan)
+        └─────────────────────────┘
+```
+Kartu 360px di tengah layar, latar `--bg-app`. Tanpa ilustrasi, tanpa tagline, tanpa "lupa password". Error tampil satu baris merah di atas tombol. Setup memakai kartu yang sama: Username, Nama, Password, Ulangi password, tombol **Buat Superadmin**.
+
+### 12.2 Dashboard `/`
+
+```
+Dashboard                                                         Diperbarui 14:02  [↻ Refresh]
+┌──────────────┬──────────────┬──────────────┬──────────────────────┐
+│ Total OLT    │ ONU Online   │ ONU Offline  │ Unconfigured         │  ← satu strip, 4 sel, dipisah garis 1px
+│ 12           │ 4.812        │ 37           │ 3   [Scan baru]      │     angka text-metric mono
+│ 11 terhubung │ dari 4.849   │ LOS 21 · DG 9│                      │
+└──────────────┴──────────────┴──────────────┴──────────────────────┘
+Kualitas sinyal   Critical 14 ▮  Weak 52 ▮  Fair 310 ▮  Good 4.436 ▮       ← satu baris, bukan kartu
+┌ OLT ─────────────────────────────────────────────────────────────────────────────────┐
+│ Nama OLT   IP          SNMP        ONU on/total   CPU   RAM   Suhu   Aksi            │
+│ …          …           ● Up 14:01  412/420        12%   41%   44°C   Monitor         │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+┌ Aktivitas terakhir ───────────────────────────────────────────── Lihat semua ┐
+│ 14:01  [user]  Otorisasi  [SN]  [OLT] · 1/2/3:7   Sukses                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+- Angka di strip & baris sinyal bisa diklik = buka Configured/Unconfigured terfilter.
+- Sparkline ONU online 24 jam per OLT ditunda (PRD §3.4.2).
+- Contoh angka di wireframe hanya ilustrasi ukuran; build memakai data nyata atau sel kosong.
+- Mobile: strip jadi grid 2×2, baris sinyal jadi 2×2, tabel OLT jadi kartu (Nama, SNMP, ONU on/total), aktivitas 5 baris.
+
+### 12.3 Unconfigured `/unconfigured`
+
+```
+Unconfigured                                    OLT [Semua ▾]   Scan terakhir 14:02   [↻ Scan ulang]
+┌───────────────────────────────────────────────────────────────────────────────────────┐
+│ OLT     Shelf  Slot  Port  Nomor seri / MAC   Tipe deteksi   Rx      Terlihat   Aksi  │
+│ …       1      2     3     [SN]               [model]        ▮ -21.4  2 mnt     [Otorisasi] │
+└───────────────────────────────────────────────────────────────────────────────────────┘
+```
+Tombol **Otorisasi** sekunder per baris (bukan amber; amber dipakai di form saat benar-benar mengirim ke OLT). Kosong = satu baris teks di dalam tabel: "Tidak ada ONU baru. Scan terakhir 14:02." Mobile: kartu berisi SN (mono, baris pertama), OLT · port, Rx, tombol Otorisasi penuh lebar.
+
+### 12.4 Form Otorisasi `/unconfigured/authorize/:oltId/:serial`
+
+```
+← Unconfigured
+Otorisasi ONU   [SN] · [OLT] · 1/2/3                          Preset [Tidak ada ▾] [Simpan sebagai preset]
+┌ Layanan ─────────────────────────────┐  ┌ Pelanggan ───────────────────────────┐
+│ Tipe ONU        [            ▾]      │  │ Nama pelanggan *  [                ] │
+│ Download        [            ▾]      │  │ Kontak            [                ] │
+│ Upload          [            ▾]      │  │ Alamat            [                ] │
+│ VLAN            [            ▾]      │  │ External ID       [                ] │
+│ Mode ONU        (•) Routing ( ) Bridging│ │ Zone              [            ▾]  │
+│ Mode WAN        [ PPPoE      ▾]      │  │ Splitter [      ▾]  Port [  ▾]       │
+│ PPPoE user      [            ]       │  │ Lokasi  [lat] [long] [Gunakan GPS]   │
+│ PPPoE password  [            ]       │  └──────────────────────────────────────┘
+└──────────────────────────────────────┘
+                                                                  [Batal]  [Otorisasi]   ← amber, kanan bawah
+```
+- Dua kolom sejajar atas (Layanan kiri, Pelanggan kanan); label di kiri input, lebar label 112px.
+- Field PPPoE hanya muncul bila Mode WAN = PPPoE; field Mode WAN hanya bila Routing.
+- Validasi inline di bawah field, satu baris. Wajib ditandai `*` saja, tanpa teks "wajib diisi" di awal form.
+- Setelah klik Otorisasi: tombol jadi status job ("Mengirim ke OLT…"), lalu pindah ke Detail ONU.
+- Mobile: satu kolom (Layanan dulu), label di atas input, tombol Otorisasi penuh lebar sticky di bawah layar (navigasi bawah tidak tampil di halaman ini).
+
+### 12.5 Configured `/configured`
+
+```
+Configured                                                       [Sync pelanggan] [Export CSV]
+[⌕ Nama, SN, alamat, PPPoE…      ]  [OLT ▾][Board ▾][Port ▾][Status ▾][Sinyal ▾][Tipe ▾][Profile ▾][VLAN ▾][Zone ▾][Splitter ▾]  Reset
+Status: Offline ✕   Zone: [nama] ✕                                                     ← chip filter aktif
+┌───────────────────────────────────────────────────────────────────────────────────────────────┐
+│ ☐  Status       Nama pelanggan   SN        OLT · PON        VLAN  Splitter  Zone   Rx ONU    Rx OLT  │
+│ ☐  ● Online     …                [SN]      [OLT] · 1/2/3:7   100   …         …      ▮ -22.1   -24.0  │
+└───────────────────────────────────────────────────────────────────────────────────────────────┘
+3 dipilih   [Reboot] [Ubah speed] [Pindah zone]                     ← bar aksi massal muncul di bawah, sticky
+1–50 dari 4.849                                   « ‹ 1 2 3 › »    Tampilkan [50 ▾]
+```
+- Filter multi-pilih berbentuk tombol dropdown kecil sebaris; dropdown berisi checkbox + kotak cari. Tombol berubah jadi `Status · 2` saat aktif. Filter langsung diterapkan (tanpa tombol Terapkan) dan tersimpan di URL.
+- Baris diklik = buka Detail ONU (tidak perlu tombol Detail per baris).
+- Mobile: cari penuh lebar + tombol **Filter** (bottom sheet berisi semua filter); daftar kartu §12.9.
+
+### 12.6 Detail ONU `/onu/:id`
+
+```
+← Configured
+[Nama pelanggan]   ● Online   [SN] · [OLT] · 1/2/3:7                  [↻ Cek ulang]  [Aksi ▾]
+┌ Sinyal ───────────────────────────────────────────┐ ┌ Pelanggan ─────────────── Edit ┐
+│ Rx ONU ▮ -22.1   Rx OLT -24.0   Tx 2.3   Jarak 1.8 km│ │ Kontak, Alamat, Zone,          │
+│ [ 24 jam | 7 hari | 30 hari ]                       │ │ Splitter · port, External ID,  │
+│ ▁▂▂▃▃▂▂▁▁▂▃▃▂  (grafik Rx, ambang sebagai garis putus)│ │ Lokasi (link peta)             │
+│ Uptime 12h 4m · Offline terakhir: LOS, 2 hari lalu  │ ├ Perangkat ─────────── Edit ┤
+└─────────────────────────────────────────────────────┘ │ Tipe ONU, Preset, Diotorisasi  │
+                                                        └────────────────────────────────┘
+Status | Running config | Info software | Speed | Mode | Ethernet | WiFi · Segera | TR-069 · Segera
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│ (isi tab)                                                                            │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+```
+- Kolom kiri 2/3, kanan 1/3. Panel kanan bertumpuk dalam satu kartu dengan pemisah jarak, bukan garis.
+- **Aksi ▾** (kanan atas) berisi kelompok: Reboot, Resync config · Ubah speed, Ubah VLAN, Replace ONU, Nonaktifkan · Restore factory, Hapus (merah, konfirmasi ketik SN). Item yang tidak boleh untuk peran User disembunyikan.
+- Tab = teks + garis bawah 2px `--fiber` di tab aktif; tab terpilih tersimpan di URL (`?tab=ethernet`).
+- Running config: blok mono `--bg-sunken`, tombol **Salin** di pojok kanan atas.
+- Mobile: header jadi dua baris (nama + status; SN · port), kolom bertumpuk (Sinyal → Pelanggan → Perangkat), tab jadi scroll horizontal, Aksi jadi tombol penuh lebar sticky di bawah yang membuka bottom sheet.
+
+### 12.7 Detail OLT `/olt/:id`
+
+```
+← OLT Management
+[Nama OLT]   ● Terhubung   [IP] · [vendor model]                              [↻ Refresh status]
+Monitoring | VLANs | Konfigurasi | Daftar ONU
+```
+- **Monitoring**: strip 5 sel (Uptime · CPU · RAM · Suhu · ONU on/total); di bawahnya dua tabel berdampingan: Kartu/board (kiri) dan PON port (kanan: port, status, ONU, Tx).
+- **VLANs**: tabel VLAN + tombol **Tambah VLAN** di baris judul tab; panel Port uplink di bawahnya berupa matriks port × (Tagged/Untagged/None) dengan satu tombol amber **Simpan ke OLT**.
+- **Konfigurasi**: form dua kolom (Koneksi CLI kiri · SNMP kanan), Pemilik di atas form (hanya Superadmin), tombol amber **Simpan & verifikasi** kanan bawah. Password tampil kosong dengan placeholder "Tidak diubah".
+- **Daftar ONU**: tabel ringkas + tombol **Buka di Configured**.
+- Tab VLANs & Konfigurasi tidak dirender untuk User.
+
+### 12.8 Settings (pola sama untuk semua sub-menu)
+
+```
+OLT Management                                                            [+ Tambah OLT]
+[⌕ Cari…]  [filter relevan ▾]
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│ tabel                                                                                │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+```
+- Satu pola untuk OLT Management, User Management, ONU Types, Splitters & Zone, Speed Profile, VPN, TR-069: **judul + satu tombol tambah di kanan, cari/filter, tabel**.
+- Tambah/edit membuka **drawer kanan 480px** (bukan modal tengah, bukan halaman baru), tombol Simpan sticky di bawah drawer. Pengecualian: edit Splitter memakai halaman sendiri karena memuat tabel ONU terpasang.
+- Kolom per tabel mengikuti PRD §3.4.8–§3.4.14. Kolom "Pemilik" di OLT Management hanya dirender untuk Superadmin.
+- Splitters & Zone: dua tab di bawah judul (Splitter | Zone). Speed Profile: pemilih OLT di kiri baris filter + tab Download | Upload.
+- Kolom "Penggunaan" splitter: teks mono `5/8` + bar 48×4px (pola sama dengan signal bar).
+- Hapus = item di menu baris, konfirmasi dialog kecil; bila diblok (masih dipakai), tombol tetap ada dan dialog menjelaskan sebabnya dalam satu kalimat.
+- Mobile: tabel jadi kartu, drawer jadi bottom sheet penuh layar.
+
+### 12.9 Logs `/logs`
+
+```
+Logs
+[⌕ Cari…]  [Kategori ▾] [OLT ▾] [User ▾] [Tanggal ▾]
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│ Waktu           User    OLT      ONU     Kategori     Keterangan             Hasil    │
+│ 23 Okt 14:01    …       …        [SN]    Otorisasi    …                      Sukses  │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+```
+Baris diklik = drawer kanan: command yang dikirim + respons perangkat (blok mono, password `[REDACTED]`). Tanpa tombol hapus log.
+
+### 12.10 Kartu mobile (pola semua tabel di < 768px)
+
+```
+┌─────────────────────────────────────┐
+│ [Nama pelanggan]            ● Online │  ← baris 1: identitas + status
+│ [SN] · [OLT] 1/2/3:7                 │  ← baris 2: mono, --text-muted
+│ ▮ -22.1 dBm    VLAN 100    [Zone]    │  ← baris 3: angka penentu keputusan
+└─────────────────────────────────────┘
+```
+Tinggi minimum 72px, seluruh kartu bisa diketuk, jarak antar kartu 8px, tanpa shadow. Maksimal 3 baris; data lain ada di halaman detail.
+
+## 13. Pola interaksi
+
+| Pola | Aturan |
+|---|---|
+| Aksi ke OLT | Tombol berubah jadi status job inline: `Menunggu…` → `Mengirim ke OLT…` → `Selesai` (hijau, 3 detik) / `Gagal: [pesan OLT]` + **Coba lagi**. Tidak ada optimistic update |
+| Toast | Hanya untuk hasil job yang selesai saat user sudah pindah halaman. Kanan bawah, maks 3, hilang 5 detik, kecuali gagal (tetap sampai ditutup) |
+| Konfirmasi | Dialog kecil 400px: judul = aksi + target ("Reboot [SN]?"), satu kalimat dampak, tombol aksi di kanan. Aksi berbahaya: ketik SN/nama |
+| Drawer | Kanan, 480px, `shadow-modal`, `Esc` menutup, perubahan belum disimpan = konfirmasi |
+| Loading | Skeleton baris di tabel; tombol yang ditekan menampilkan spinner 14px di dalam tombol, label tetap |
+| Auto-refresh | Dashboard & Configured 60 detik, berhenti saat tab tidak aktif. Teks "Diperbarui 14:02" di baris judul, tanpa animasi |
+| Shortcut | `⌘K/Ctrl+K` cari global · `/` cari halaman · `j/k` pindah baris · `Enter` buka · `Esc` tutup |
+
+## 14. Checklist sebelum halaman dianggap selesai
+
+- Sesuai wireframe §11–§12 (posisi, kesejajaran, isi).
+- Desktop ≥ 1280px (header), tablet 768–1023px dan HP 390px (navigasi bawah) sudah dicek, termasuk Chrome Android, tanpa scroll horizontal di level halaman.
+- Terang dan gelap sudah dicek.
+- State kosong, loading, error, sebagian gagal ada.
+- Menu & aksi yang tidak boleh untuk peran aktif tidak dirender.
+- Tanpa teks penjelas panjang, popup bantuan, garis pemisah berlebih, penomoran berulang, emoji.
+- Bisa dipakai penuh dengan keyboard, fokus terlihat.
