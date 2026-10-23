@@ -1,8 +1,5 @@
 import type { ReactNode } from "react";
-import type { Thresholds } from "../lib/api";
 import { Button } from "./ui/button";
-
-export const DEFAULT_RX: Thresholds = { warn: -25, crit: -27 };
 
 const ONU_STATUS: Record<string, [string, string]> = {
   online: ["Online", "bg-up"],
@@ -24,27 +21,35 @@ export function StatusBadge({ status, compact = false }: { status: string; compa
   );
 }
 
-/** DESIGN.md Rx buckets: normal -8..-25, warn below -25..-27, bad below -27 or above -8. */
-export function rxBucket(dbm: number | null, t: Thresholds): "up" | "warn" | "down" | null {
+export type RxBucket = "good" | "fair" | "weak" | "critical";
+
+/** PRD 3.4.2 / DESIGN 3 (c3): one bucket rule everywhere. null = LOS / no reading. */
+export function rxBucket(dbm: number | null): RxBucket | null {
   if (dbm === null) return null;
-  if (dbm > -8 || dbm < t.crit) return "down";
-  if (dbm < t.warn) return "warn";
-  return "up";
+  if (dbm > -8 || dbm <= -28) return "critical";
+  if (dbm < -27) return "weak";
+  if (dbm < -25) return "fair";
+  return "good";
 }
 
-const BAR = { up: [3, "bg-up"], warn: [2, "bg-warn"], down: [1, "bg-down"] } as const;
+export const RX_BUCKETS: Record<RxBucket, { label: string; segments: number; color: string }> = {
+  critical: { label: "Critical", segments: 1, color: "bg-down" },
+  weak: { label: "Weak", segments: 1, color: "bg-warn" },
+  fair: { label: "Fair", segments: 2, color: "bg-warn" },
+  good: { label: "Good", segments: 3, color: "bg-up" },
+};
 
-export function SignalBar({ dbm, t = DEFAULT_RX, big = false }: { dbm: number | null; t?: Thresholds; big?: boolean }) {
-  const b = rxBucket(dbm, t);
-  const [filled, color] = b ? BAR[b] : [0, ""];
+export function SignalBar({ dbm, big = false }: { dbm: number | null; big?: boolean }) {
+  const b = rxBucket(dbm);
+  const { segments, color, label } = b ? RX_BUCKETS[b] : { segments: 0, color: "", label: "LOS" };
   return (
-    <span className="inline-flex items-center gap-2 font-mono">
+    <span className="inline-flex items-center gap-2 font-mono" title={label}>
       <span className="flex w-12 gap-px" aria-hidden>
         {[0, 1, 2].map((i) => (
-          <span key={i} className={`h-1 flex-1 ${i < filled ? color : "bg-sunken"}`} />
+          <span key={i} className={`h-1 flex-1 ${i < segments ? color : "bg-sunken"}`} />
         ))}
       </span>
-      <span className={big ? "text-metric font-semibold" : ""}>{dbm === null ? "—" : dbm.toFixed(1)}</span>
+      <span className={big ? "text-metric font-semibold" : ""}>{dbm === null ? "LOS" : dbm.toFixed(1)}</span>
       {big && dbm !== null && <span className="text-sm text-muted">dBm</span>}
     </span>
   );
@@ -61,6 +66,16 @@ export function Panel({ title, action, children, className = "" }: { title?: Rea
       )}
       {children}
     </section>
+  );
+}
+
+/** DESIGN 11 title row. On mobile the top bar already shows the title, so h1 is visually hidden there. */
+export function PageTitle({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="mb-3 flex min-h-12 flex-wrap items-center justify-between gap-2">
+      <h1 className="text-xl font-semibold max-lg:sr-only">{title}</h1>
+      {children && <div className="flex items-center gap-2 max-lg:ml-auto">{children}</div>}
+    </div>
   );
 }
 
@@ -88,7 +103,8 @@ export function Empty({ children }: { children: ReactNode }) {
   return <div className="flex flex-wrap items-center gap-3 p-4 text-muted">{children}</div>;
 }
 
-const timeFmt = new Intl.DateTimeFormat("id-ID", { hour: "2-digit", minute: "2-digit" });
+// en-GB gives HH:MM with a colon; id-ID would print 19.15.
+const timeFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
 const dateTimeFmt = new Intl.DateTimeFormat("id-ID", { dateStyle: "short", timeStyle: "short" });
 
 export const fmtTime = (iso: string | null) => (iso ? timeFmt.format(new Date(iso)) : "—");

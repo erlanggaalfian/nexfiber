@@ -1,124 +1,262 @@
-import {
-  BellSimple, ChartBar, ClockCounterClockwise, Cpu, Desktop, HardDrives, Moon, Plugs, SignOut, SlidersHorizontal,
-  Stack, Sun,
-  type Icon,
-} from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
-import { NavLink, Outlet } from "react-router";
-import { api, type PendingOnu } from "../lib/api";
+import { ArrowLeft, CaretDown, MagnifyingGlass, WaveSine } from "@phosphor-icons/react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { DropdownMenu, Popover } from "radix-ui";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
+import { api, type PendingOnu, type SystemStatus } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useJobStream } from "../lib/jobs";
-import { useTheme, type Theme } from "../lib/theme";
+import { HEADER, TABS, pageTitle, settingsFor } from "../lib/nav";
+import { THEMES, useTheme, type Theme } from "../lib/theme";
+import { fmtTime } from "./data";
 
-type Item = { label: string; icon: Icon; to?: string; badge?: number };
+const ROLE_LABEL = { superadmin: "Superadmin", admin: "Admin", user: "User" };
+const overlay = "z-50 rounded-md border bg-surface p-1 shadow-overlay";
+const menuItem =
+  "flex h-9 cursor-pointer items-center gap-2 rounded-sm px-2 text-sm text-ink outline-none data-[highlighted]:bg-sunken";
 
-function NavItem({ item }: { item: Item }) {
-  const base = "flex h-8 items-center gap-2 rounded-sm px-2";
-  const Ic = item.icon;
-  const body = (
-    <>
-      <Ic size={16} className="shrink-0" />
-      <span className="hidden flex-1 truncate lg:inline">{item.label}</span>
-      {item.badge ? <span className="hidden font-mono text-xs lg:inline">{item.badge}</span> : null}
-      {!item.to && <span className="hidden text-xs text-faint lg:inline">Segera</span>}
-    </>
-  );
-  if (!item.to)
-    return (
-      <span className={`${base} cursor-not-allowed text-faint`} aria-disabled title={`${item.label} (segera)`}>
-        {body}
-      </span>
-    );
-  return (
-    <NavLink
-      to={item.to}
-      end={item.to === "/" || item.to === "/onus"}
-      title={item.label}
-      className={({ isActive }) => `${base} ${isActive ? "bg-sunken font-medium text-fiber" : "text-ink hover:bg-sunken"}`}
-    >
-      {body}
-    </NavLink>
-  );
-}
-
-const THEMES: [Theme, string][] = [["system", "Sistem"], ["light", "Terang"], ["dark", "Gelap"]];
-
-export function Layout() {
-  const { me, logout } = useAuth();
-  const [theme, setTheme] = useTheme();
-  useJobStream();
-  const pending = useQuery({
+function usePending() {
+  return useQuery({
     queryKey: ["pending"],
     queryFn: () => api<PendingOnu[]>("/api/onus/pending"),
     refetchInterval: 60_000,
-  });
+  }).data?.length ?? 0;
+}
 
-  const groups: [string, Item[]][] = [
-    ["Monitor", [
-      { label: "Ringkasan", icon: ChartBar, to: "/" },
-      { label: "Alarm", icon: BellSimple },
-    ]],
-    ["Perangkat", [
-      { label: "OLT", icon: HardDrives, to: "/olts" },
-      { label: "ONU", icon: Cpu, to: "/onus" },
-      { label: "Otorisasi menunggu", icon: Plugs, to: "/onus/pending", badge: pending.data?.length },
-    ]],
-    ["Konfigurasi", [
-      { label: "Profile", icon: SlidersHorizontal },
-      { label: "Template Provisioning", icon: Stack },
-    ]],
-    ["Riwayat", [{ label: "Log Aksi", icon: ClockCounterClockwise }]],
-  ];
-
+function Badge({ n, className = "" }: { n: number; className?: string }) {
+  if (!n) return null;
   return (
-    <div className="flex min-h-dvh">
-      <aside className="sticky top-0 flex h-dvh w-12 shrink-0 flex-col border-r bg-surface lg:w-52">
-        <div className="flex h-12 items-center px-3 text-lg font-semibold text-fiber">
-          <span className="lg:hidden">N</span>
-          <span className="hidden lg:inline">Nexfiber</span>
-        </div>
-        <nav className="flex-1 overflow-y-auto px-1.5 lg:px-2">
-          {groups.map(([group, items]) => (
-            <div key={group} className="mb-3">
-              <p className="mb-1 hidden px-2 text-xs text-muted lg:block">{group}</p>
-              {items.map((i) => <NavItem key={i.label} item={i} />)}
-            </div>
-          ))}
-        </nav>
-        <div className="border-t p-2 text-xs">
-          <label className="hidden lg:block">
-            <span className="text-muted">Tema</span>
-            <select
-              value={theme}
-              onChange={(e) => setTheme(e.target.value as Theme)}
-              className="mt-1 h-7 w-full rounded-sm border border-line-strong bg-surface px-1"
-            >
-              {THEMES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-          </label>
-          <button
-            onClick={() => setTheme(THEMES[(THEMES.findIndex(([v]) => v === theme) + 1) % 3][0])}
-            title={`Tema: ${THEMES.find(([v]) => v === theme)?.[1]}`}
-            className="rounded-sm p-1.5 text-muted hover:bg-sunken lg:hidden"
-          >
-            {theme === "dark" ? <Moon size={16} /> : theme === "light" ? <Sun size={16} /> : <Desktop size={16} />}
-            <span className="sr-only">Ganti tema</span>
-          </button>
-          <div className="mt-2 flex flex-col items-center gap-2 lg:flex-row">
-            <div className="hidden min-w-0 flex-1 lg:block">
-              <p className="truncate text-sm text-ink">{me.full_name}</p>
-              <p className="text-muted">{me.role}</p>
-            </div>
-            <button onClick={logout} title="Keluar" className="rounded-sm p-1.5 text-muted hover:bg-sunken">
-              <SignOut size={16} />
-              <span className="sr-only">Keluar</span>
-            </button>
+    <span className={`rounded-sm bg-amber px-1 font-mono text-xs leading-4 text-white ${className}`}>
+      {n > 99 ? "99+" : n}
+    </span>
+  );
+}
+
+const menuClass = (active: boolean) =>
+  `relative flex h-14 items-center gap-1.5 rounded-sm px-3 text-sm font-medium ${
+    active
+      ? "text-ink after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-fiber"
+      : "text-muted hover:bg-sunken hover:text-ink"
+  }`;
+
+function SettingsMenu() {
+  const { me } = useAuth();
+  const { pathname } = useLocation();
+  const items = settingsFor(me.role);
+  const active = pathname.startsWith("/settings");
+  return (
+    <DropdownMenu.Root modal={false}>
+      <DropdownMenu.Trigger className={menuClass(active)} aria-current={active ? "page" : undefined}>
+        Settings <CaretDown size={12} />
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content align="start" sideOffset={4} className={`${overlay} w-60`}>
+          {items.map((i, idx) => {
+            const sep = i.soon && !items[idx - 1]?.soon;
+            const Ic = i.icon;
+            return (
+              <div key={i.to}>
+                {sep && <DropdownMenu.Separator className="my-1 h-px bg-line" />}
+                {i.soon ? (
+                  <DropdownMenu.Item disabled className={`${menuItem} cursor-not-allowed text-faint`}>
+                    <Ic size={16} /> <span className="flex-1">{i.label}</span>
+                    <span className="text-xs">Segera</span>
+                  </DropdownMenu.Item>
+                ) : (
+                  <DropdownMenu.Item asChild className={menuItem}>
+                    <Link to={i.to}>
+                      <Ic size={16} /> {i.label}
+                    </Link>
+                  </DropdownMenu.Item>
+                )}
+              </div>
+            );
+          })}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
+function SystemDot() {
+  const q = useQuery({
+    queryKey: ["system-status"],
+    queryFn: () => api<SystemStatus>("/api/system/status"),
+    refetchInterval: 30_000,
+  });
+  const alive = q.data?.worker_alive;
+  const label = q.isPending ? "Memeriksa" : alive ? "Sistem aktif" : "Worker mati";
+  const color = q.isPending ? "bg-idle" : alive ? "bg-up" : "bg-down";
+  return (
+    <Popover.Root>
+      <Popover.Trigger className="flex h-8 items-center gap-1.5 rounded-sm px-2 text-xs text-muted hover:bg-sunken" title={label}>
+        <span className={`size-1.5 ${color}`} aria-hidden />
+        <span className="max-xl:sr-only">{label}</span>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content align="end" sideOffset={4} className={`${overlay} w-60 p-3 text-sm`}>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+            <dt className="text-muted">Worker</dt>
+            <dd>{alive ? "Aktif" : "Mati"} · {fmtTime(q.data?.worker_heartbeat_at ?? null)}</dd>
+            <dt className="text-muted">Job antre</dt>
+            <dd className="font-mono">{q.data?.jobs_pending ?? "—"}</dd>
+            <dt className="text-muted">Poll terakhir</dt>
+            <dd className="font-mono">{fmtTime(q.data?.last_poll_at ?? null)}</dd>
+          </dl>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+const initials = (name: string) =>
+  name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
+
+function AvatarMenu() {
+  const { me, logout } = useAuth();
+  const [theme, setTheme] = useTheme();
+  return (
+    <DropdownMenu.Root modal={false}>
+      <DropdownMenu.Trigger
+        className="flex size-7 items-center justify-center rounded-full bg-sunken text-xs font-semibold text-ink"
+        aria-label={`Akun ${me.full_name}`}
+      >
+        {initials(me.full_name)}
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content align="end" sideOffset={4} className={`${overlay} w-60`}>
+          <div className="px-2 py-1.5">
+            <p className="truncate text-sm text-ink">{me.full_name}</p>
+            <p className="text-xs text-muted">{ROLE_LABEL[me.role]}</p>
           </div>
+          <DropdownMenu.Separator className="my-1 h-px bg-line" />
+          <DropdownMenu.Item asChild className={menuItem}>
+            <Link to="/akun/password">Ganti password</Link>
+          </DropdownMenu.Item>
+          <DropdownMenu.Label className="px-2 pt-1.5 text-xs text-muted">Tema</DropdownMenu.Label>
+          <DropdownMenu.RadioGroup value={theme} onValueChange={(v) => setTheme(v as Theme)}>
+            {THEMES.map(([v, l]) => (
+              <DropdownMenu.RadioItem key={v} value={v} className={`${menuItem} data-[state=checked]:font-semibold`}>
+                <span className="w-3 text-fiber">{theme === v ? "●" : ""}</span> {l}
+              </DropdownMenu.RadioItem>
+            ))}
+          </DropdownMenu.RadioGroup>
+          <DropdownMenu.Separator className="my-1 h-px bg-line" />
+          <DropdownMenu.Item onSelect={logout} className={menuItem}>Logout</DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
+function DesktopHeader({ pending }: { pending: number }) {
+  return (
+    <header className="sticky top-0 z-40 hidden h-14 border-b bg-surface lg:block">
+      <div className="mx-auto flex h-full max-w-[1440px] items-center gap-4 px-4">
+        <Link to="/" className="flex items-center gap-2 text-[15px] font-semibold text-ink">
+          <WaveSine size={20} className="text-fiber" /> Nexfiber
+        </Link>
+        <nav aria-label="Menu utama" className="flex items-center gap-1">
+          {HEADER.slice(0, 3).map((i) => (
+            <NavLink key={i.to} to={i.to} end className={({ isActive }) => menuClass(isActive)}>
+              {i.label}
+              {i.to === "/unconfigured" && <Badge n={pending} />}
+            </NavLink>
+          ))}
+          <SettingsMenu />
+          <NavLink to="/logs" className={({ isActive }) => menuClass(isActive)}>Logs</NavLink>
+        </nav>
+        <div className="ml-auto flex items-center gap-2">
+          {/* ponytail: input only; command palette (DESIGN 11) comes with the search stage. */}
+          <label className="relative">
+            <span className="sr-only">Cari</span>
+            <input
+              type="search"
+              placeholder="Cari SN, nama, PPPoE, IP OLT"
+              className="h-8 w-60 rounded-sm border border-line-strong bg-surface pr-9 pl-2 text-sm placeholder:text-faint"
+            />
+            <kbd aria-hidden className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 font-mono text-xs text-faint">⌘K</kbd>
+          </label>
+          <SystemDot />
+          <AvatarMenu />
         </div>
-      </aside>
-      <main className="min-w-0 flex-1 p-3 lg:p-4">
+      </div>
+    </header>
+  );
+}
+
+function MobileTopBar({ isTab, title }: { isTab: boolean; title: string }) {
+  const navigate = useNavigate();
+  return (
+    <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b bg-surface px-3 lg:hidden">
+      {!isTab && (
+        <button onClick={() => navigate(-1)} className="-ml-1 flex size-11 items-center justify-center" aria-label="Kembali">
+          <ArrowLeft size={20} />
+        </button>
+      )}
+      <span className="min-w-0 flex-1 truncate text-lg font-semibold" aria-hidden>{title}</span>
+      <button className="flex size-11 items-center justify-center text-muted" aria-label="Cari">
+        <MagnifyingGlass size={20} />
+      </button>
+      <AvatarMenu />
+    </header>
+  );
+}
+
+function BottomNav({ pending }: { pending: number }) {
+  const { pathname } = useLocation();
+  const qc = useQueryClient();
+  return (
+    <nav
+      aria-label="Menu utama"
+      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden"
+    >
+      {TABS.map((t) => {
+        const active = pathname === t.to;
+        const Ic = t.icon;
+        return (
+          <Link
+            key={t.to}
+            to={t.to}
+            aria-current={active ? "page" : undefined}
+            onClick={() => {
+              if (!active) return;
+              scrollTo({ top: 0 });
+              qc.invalidateQueries();
+            }}
+            className={`flex h-16 flex-col items-center justify-center gap-1 text-xs ${active ? "font-semibold text-ink" : "font-medium text-muted"}`}
+          >
+            <span className="relative flex h-8 w-14 items-center justify-center">
+              <span
+                className={`absolute inset-0 rounded-2xl bg-fiber/12 transition-transform duration-150 ease-out motion-reduce:transition-none ${active ? "scale-100" : "scale-0"}`}
+                aria-hidden
+              />
+              <Ic size={24} weight={active ? "fill" : "regular"} className={`relative ${active ? "text-fiber" : ""}`} />
+              {t.to === "/unconfigured" && <Badge n={pending} className="absolute -top-1 right-1" />}
+            </span>
+            {t.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+export function Layout() {
+  useJobStream();
+  const pending = usePending();
+  const { pathname } = useLocation();
+  const isTab = TABS.some((t) => t.to === pathname);
+  return (
+    <div className="min-h-dvh">
+      <a href="#konten" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-surface focus:p-2">
+        Langsung ke konten
+      </a>
+      <DesktopHeader pending={pending} />
+      <MobileTopBar isTab={isTab} title={pageTitle(pathname)} />
+      <main id="konten" className={`mx-auto max-w-[1440px] p-3 lg:p-4 ${isTab ? "pb-24 lg:pb-4" : ""}`}>
         <Outlet />
       </main>
+      {isTab && <BottomNav pending={pending} />}
     </div>
   );
 }

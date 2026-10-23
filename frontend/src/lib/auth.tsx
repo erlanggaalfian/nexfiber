@@ -3,7 +3,7 @@ import { createContext, useContext, type ReactNode } from "react";
 import { Navigate, useLocation } from "react-router";
 import { api, getToken, setToken, type Me } from "./api";
 
-type Auth = { me: Me; can: (perm: string) => boolean; logout: () => void };
+type Auth = { me: Me; isManager: boolean; logout: () => void };
 const AuthContext = createContext<Auth | null>(null);
 
 export async function login(username: string, password: string) {
@@ -25,7 +25,8 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     qc.clear();
     location.assign("/login");
   };
-  return <AuthContext value={{ me, can: (p) => me.permissions.includes(p), logout }}>{children}</AuthContext>;
+  // Menu visibility only; the backend enforces scope and roles on every endpoint (PRD 3.7).
+  return <AuthContext value={{ me, isManager: me.role !== "user", logout }}>{children}</AuthContext>;
 }
 
 export function useAuth() {

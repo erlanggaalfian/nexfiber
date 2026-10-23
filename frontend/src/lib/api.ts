@@ -51,7 +51,10 @@ export const qs = (params: Record<string, string | number | undefined | null>) =
   return s ? `?${s}` : "";
 };
 
-export type Me = { id: number; username: string; full_name: string; role: string; permissions: string[] };
+export type Role = "superadmin" | "admin" | "user";
+export type Me = {
+  id: number; username: string; full_name: string; role: Role; admin_id: number | null; must_change_password: boolean;
+};
 
 export type Olt = {
   id: number; name: string; host: string; vendor: string; model: string;
@@ -112,15 +115,16 @@ export type Job = {
   error_message: string | null; error_code: string | null; result: Record<string, unknown> | null;
 };
 
-export type Thresholds = { warn: number; crit: number };
-
 export type Dashboard = {
-  action: { los_over_15m: number; pending_authorization: number; olt_poll_failed: number };
-  rx_histogram: Partial<Record<"normal" | "warn" | "bad", number>>;
-  rx_threshold: Thresholds;
-  busiest_pon_ports: { pon_port_id: number; olt_id: number; olt_name: string; slot: number; port: number; used: number; capacity: number }[];
+  olt_by_status: Record<string, number>;
   onu_by_status: Record<string, number>;
-  olt_count: number;
-  activated_today: number;
+  unconfigured: number;
+  last_poll_at: string | null;
+};
+
+export type SystemStatus = {
+  worker_alive: boolean;
+  worker_heartbeat_at: string | null;
+  jobs_pending: number;
   last_poll_at: string | null;
 };

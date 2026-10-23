@@ -3,12 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffffff" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <title>Nexfiber</title>
     <script>
       // Apply theme before first paint to avoid a light flash in dark mode.
       const t = localStorage.getItem("theme") || "light";
       const dark = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
       document.documentElement.classList.toggle("dark", dark);
+      document.querySelector('meta[name="theme-color"]').setAttribute("content", dark ? "#1b1c19" : "#ffffff");
     </script>
   </head>
   <body>

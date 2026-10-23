@@ -1,6 +1,7 @@
 import type { ButtonHTMLAttributes } from "react";
 
 const VARIANTS = {
+  fiber: "bg-fiber text-white font-semibold border border-fiber hover:opacity-90",
   primary: "bg-amber text-white font-semibold border border-amber",
   secondary: "border border-line-strong text-ink hover:bg-sunken",
   quiet: "text-fiber hover:underline",
