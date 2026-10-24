@@ -69,7 +69,8 @@ async def test_master_data_crud_and_scope() -> None:
             assert rz.status_code == 201, rz.text
             ids["zone"] = rz.json()["id"]
             assert (await c.get(f"/api/zones/{ids['zone']}", headers=_auth(b))).status_code == 404
-            assert (await c.get(f"/api/zones/{ids['zone']}", headers=_auth(viewer))).status_code == 200
+            seen = await c.get(f"/api/zones/{ids['zone']}", headers=_auth(viewer))
+            assert seen.status_code == 200, seen.text
             assert (await c.post("/api/zones", headers=_auth(viewer),
                                  json={"name": "x"})).status_code == 403
             assert [z["id"] for z in (await c.get("/api/zones", headers=_auth(b))).json()] == []

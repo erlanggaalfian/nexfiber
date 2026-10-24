@@ -8,8 +8,8 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.onu import Onu
-from app.models.splitter import Splitter
 from app.models.onu_type import OnuType
+from app.models.splitter import Splitter
 from app.models.zone import Zone
 
 
@@ -103,7 +103,8 @@ async def list_splitters(db: AsyncSession, owner_id: int | None, q: str | None,
     return list(await db.execute(stmt))
 
 
-async def get_splitter_row(db: AsyncSession, splitter_id: int, owner_id: int | None) -> tuple | None:
+async def get_splitter_row(db: AsyncSession, splitter_id: int,
+                           owner_id: int | None) -> tuple | None:
     stmt = owned(_splitter_rows().where(Splitter.id == splitter_id), owner_id)
     return (await db.execute(stmt)).first()
 
