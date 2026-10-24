@@ -1,0 +1,120 @@
+# DECISIONS.md — keputusan terkunci Nexfiber (jangan ditanya ulang)
+
+Dokumen ini kumpulan jawaban final atas ambiguitas yang sudah diputuskan.
+Kalau Copilot/sub-agent nemu konflik dengan `PRD-FINAL.md`/`DESIGN.md`,
+**dokumen ini menang** untuk poin-poin di bawah (PRD/DESIGN belum sempat
+di-sync ulang ke semua poin ini). Jangan tanya ulang ke user untuk hal yang
+sudah tercatat di sini.
+
+## Role & data model
+- Role ENUM Postgres 3 nilai di `users.role`: `superadmin`, `admin`, `user`.
+  Bukan "role sebagai data"/tabel terpisah — nambah role baru = migrasi Alembic.
+- DB dev lama: TIDAK dimigrasikan. Reset total: drop DB dev → `alembic upgrade
+  head` → buat Superadmin pertama via `/setup` → jalankan ulang seed dev
+  (OLT dimiliki satu Admin dev + satu User dev di bawahnya). Seed dev TIDAK
+  masuk git repo.
+- `scripts/create_admin.py` dihapus — melanggar aturan "no default password",
+  diganti alur `/setup` (404 setelah user pertama ada).
+
+## Sinyal / RX
+- 4 bucket dipakai di **SEMUA** tempat (tabel, kartu, filter, signal bar) —
+  jangan ada tempat lain yang pakai pembagian 3 level:
+  - **Good**: -8 s/d -25 dBm
+  - **Fair**: -25 s/d -27 dBm
+  - **Weak**: -27 s/d -28 dBm
+  - **Critical**: ≤ -28 dBm, ATAU > -8 dBm (sinyal kelewat kuat)
+  - **LOS**: tanpa nilai / putus
+
+## Ditunda (jangan dibangun di MVP)
+- Sparkline/grafik ONU online 24 jam per OLT di tabel Dashboard — ditunda.
+  JANGAN buat tabel `onu_status_history`.
+- Notifikasi Telegram/email (alert M6) — ditunda. Alert cukup tampil di
+  dashboard (list/badge), tanpa pengiriman keluar.
+- VPN Tunnels & TR-069 Management — tetap Phase 2 ("Segera"), tidak dibangun.
+
+## Job & scheduling
+- Nama job provisioning ONU: **`authorize_onu`** (bukan `provision_onu`).
+- `sync_unconfigured`: interval **1 menit**.
+- Kesehatan OLT (cpu/ram/suhu/uptime/cards): **gabung ke job optical yang
+  sudah ada** (siklus 15 menit), satu koneksi per OLT untuk optical+health
+  sekaligus. Jangan buat job terpisah `sync_olt_health`. Boleh rename job
+  jadi `sync_olt_metrics` kalau scope-nya (optical+health) perlu nama yang
+  lebih jelas — field DB tetap sama.
+- Rx OLT per ONU (ZTE): via CLI `show pon power olt-rx gpon-olt_<pon>` di
+  siklus 15 menit yang sama. **Parser untuk output ini BELUM ADA CONTOH
+  OUTPUT ASLI** — `olt_rx_power_dbm` tetap `None` sampai ada sample nyata
+  dari ONU test (`gpon-onu_1/4/1:11`, OLT id=8). Tandai di kode
+  `# TODO: parser belum ada contoh output asli`.
+- Reboot ONU (`pon-onu-mng` / `reboot` / `exit`): implementasikan, tapi
+  tandai `# UNVERIFIED: uji di ONU test` di kode. JANGAN dieksekusi ke OLT
+  produksi nyata oleh agent manapun — hanya user yang menjalankan uji nyata,
+  dan hanya ke `gpon-onu_1/4/1:11`.
+
+## Scope authorize_onu (MVP)
+- **Minimal**: onu + type + sn + tcont + gemport + service-port, VLAN dari
+  `onus.vlan_id` (dropdown pilih VLAN existing).
+- **TIDAK** termasuk block `pon-onu-mng` (flow/switchport-bind, WiFi SSID,
+  PPPoE) — itu device-specific per pelanggan, domainnya Detail ONU/preset,
+  bukan job `authorize_onu`.
+
+## VLAN write — scope fase Settings
+- Fase Settings (Speed Profile) sekarang: backend saja —
+  `POST/DELETE /api/vlans`, driver push ke OLT, job type baru untuk VLAN.
+  Speed Profile di UI tetap **baca-saja** terhadap VLAN existing (dropdown
+  pilih VLAN, bukan CRUD VLAN di halaman Speed Profile).
+- UI CRUD VLAN penuh dibangun nanti di **Detail OLT tab VLANs** (PRD §3.4.7),
+  bukan di halaman Speed Profile.
+
+## Kesehatan OLT — skema DB
+- Tambah kolom langsung ke tabel `olts` (BUKAN tabel `olt_cards` terpisah):
+  `cpu_pct`, `ram_pct`, `temperature_c`, `uptime_seconds`, `software_version`,
+  plus satu kolom `cards` tipe **JSONB** untuk data per-slot/card.
+- Alasan: data card cuma ditampilkan di satu tab, tidak pernah di-query
+  granular per-card. JSONB cukup; jangan bikin tabel relasional untuk ini.
+
+## Infra / config
+- Health endpoint: **`/healthz`** (bukan `/api/health`) — konsisten di semua
+  dokumen, script, dan test.
+- `config.py` baca `config.ini` dari env `NEXFIBER_CONFIG` (format: section
+  `[database] url`, `[app] secret_key`) bila env itu ada; fallback ke `.env`
+  untuk dev kalau env `NEXFIBER_CONFIG` tidak di-set.
+- Struktur folder: pertahankan `app/worker` (dijalankan `python -m app.worker`)
+  seperti sekarang, JANGAN pindah ke `repositories/`+`worker/` di root.
+- Indikator "● Sistem aktif": `GET /api/system/status`, aktif bila heartbeat
+  worker < 2 menit.
+
+## Urutan pembangunan halaman
+- **Settings dulu** (Zone, ONU Types, Splitter, Speed Profile+VLAN read,
+  User Management) → baru Unconfigured → Configured → Form Otorisasi →
+  Detail ONU → Detail OLT → Dashboard penuh → Logs → Akun.
+- Alasan: Form Otorisasi butuh dropdown Zone/ONU Types/Splitter — kalau
+  dibangun sebelum Settings ada, akan pakai data mock lalu harus dirombak
+  ulang.
+
+## Dashboard — blok v3 yang DIHAPUS
+Hapus semua, ganti dengan isi v4 (strip 4 sel, baris sinyal 4 bucket, tabel
+OLT tanpa sparkline, aktivitas terbaru, "Diperbarui HH:MM" + tombol Refresh):
+- Blok "Perlu tindakan" (daftar ONU bermasalah)
+- Histogram Rx
+- "6 PON terpadat" (daftar PON tersibuk)
+- Kalimat ringkasan agregat
+- Countdown refresh (ganti jadi teks statis "Diperbarui HH:MM")
+
+## Infra server (hasil setup nyata, bukan rencana)
+- Server ini (Debian 12 bookworm) sudah jalan Apache untuk domain lain —
+  Nexfiber TIDAK pakai Caddy/domain/HTTPS, cukup satu port HTTP langsung.
+- Port aplikasi: **8088** (dicek kosong, dikonfirmasi user).
+- Deploy: **tanpa Docker** — install lokal langsung di server
+  (`/opt/nexfiber`, venv Python 3.11, PostgreSQL bawaan Debian/repo resmi
+  versi 15, systemd unit `nexfiber-api` + `nexfiber-worker`, frontend
+  di-build jadi static lalu disajikan langsung oleh FastAPI lewat
+  `StaticFiles`/`FileResponse` — tidak ada nginx/caddy terpisah).
+- `install.sh` dan `update.sh` dijalankan di **host** (bukan di dalam
+  container — tidak ada container sama sekali untuk deployment ini).
+- Config tersimpan di `/etc/nexfiber/config.ini`, dimiliki user sistem
+  `nexfiber` (folder WAJIB di-chown juga, bukan cuma isinya — pernah jadi
+  bug: folder tetap `root:root` padahal file sudah `chown nexfiber`, bikin
+  API gagal baca config dan crash loop).
+- User dev untuk login: dibuat via `POST /api/auth/setup` (bukan script
+  manual) — username `admin`, password lihat catatan terpisah (jangan
+  simpan password asli di file markdown).

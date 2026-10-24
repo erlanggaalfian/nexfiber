@@ -20,13 +20,26 @@ Selera pemilik produk (wajib diikuti):
 
 ## 2. Dial
 
-`Dial: ENERGY 1 / RHYTHM 1 / MOTION 1`
+`Dial: ENERGY 1 / RHYTHM 1 / MOTION 2`
 
 - **ENERGY 1**: alasan: aplikasi kerja harian; sapaan visual mengambil perhatian yang seharusnya milik data alarm.
 - **RHYTHM 1**: alasan: operator memindai layar yang sama ratusan kali per shift; posisi elemen yang stabil mempercepat muscle memory. Variasi komposisi diizinkan hanya antar jenis layar (dashboard vs tabel vs detail), bukan antar section di dalam satu layar.
-- **MOTION 1**: alasan: hover/focus/transisi state saja. Tidak ada scroll-reveal, tidak ada pulse abadi. Gerak abadi di layar monitoring menyerupai alarm palsu.
+- **MOTION 2**: hover/focus/transisi state (seperti sebelumnya) **plus** entrance animation bertujuan (fade+rise saat halaman/kartu/baris pertama muncul, stagger antar kartu) dan depth 3D ringan di kartu/panel saat hover (lift halus, bukan skeuomorphism). Tidak ada gerak abadi/looping (tanpa pulse, tanpa parallax scroll, tanpa particle) — motion selalu berakhir, maksimal sekali per kemunculan elemen. Alasan upgrade dari MOTION 1: entrance/stagger yang pendek (≤500ms, sekali saja) membantu mata menangkap struktur baru tanpa menyerupai alarm; depth hover memberi afforadance "ini bisa diklik" tanpa menambah elemen dekoratif. Lihat §2.1 untuk token presisi. Spesifikasi lengkap di `animation-principles`/`web-design` skill, diterapkan dengan filter antislop (tidak ada animasi tanpa tujuan).
 
-Karakter datang dari tipografi, densitas, dan motif signal bar, bukan dari energi atau animasi.
+Karakter datang dari tipografi, densitas, motif signal bar, **dan sekarang juga dari depth/motion terkontrol** — bukan dari energi warna atau gerak dekoratif.
+
+### 2.1 Token motion
+
+| Token | Durasi | Easing | Pakai |
+|---|---|---|---|
+| `motion-micro` | 100ms | `ease-out` | Toggle, checkbox, badge status berubah |
+| `motion-hover` | 150ms | `ease-out` | Hover tombol/baris/kartu, depth lift |
+| `motion-fade` | 200ms | `ease-out` masuk / `ease-in` keluar | Toast, dropdown, tooltip |
+| `motion-panel` | 250ms | `ease-out` masuk / `ease-in` keluar | Drawer, modal, popover |
+| `motion-entrance` | 300ms | `ease-out` | Fade+rise 8px saat kartu/section pertama tampil |
+| `motion-stagger` | 40–60ms delay/item, maks 5 item | `ease-out` | Urutan kartu ringkasan Dashboard, baris tabel pertama kali termuat |
+
+Aturan: total durasi satu sekuens stagger tidak boleh lebih dari 500ms. Semua token di atas wajib respect `prefers-reduced-motion: reduce` (durasi jadi ~0, tanpa translate). Properti yang dianimasikan dibatasi `opacity`, `transform` (translate/scale) — tidak pernah `width`/`height`/`top`/`left` (hindari layout thrash).
 
 ## 3. Palet
 
@@ -52,11 +65,12 @@ Dua warna inti + satu aksen + netral. Netral tidak dihitung sebagai warna inti (
 | `--ink` | `#1C1B18` | Warna inti 1: teks, ikon, garis. Alasan: grafit kehijauan, bukan hitam netral, agar menyatu dengan latar hangat. |
 | `--fiber` | `#0F5C4A` | Warna inti 2: nav aktif, link, judul section, state terpilih. Alasan: hijau tua optik, merujuk serat/konektor APC; bukan biru korporat default dan lolos AA sebagai teks (7.9:1 di putih, 7.3:1 di `--bg-app`). |
 
-### Aksen (satu, dipakai di momen kunci)
+### Aksen (dua, dipakai di momen kunci — ditambah satu untuk ekspresi, bukan menggantikan amber)
 
 | Token | Hex | Pakai |
 |---|---|---|
 | `--amber` | `#B4540A` | Tombol aksi primer komit (Authorize, Reboot, Apply), penanda baris terpilih. Alasan: satu-satunya warna yang berarti "tindakan ini mengubah jaringan"; dilarang muncul di ikon, link, atau latar dekoratif. Teks putih di atasnya 4.98:1 (AA lolos); karena itu label tombol primer minimum 13px/600. |
+| `--teal-glow` | `#1D8A74` | **Baru.** Satu-satunya tambahan ekspresif: ring tipis 1px di kartu metric Dashboard saat hover (depth, §2.1), dan highlight garis atas 2px pada kartu yang baru menerima data real-time (sekali, hilang 2s). Tidak pernah dipakai di teks atau ikon (hanya border/ring tipis) agar tidak bersaing dengan `--fiber`/`--amber` sebagai bahasa aksi. |
 
 ### Status (bahasa data, bukan palet dekorasi)
 
@@ -98,6 +112,7 @@ Dark bukan default, tapi wajib ada dan wajib berfungsi penuh (R-21, R-34). Alasa
 | `--text-muted` | `#A9A69C` (7.0:1) |
 | `--fiber` | `#4FB79B` |
 | `--amber` | `#E08A3C` |
+| `--teal-glow` | `#3FD1B0` |
 | `--st-up` | `#56B870` |
 | `--st-warn` | `#D9A33A` |
 | `--st-down` | `#E4707A` |
@@ -107,7 +122,7 @@ Toggle: `Sistem / Terang / Gelap`, tersimpan per pengguna. Keduanya diuji kontra
 
 ### Larangan palet
 
-Tanpa gradien sebagai warna primer, tanpa glow, tanpa latar radial, tanpa background grid/blueprint. Alasan: tidak ada hierarki yang dilayani; di layar penuh angka, efek-efek itu hanya menambah noise.
+Tanpa gradien sebagai warna primer, tanpa latar radial, tanpa background grid/blueprint, tanpa glow menyebar (box-shadow blur besar berwarna). Alasan: tidak ada hierarki yang dilayani; di layar penuh angka, efek itu hanya menambah noise. Pengecualian tunggal (§2.1, `--teal-glow`): ring/garis tipis 1–2px saat hover/update data — ini sinyal state, bukan dekorasi, dan dibatasi ukurannya persis supaya tidak menjadi glow.
 
 ## 4. Tipografi
 
@@ -165,16 +180,17 @@ Tiga tingkat, bukan satu.
 
 Tidak ada pill. Alasan: bentuk kapsul menghapus perbedaan antara badge, tombol, dan input di layar yang penuh kontrol kecil.
 
-## 7. Shadow
+## 7. Shadow & depth
 
-Dua level saja, dan hanya untuk elevasi nyata.
+Dua level shadow untuk elevasi nyata (dropdown, modal), **plus** satu level depth-hover baru untuk motif 3D ringan di kartu interaktif (§2.1 MOTION 2).
 
 | Token | Nilai | Pakai |
 |---|---|---|
 | `shadow-overlay` | `0 4px 12px rgba(28,27,24,0.14)` | Dropdown, popover, context menu |
 | `shadow-modal` | `0 12px 32px rgba(28,27,24,0.22)` | Dialog, drawer |
+| `shadow-hover-lift` | `0 6px 16px rgba(28,27,24,0.12)` + `translateY(-2px)` | Kartu metric Dashboard, kartu Settings saat `:hover`/`:focus-visible`, transisi `motion-hover` (150ms) |
 
-Panel, kartu, tabel, dan header **tidak** memakai shadow; pemisahan memakai `--border` dan perbedaan latar. Alasan: shadow adalah penanda "elemen ini melayang di atas yang lain"; jika semuanya melayang, elevasi tidak lagi memberi tahu apa pun.
+Panel, kartu statis, tabel, dan header tetap **tidak** memakai shadow saat diam; pemisahan tetap memakai `--border` dan perbedaan latar (layer `--bg-surface`/`--bg-sunken`, lihat §3 untuk depth lewat warna). `shadow-hover-lift` HANYA aktif saat interaksi (hover/focus), bukan status diam — alasan: elevasi harus berarti "ini responsif", bukan hiasan permanen.
 
 Fokus: `outline: 2px solid var(--fiber); outline-offset: 1px` di light, `--amber` di dark. Tidak pernah `outline: none` tanpa pengganti.
 
@@ -365,6 +381,7 @@ Kualitas sinyal   Critical 14 ▮  Weak 52 ▮  Fair 310 ▮  Good 4.436 ▮    
 - Sparkline ONU online 24 jam per OLT ditunda (PRD §3.4.2).
 - Contoh angka di wireframe hanya ilustrasi ukuran; build memakai data nyata atau sel kosong.
 - Mobile: strip jadi grid 2×2, baris sinyal jadi 2×2, tabel OLT jadi kartu (Nama, SNMP, ONU on/total), aktivitas 5 baris.
+- **Motion (§2.1)**: keempat sel strip muncul dengan `motion-entrance` + `motion-stagger` (urutan kiri→kanan, total ≤250ms) hanya saat halaman pertama dimuat, bukan tiap auto-refresh. Setiap sel `shadow-hover-lift` saat `:hover`/`:focus-visible`. Saat auto-refresh (60s) mengubah angka, sel yang berubah dapat garis atas 2px `--teal-glow` sekali, hilang 2s — bukan animasi angka berganti (hindari layout thrash).
 
 ### 12.3 Unconfigured `/unconfigured`
 
@@ -514,3 +531,4 @@ Tinggi minimum 72px, seluruh kartu bisa diketuk, jarak antar kartu 8px, tanpa sh
 - Menu & aksi yang tidak boleh untuk peran aktif tidak dirender.
 - Tanpa teks penjelas panjang, popup bantuan, garis pemisah berlebih, penomoran berulang, emoji.
 - Bisa dipakai penuh dengan keyboard, fokus terlihat.
+- Motion sesuai token §2.1 (durasi/easing tepat, sekali per kemunculan, tidak ada loop), properti animasi hanya `opacity`/`transform`, `prefers-reduced-motion: reduce` sudah diuji (motion hilang, layout tetap sama).
