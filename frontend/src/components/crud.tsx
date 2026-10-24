@@ -5,6 +5,7 @@
 import { CaretDown, X } from "@phosphor-icons/react";
 import { Dialog, Popover } from "radix-ui";
 import type { ReactNode } from "react";
+import { useState } from "react";
 import { Empty, ErrorState, Skeleton } from "./data";
 import { Button } from "./ui/button";
 
@@ -122,22 +123,25 @@ export function UsageBar({ used, capacity }: { used: number; capacity: number | 
 
 /** Filter multi-pilih DESIGN 12.5: tombol kecil yang jadi "Status · 2" saat aktif,
  *  isinya checkbox. Dipakai semua filter tabel Configured supaya tidak ada tujuh
- *  variasi dropdown yang ditulis tangan.
- *
- *  ponytail: tanpa kotak cari di dalam dropdown — daftar pilihan saat ini (status,
- *  sinyal, OLT, VLAN, zone, splitter) masih pendek. skipped: search box,
- *  tambah kalau satu daftar lewat ~20 item.
+ *  variasi dropdown yang ditulis tangan. Kotak cari muncul sendiri saat pilihan
+ *  lebih dari SEARCH_MIN — jadi tiap filter panjang (OLT/zone/splitter/VLAN)
+ *  tersaring tanpa logic pencarian ditulis ulang di halaman.
  */
+const SEARCH_MIN = 8;
+
 export function MultiFilter({ label, options, value, onChange }: {
   label: string;
   options: { value: string; label: string }[];
   value: string[];
   onChange: (next: string[]) => void;
 }) {
+  const [q, setQ] = useState("");
   const toggle = (v: string) =>
     onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? options.filter((o) => o.label.toLowerCase().includes(needle)) : options;
   return (
-    <Popover.Root>
+    <Popover.Root onOpenChange={(o) => !o && setQ("")}>
       <Popover.Trigger asChild>
         <Button size="sm" aria-label={`Filter ${label}`}>
           {value.length ? `${label} · ${value.length}` : label}
@@ -148,15 +152,28 @@ export function MultiFilter({ label, options, value, onChange }: {
         <Popover.Content
           align="start"
           sideOffset={4}
-          className="z-50 max-h-72 w-56 overflow-y-auto rounded-md border bg-surface p-2 shadow-modal data-[state=open]:animate-[fade-in_150ms_ease-out]"
+          className="z-50 flex max-h-72 w-56 flex-col rounded-md border bg-surface p-2 shadow-modal data-[state=open]:animate-[fade-in_150ms_ease-out]"
         >
-          {options.length === 0 && <p className="p-1 text-muted">Belum ada pilihan</p>}
-          {options.map((o) => (
-            <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-sunken">
-              <input type="checkbox" checked={value.includes(o.value)} onChange={() => toggle(o.value)} />
-              <span className="truncate">{o.label}</span>
-            </label>
-          ))}
+          {options.length > SEARCH_MIN && (
+            <input
+              className={`${input} mb-1`}
+              placeholder="Cari ..."
+              aria-label={`Cari ${label}`}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          )}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {shown.length === 0 && (
+              <p className="p-1 text-muted">{options.length === 0 ? "Belum ada pilihan" : "Tidak cocok"}</p>
+            )}
+            {shown.map((o) => (
+              <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-sunken">
+                <input type="checkbox" checked={value.includes(o.value)} onChange={() => toggle(o.value)} />
+                <span className="truncate">{o.label}</span>
+              </label>
+            ))}
+          </div>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
