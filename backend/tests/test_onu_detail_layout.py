@@ -14,6 +14,9 @@ import pytest
 PAGE = Path(__file__).resolve().parents[2] / "frontend" / "src" / "pages" / "OnuDetail.tsx"
 PAGES_DIR = PAGE.parent
 ROUTERS = Path(__file__).resolve().parents[1] / "app" / "routers" / "onus.py"
+# `/{serial}/traffic` hidup di router terpisah (app/routers/onu_traffic.py) supaya track
+# LIVE traffic tidak bentrok dengan onus.py; prefix-nya sama, jadi ikut dipindai di sini.
+TRAFFIC_ROUTER = ROUTERS.parent / "onu_traffic.py"
 
 
 @pytest.fixture(scope="module")
@@ -47,7 +50,8 @@ def test_identity_grid_keeps_reference_field_order(src: str):
 
 def test_only_existing_onu_endpoints_are_called(src: str):
     """Setiap path /api/onus/{serial}<path> yang dipanggil halaman harus ada di router."""
-    routes = set(re.findall(r'@router\.\w+\("/\{serial\}([^"]*)"', ROUTERS.read_text()))
+    routes = set(re.findall(r'@router\.\w+\("/\{serial\}([^"]*)"',
+                            ROUTERS.read_text() + TRAFFIC_ROUTER.read_text()))
     routes.add("")  # DELETE /{serial}
     called = set(re.findall(r'path: "(/[a-z-]*)"', src)) | {""}
     # Query langsung (signal, logs, info) ikut diperiksa.
