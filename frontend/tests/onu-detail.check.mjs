@@ -88,10 +88,14 @@ check("sampel tanpa kemajuan waktu / lebar counter berubah ditolak", () => {
 
 // ------------------------------------------------------------ bentuk halaman
 
-check("urutan blok mengikuti desain: kartu atas, baris Status, trafik, profil, port, wifi, aksi", () => {
+check("urutan blok mengikuti desain: grid identitas atas, baris Status, trafik, profil, port, wifi, aksi", () => {
   const order = [
-    "Informasi & status ONU",
-    'tracking-[0.05em] text-fiber">\n              Status',
+    // Bagian atas kini DATAR (dua `<dl>` 50/50 seperti acuan), bukan kartu berjudul
+    // "Informasi & status ONU" — penandanya jadi baris identitas pertama.
+    'label="OLT"',
+    // Baris tombol Status kini memakai <Section label="Status"> yang sama seperti
+    // bagian lain (acuan: satu `dl` panjang), bukan <section> berkartu sendiri.
+    '<Section label="Status">',
     'label="Traffic/Signal"',
     'label="Profil Kecepatan"',
     'label="Port Ethernet"',
@@ -232,12 +236,17 @@ check("satu markup untuk dua ukuran: tabel bisa digulir, kolom menumpuk, toolbar
 
 // ------------------------------------------- tata letak desain acuan (design/onu-detail-stitch)
 
-check("grid label/nilai: label rata kanan bold di sm+, menumpuk satu kolom di bawah sm", () => {
-  const fn = page.slice(page.indexOf("function DRow"), page.indexOf("function CardHead"));
-  assert.ok(fn.includes("sm:text-right"), "label rata kanan");
+check("grid label/nilai: label rata kanan bold di lg+, menumpuk satu kolom di bawah lg", () => {
+  const fn = page.slice(page.indexOf("function DRow"), page.indexOf("const THEAD"));
+  // Ambang pindah dari `sm` ke `lg`: acuan menumpuk label di atas nilai sampai 1000px
+  // (`@media (min-width:1000px)` pada `.dl-horizontal`), dan `lg` (1024px) adalah
+  // breakpoint terdekat yang sudah ada di repo.
+  assert.ok(fn.includes("lg:text-right"), "label rata kanan");
   assert.ok(fn.includes("font-semibold"), "label bold");
-  assert.ok(fn.includes("sm:grid-cols-12"), "grid 12 kolom di sm+");
-  assert.ok(fn.includes("grid w-full"), "satu kolom (menumpuk) di bawah sm");
+  // Grid 12-kolom diganti kolom label berlebar tetap seperti `dl-horizontal` acuan
+  // (label 160px @15px -> 140px pada basis 13px Nexfiber).
+  assert.ok(fn.includes("lg:grid-cols-[140px_1fr]"), "kolom label lebar tetap di lg+");
+  assert.ok(fn.includes("grid w-full"), "satu kolom (menumpuk) di bawah lg");
 });
 
 check("field yang dibuang pemilik tidak pernah dirender", () => {

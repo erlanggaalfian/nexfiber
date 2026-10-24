@@ -131,7 +131,9 @@ let checks = 0;
 for (const [view, width, height] of [["desktop-1440", 1440, 1200], ["mobile-390", 390, 900]]) {
   await page.setViewportSize({ width, height });
   await page.goto(`${BASE}/onu/91`, { waitUntil: "networkidle" });
-  await page.waitForSelector("text=Informasi & status ONU", { timeout: 15_000 });
+  // Bagian atas halaman kini datar (tanpa kartu "Informasi & status ONU"): penanda
+  // siap-render yang stabil adalah salah satu label baris identitas.
+  await page.waitForSelector("text=Configuration Preset", { timeout: 15_000 });
 
   for (const [name, open, title] of CASES) {
     await open(page);

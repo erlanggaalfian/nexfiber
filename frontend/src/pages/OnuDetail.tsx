@@ -38,7 +38,7 @@
  *  optimistic update (AGENTS.md).
  */
 import {
-  ArrowDown, ArrowLeft, ArrowSquareOut, ArrowUp, Eye, EyeSlash, Gear, Pencil,
+  ArrowDown, ArrowLeft, ArrowSquareOut, ArrowUp, Eye, EyeSlash, Gear, Pencil, PlusCircle,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
@@ -99,43 +99,54 @@ const wanLabel = (mode: string | null) =>
 /** Mode IP manajemen pada acuan: `Static` / `DHCP`. Nilai lain tampil apa adanya. */
 const MGMT_MODE_LABEL: Record<string, string> = { static: "Static", dhcp: "DHCP" };
 
-/** Kartu bagian (desain acuan §3-§9): label di kolom kiri sempit **rata kanan bold**,
- *  isi di kanan. Label pindah ke atas di bawah `md`. */
+/** Lebar kolom label = `dl-horizontal` acuan: label 160px + jarak 20px pada basis font
+ *  15px. Basis Nexfiber 13px, jadi diskalakan dengan rasio yang sama -> 140px + 18px.
+ *  Dipakai Section DAN DRow supaya SELURUH label halaman jatuh pada satu garis vertikal,
+ *  sama seperti satu `<dl>` panjang di acuan.
+ *
+ *  Acuan menumpuk label di atas nilai ketika layar < 1000px (`@media (min-width:1000px)`
+ *  pada `.dl-horizontal`); `lg` Tailwind (1024px) adalah ambang terdekat yang sudah ada,
+ *  jadi tidak ada breakpoint baru yang ditambahkan. */
+const LABEL_W = "lg:w-[140px]";
+const ROW_GAP = "lg:gap-x-[18px]";
+/** Tinggi baris acuan: line-height 1.4286 × ukuran font badan (13px) = 19px. */
+const ROW_LH = "leading-[19px]";
+
+/** Satu baris `dt`/`dd` acuan: label kolom kiri **rata kanan bold**, isi di kanan.
+ *  TANPA kartu/rangka — acuan memakai `<dl>` datar di atas latar halaman, bukan panel. */
 function Section(
   { label, note, children, className = "" }:
   { label: string; note?: string; children: React.ReactNode; className?: string },
 ) {
   return (
-    <section className={`rounded-md border bg-surface p-3.5 ${className}`}>
-      <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
-        <div className="md:w-[130px] md:shrink-0 md:pt-0.5 md:text-right">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.05em] text-fiber">{label}</h2>
-          {note && <p className="font-mono text-xs text-faint md:mt-0.5">{note}</p>}
-        </div>
-        <div className="min-w-0 grow">{children}</div>
+    <section className={`flex flex-col gap-0.5 lg:flex-row lg:items-start ${ROW_GAP} ${className}`}>
+      <div className={`${LABEL_W} lg:shrink-0 lg:text-right`}>
+        <h2 className={`font-semibold ${ROW_LH} text-ink`}>{label}</h2>
+        {note && <p className="font-mono text-xs text-faint">{note}</p>}
       </div>
+      <div className="min-w-0 grow">{children}</div>
     </section>
   );
 }
 
-/** Baris label/nilai mengikuti desain acuan: label kolom kiri **rata kanan bold**
- *  (grid 12: label 4 / nilai 8), menumpuk jadi satu kolom di bawah `sm` supaya tetap
- *  terbaca di 390px. `onEdit` membuat seluruh baris bisa diklik. */
+/** Baris label/nilai di dalam blok dua kolom atas. Bentuknya sama dengan Section (label
+ *  rata kanan bold pada kolom 140px, nilai di kanan) supaya kolom label halaman lurus;
+ *  menumpuk jadi satu kolom di bawah `lg` seperti acuan. `onEdit` membuat seluruh baris
+ *  bisa diklik — di acuan nilainya sendiri yang jadi tautan pembuka modal. */
 function DRow(
   { label, value, onEdit }: { label: string; value: React.ReactNode; onEdit?: () => void },
 ) {
   const content = (
     <>
-      <span className="text-xs font-semibold text-ink sm:col-span-4 sm:pr-3 sm:text-right">
-        {label}
-      </span>
-      <span className="flex min-w-0 flex-wrap items-center gap-1.5 font-mono text-xs text-muted sm:col-span-8">
+      <span className={`font-semibold ${ROW_LH} text-ink lg:text-right`}>{label}</span>
+      <span className={`flex min-w-0 flex-wrap items-center gap-1.5 ${ROW_LH} text-muted`}>
         {onEdit && <Pencil size={12} aria-hidden className="text-faint" />}
         {value}
       </span>
     </>
   );
-  const shape = "grid w-full gap-0.5 border-b py-1 last:border-0 sm:grid-cols-12 sm:items-baseline sm:gap-x-2 sm:border-0 sm:py-0.5";
+  const shape =
+    `grid w-full lg:grid-cols-[140px_1fr] lg:items-baseline ${ROW_GAP}`;
   return onEdit ? (
     <button type="button" onClick={onEdit} className={`${shape} text-left hover:text-fiber`}>
       {content}
@@ -145,23 +156,37 @@ function DRow(
   );
 }
 
-/** Tombol ikon pensil kecil di baris tabel (port Ethernet/WiFi): titik buka modal konfigurasi. */
-function EditBtn({ label, onClick }: { label: string; onClick: () => void }) {
+/** Tabel acuan = `table-bordered table-striped table-condensed`: rangka 1px di sekeliling,
+ *  kepala kolom **bold** dengan garis bawah, baris ganjil berlatar, padding rapat
+ *  (acuan 5px @15px -> 4px pada basis 13px Nexfiber). Perataan kolom TIDAK ikut di kelas
+ *  dasar: `text-left`/`text-center` ditempel per kolom, karena dua utilitas perataan
+ *  Tailwind punya kekhususan sama (urutan kelas di JSX tidak menentukan pemenang). */
+const THEAD = "border-b px-1.5 py-1 align-bottom font-semibold";
+const TCELL = "px-1.5 py-1 align-top";
+/** Baris ganjil berlatar (`table-striped`); tanpa garis antar-baris seperti acuan. */
+const TROW = "odd:bg-sunken";
+
+/** Kolom `Action` tabel acuan: TAUTAN "Configure" berikon plus, bukan tombol penuh.
+ *  `aria-label` tetap menyebut port supaya titik buka modal tetap bisa ditunjuk pembaca
+ *  layar (dan tes layout modal) dengan nama yang jelas. */
+function ConfigureLink({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick} aria-label={label} title={label}
-            className="inline-flex items-center text-faint hover:text-fiber">
-      <Pencil size={13} aria-hidden />
+            className="inline-flex items-center gap-1 text-fiber hover:underline">
+      <PlusCircle size={13} aria-hidden />
+      Konfigurasi
     </button>
   );
 }
 
-/** Header kartu: judul kecil + keterangan, pola berulang di desain Stitch. */
-
+/** Judul kecil di dalam kartu grafik / panel LIVE. Acuan tidak memberi judul pada kartu
+ *  grafiknya (legendanya yang menamai seri); di sini judul dipertahankan karena kartu
+ *  Nexfiber juga memuat pemilih rentang, jadi tanpa judul isinya ambigu. */
 function CardHead({ title, note, action }: { title: string; note?: string; action?: React.ReactNode }) {
   return (
-    <div className="mb-2.5 flex flex-wrap items-center gap-2 border-b pb-2">
-      <h3 className="font-mono text-xs font-semibold uppercase tracking-[0.05em]">{title}</h3>
-      {note && <span className="font-mono text-xs text-faint">{note}</span>}
+    <div className="mb-1.5 flex flex-wrap items-center gap-2">
+      <h3 className="font-semibold">{title}</h3>
+      {note && <span className="text-xs text-faint">{note}</span>}
       {action && <span className="ml-auto">{action}</span>}
     </div>
   );
@@ -218,28 +243,25 @@ function rxStats(points: SignalPoint[]) {
   };
 }
 
-/** Kotak satu arah sinyal Rx (ONU 1490nm / OLT 1310nm) seperti dua kotak di desain:
- *  nilai besar + label bucket + bar. Bucket & warna dari RX_BUCKETS bersama. */
+/** Satu kotak sinyal Rx = `.so-meter` acuan: kotak kecil (±140px, rangka 1px, radius 4px,
+ *  latar permukaan) berisi nama arah di atas dan nilai besar di bawah. Lebar acuan 140px
+ *  pada basis 15px; diskalakan ke basis 13px Nexfiber -> 122px. Bucket & warna tetap dari
+ *  RX_BUCKETS bersama (tidak pernah dihitung ulang di halaman ini). */
 function RxBox({ title, value }: { title: string; value: number | null }) {
   const b = rxBucket(value);
   const meta = b ? RX_BUCKETS[b] : null;
-  /** Posisi bar: -8 dBm (kuat) .. -30 dBm (lemah), dipakai hanya sebagai indikator visual. */
-  const pct = value === null ? 0 : Math.max(0, Math.min(100, ((value + 30) / 22) * 100));
   return (
-    <div className="flex flex-col gap-1.5 rounded-sm border bg-sunken p-2.5">
-      <div className="flex items-center justify-between gap-2 font-mono text-xs">
-        <span className="text-muted">{title}</span>
-        <span className={meta ? `font-semibold ${meta.color.replace("bg-", "text-")}` : "text-muted"}>
-          {meta ? meta.label : "LOS"}
+    <div className="flex w-[122px] shrink-0 flex-col rounded-sm border bg-surface px-2 pt-0.5 pb-1.5">
+      <span className="truncate text-xs text-muted" title={title}>{title}</span>
+      <span className="flex items-baseline gap-1">
+        <span className={`font-mono text-base font-semibold ${meta ? meta.color.replace("bg-", "text-") : "text-muted"}`}>
+          {value === null ? "LOS" : value.toFixed(2)}
         </span>
-      </div>
-      <div className="flex items-baseline gap-1">
-        <span className="font-mono text-lg font-semibold">{value === null ? "LOS" : value.toFixed(2)}</span>
         {value !== null && <span className="font-mono text-xs text-faint">dBm</span>}
-      </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-sm bg-app">
-        <div className={`h-full ${meta ? meta.color : "bg-sunken"}`} style={{ width: `${pct}%` }} />
-      </div>
+      </span>
+      <span className={`text-xs ${meta ? meta.color.replace("bg-", "text-") : "text-muted"}`}>
+        {meta ? meta.label : "LOS"}
+      </span>
     </div>
   );
 }
@@ -355,13 +377,14 @@ function LiveRow(
   );
 }
 
-/** Kartu grafik: judul + isi + legenda, dua kartu sejajar seperti desain. */
+/** Kartu grafik acuan (`.graph-item`): kotak putih berangka 1px, radius kecil, dua kartu
+ *  sejajar lebar sama. Latar permukaan (bukan sunken) seperti interior grafik acuan. */
 function ChartCard(
   { title, note, children, legend }:
   { title: string; note?: string; children: React.ReactNode; legend?: React.ReactNode },
 ) {
   return (
-    <div className="min-w-0 flex-1 rounded-sm border bg-sunken p-3">
+    <div className="min-w-0 flex-1 rounded-sm border bg-surface p-2.5">
       <CardHead title={title} note={note} />
       {children}
       {legend && <div className="mt-2 grid gap-1 border-t pt-2 text-xs text-muted">{legend}</div>}
@@ -749,40 +772,35 @@ export function OnuDetail() {
   };
 
   return (
-    <div className="space-y-4">
-      {/* Breadcrumb halaman (desain Stitch): kembali + identitas ONU dalam satu baris padat.
+    <div className="space-y-3">
+      {/* Breadcrumb halaman: kembali + identitas ONU dalam satu baris padat.
           Header aplikasi & navigasi tidak disentuh — ini milik halaman ini saja. */}
-      <div className="flex flex-wrap items-center gap-2 border-b pb-2.5 text-xs">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
         <Link to="/configured" className="inline-flex items-center gap-1 text-fiber hover:underline">
           <ArrowLeft size={14} aria-hidden /> Kembali ke Configured
         </Link>
         <span className="text-faint">/</span>
         <span className="font-mono text-muted">{onuIf}</span>
-        <span className="text-faint">•</span>
-        <span className="text-muted">OLT:</span>
-        <Link to={`/olt/${d.olt_id}`} className="font-mono font-semibold text-fiber hover:underline">
-          {d.olt_name}
-        </Link>
-        <span className="text-faint">•</span>
-        <h1 className="text-sm font-semibold">{d.customer_name ?? d.name ?? d.serial_number}</h1>
-        <span className="rounded-sm border border-fiber/40 bg-sunken px-2 py-0.5 font-mono text-xs font-semibold text-fiber">
-          SN: {d.serial_number}
-        </span>
-        {d.onu_type && (
-          <span className="rounded-sm bg-sunken px-1.5 py-0.5 font-mono text-xs text-muted">{d.onu_type}</span>
-        )}
       </div>
+
+      {/* Judul halaman acuan: satu `h2` besar di atas isi, bukan di dalam kartu.
+          Acuan 32px pada basis 15px; diskalakan ke basis 13px Nexfiber -> 26px.
+          Di bawah `lg` judul ini DISEMBUNYIKAN karena MobileTopBar aplikasi sudah
+          menampilkan judul halaman — dua judul sama akan jadi heading ganda. */}
+      <h1 className="hidden text-[26px] leading-8 font-normal text-ink lg:block">
+        Detail ONU
+      </h1>
 
       {note && (
         <p className="text-muted" role="status">{note}</p>
       )}
 
-      {/* 1. BAGIAN ATAS (desain acuan §1): kiri meta, kanan ilustrasi panel + status +
-          kartu Rx + spesifikasi koneksi. Menumpuk di bawah `lg`. */}
-      <div className="overflow-hidden rounded-md border bg-surface">
-        <div className="grid divide-y lg:grid-cols-2 lg:divide-x lg:divide-y-0">
-          <div className="min-w-0 p-4">
-            <CardHead title="Informasi & status ONU" note={`Sinkron terakhir ${fmtDateTime(d.last_sync_at)}`} />
+      {/* 1. BAGIAN ATAS acuan: DUA kolom 50/50 sejajar (`col-sm-6`), DATAR di atas latar
+          halaman — acuan tidak memakai panel/kartu di sini, hanya dua `<dl>`. Kiri identitas,
+          kanan ilustrasi panel belakang + Status + `Rx signal levels` + spesifikasi koneksi.
+          Menumpuk jadi satu kolom di bawah `lg`, sama seperti acuan di bawah 1000px. */}
+      <div className="grid gap-x-4 gap-y-3 lg:grid-cols-2">
+          <div className="flex min-w-0 flex-col">
             <div className="flex flex-col">
               <DRow label="OLT" value={
                 <Link className="text-fiber hover:underline" to={`/olt/${d.olt_id}`}>{d.olt_name}</Link>
@@ -838,33 +856,44 @@ export function OnuDetail() {
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-col gap-3 p-4">
+          <div className="flex min-w-0 flex-col gap-2">
             {/* (a) Ilustrasi panel belakang modem — hanya bila katalog ONU Types tahu
-                jumlah port nyatanya; tidak digambar dari tebakan. */}
+                jumlah port nyatanya; tidak digambar dari tebakan. Acuan memasang fotonya
+                di puncak kolom kanan, dengan lebar terbatas dan terpusat. */}
             {specs && (specs.eth_ports > 0 || specs.voip_ports > 0) && (
-              <OnuRearPanel ethPorts={specs.eth_ports} voipPorts={specs.voip_ports}
-                            online={d.status === "online" && d.admin_state !== "disabled"} />
+              <div className="lg:mx-auto lg:w-[62%]">
+                <OnuRearPanel ethPorts={specs.eth_ports} voipPorts={specs.voip_ports}
+                              online={d.status === "online" && d.admin_state !== "disabled"} />
+              </div>
             )}
 
-            {/* (b) Baris status + jarak + muat ulang */}
-            <div className="flex flex-wrap items-center gap-3 border-b pb-2.5">
-              <span className="text-xs font-semibold text-ink">Status</span>
-              <StatusBadge status={statusKey} reason={d.last_down_reason} withLabel />
-              <span className="font-mono text-xs text-muted">{fmtDistance(d.distance_m)}</span>
-              <Button size="sm" variant="quiet" onClick={() => onu.refetch()} disabled={onu.isFetching}>
-                {onu.isFetching ? "Memuat ..." : "Muat ulang"}
-              </Button>
-              {live && (
-                <span className="font-mono text-xs text-fiber">auto-refresh {LIVE_MS / 1000}s</span>
-              )}
+            {/* (b) Baris status acuan: lencana status + jarak + muat ulang, sejajar pada
+                kolom nilai `dl` supaya lurus dengan baris di bawahnya. */}
+            <div className={`grid lg:grid-cols-[140px_1fr] lg:items-baseline ${ROW_GAP}`}>
+              <span className={`font-semibold ${ROW_LH} text-ink lg:text-right`}>Status</span>
+              <span className="flex flex-wrap items-center gap-2">
+                <StatusBadge status={statusKey} reason={d.last_down_reason} withLabel />
+                <span className="font-mono text-xs text-muted">{fmtDistance(d.distance_m)}</span>
+                <Button size="sm" variant="quiet" onClick={() => onu.refetch()} disabled={onu.isFetching}>
+                  {onu.isFetching ? "Memuat ..." : "Muat ulang"}
+                </Button>
+                {live && (
+                  <span className="font-mono text-xs text-fiber">auto-refresh {LIVE_MS / 1000}s</span>
+                )}
+              </span>
             </div>
 
-            {/* (c) Kartu Rx: dua kotak sebelah-menyebelah seperti desain */}
-            <div className="rounded-sm border bg-app p-3">
-              <CardHead title="Rx signal levels" note="Normal −8,0 s/d −27,0 dBm" />
-              <div className="grid gap-2 sm:grid-cols-2">
-                <RxBox title="ONU Rx 1490nm" value={d.rx_power_dbm} />
-                <RxBox title="OLT Rx 1310nm" value={d.olt_rx_power_dbm} />
+            {/* (c) `Rx signal levels` acuan = DUA kotak kecil berdampingan (`.so-meter`,
+                masing-masing ±140px, rangka 1px, radius 4px) langsung di bawah lencana
+                status — bukan kartu berjudul. Judul/ambangnya jadi baris label `dl`. */}
+            <div className={`grid lg:grid-cols-[140px_1fr] lg:items-baseline ${ROW_GAP}`}>
+              <span className={`font-semibold ${ROW_LH} text-ink lg:text-right`}>Rx signal levels</span>
+              <div className="min-w-0">
+                <div className="flex flex-wrap gap-1.5">
+                  <RxBox title="ONU Rx 1490nm" value={d.rx_power_dbm} />
+                  <RxBox title="OLT Rx 1310nm" value={d.olt_rx_power_dbm} />
+                </div>
+                <p className="mt-0.5 text-xs text-faint">Normal −8,0 s/d −27,0 dBm</p>
               </div>
             </div>
 
@@ -952,31 +981,26 @@ export function OnuDetail() {
                 ? `${dash(d.last_down_reason)} · ${fmtDateTime(d.last_down_at)}` : "—"} />
             </div>
           </div>
-        </div>
       </div>
 
-      {/* 2. TOOLBAR STATUS (desain acuan §2): label kiri rata kanan + tombol diagnostik.
-          Logika/handler diagnostik tidak diubah — tetap lewat job CLI backend. */}
-      <section className="rounded-md border bg-surface p-3.5">
-        <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
-          <div className="md:w-[130px] md:shrink-0 md:pt-1 md:text-right">
-            <h2 className="text-xs font-semibold uppercase tracking-[0.05em] text-fiber">
-              Status
-            </h2>
-          </div>
+      {/* 2. BARIS TOMBOL `Status` acuan: label `dl` di kiri, deretan tombol terisi penuh di
+          kanan (acuan: biru untuk tiga diagnostik, abu untuk TR-069 mati, hijau untuk LIVE!).
+          DATAR tanpa kartu, sama seperti acuan. Logika/handler diagnostik tidak diubah —
+          tetap lewat job CLI backend, dan running-config tetap manager-only. */}
+      <Section label="Status">
           <div className="min-w-0 grow">
             <div className="flex flex-wrap items-center gap-1.5">
-              <Button size="sm" onClick={() => runDiag("status")} disabled={diagRunning}>
+              <Button size="sm" variant="fiber" onClick={() => runDiag("status")} disabled={diagRunning}>
                 {DIAG_LABEL.status}{diagRunning && diagRunView === "status" ? " ..." : ""}
               </Button>
               {/* Running-config utuh memuat nilai konfigurasi sensitif: tombolnya hanya dirender
                   untuk admin/superadmin, dan backend tetap menolak role lain (403). */}
               {isManager && (
-                <Button size="sm" onClick={() => runDiag("running")} disabled={diagRunning}>
+                <Button size="sm" variant="fiber" onClick={() => runDiag("running")} disabled={diagRunning}>
                   {DIAG_LABEL.running}{diagRunning && diagRunView === "running" ? " ..." : ""}
                 </Button>
               )}
-              <Button size="sm" onClick={() => runDiag("software")} disabled={diagRunning}>
+              <Button size="sm" variant="fiber" onClick={() => runDiag("software")} disabled={diagRunning}>
                 {DIAG_LABEL.software}{diagRunning && diagRunView === "software" ? " ..." : ""}
               </Button>
               {/* Tombol TR-069 ada di acuan, tapi Nexfiber belum punya ACS internal
@@ -1048,10 +1072,10 @@ export function OnuDetail() {
               </>
             )}
           </div>
-        </div>
-      </section>
+      </Section>
 
-      {/* Trafik & sinyal: dua kartu sejajar, menumpuk di layar kecil */}
+      {/* 3. `Traffic/Signal` acuan: dua kartu grafik berdampingan 50/50 (`.graphs-container`
+          flex), menumpuk penuh di bawah 768px seperti aturan `@media` acuan. */}
       <Section label="Traffic/Signal">
         <div className="flex flex-col gap-4 lg:flex-row">
           <ChartCard title="Traffic history" note="bits per second">
@@ -1094,32 +1118,31 @@ export function OnuDetail() {
         </div>
       </Section>
 
-      {/* Profil kecepatan */}
+      {/* 4. `Speed profiles` acuan: tabel berangka dengan kolom Download | Upload | Action,
+          kolom Action berisi tautan "Configure" (bukan tombol penuh). */}
       <Section label="Profil Kecepatan">
-        <div className="overflow-x-auto rounded-sm border">
-          <table className="w-full min-w-[32rem] text-xs">
+        <div className="overflow-x-auto border">
+          <table className="w-full min-w-[32rem] border-collapse">
             <thead>
-              <tr className="border-b bg-sunken font-mono text-xs uppercase text-muted">
-                <th className={`${cell} w-[36%]`}>Download</th>
-                <th className={`${cell} w-[36%]`}>Upload</th>
-                <th className={cell}>Aksi</th>
+              <tr>
+                <th className={`${THEAD} w-[33%] text-left`}>Download</th>
+                <th className={`${THEAD} w-[26%] text-left`}>Upload</th>
+                <th className={`${THEAD} text-left`}>Aksi</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td className={`${cell} font-mono text-fiber`}>
+              <tr className={TROW}>
+                <td className={`${TCELL} font-mono text-fiber`}>
                   {dash(d.download_profile_name)}
                   <span className="ml-2 text-muted">{dash(cleanProfileName(d.line_profile_id))}</span>
                 </td>
-                <td className={`${cell} font-mono text-fiber`}>
+                <td className={`${TCELL} font-mono text-fiber`}>
                   {dash(d.upload_profile_name)}
                   <span className="ml-2 text-muted">{dash(cleanProfileName(d.srv_profile_id))}</span>
                 </td>
-                <td className={cell}>
-                  <Button size="sm" onClick={() => setModal({ kind: "speed-profile" })}>
-                    Konfigurasi profil
-                  </Button>
-
+                <td className={TCELL}>
+                  <ConfigureLink label="Konfigurasi profil kecepatan"
+                                 onClick={() => setModal({ kind: "speed-profile" })} />
                 </td>
               </tr>
             </tbody>
@@ -1127,31 +1150,32 @@ export function OnuDetail() {
         </div>
       </Section>
 
-      {/* Port Ethernet — jumlah port dari katalog ONU Types */}
+      {/* 5. `Ethernet ports` acuan: Port | Admin state | Mode | DHCP | Action, kolom Action
+          rata tengah berisi tautan "Configure". Jumlah port dari katalog ONU Types. */}
       <Section label="Port Ethernet" note={specs ? specs.name : undefined}>
         {specs && specs.eth_ports > 0 ? (
           <>
-            <div className="overflow-x-auto rounded-sm border">
-              <table className="w-full min-w-[34rem] text-xs">
+            <div className="overflow-x-auto border">
+              <table className="w-full min-w-[34rem] border-collapse">
                 <thead>
-                  <tr className="border-b bg-sunken font-mono text-xs uppercase text-muted">
-                    <th className={cell}>Port</th>
-                    <th className={cell}>Admin state</th>
-                    <th className={cell}>Mode</th>
-                    <th className={cell}>Sumber DHCP</th>
-                    <th className={cell}>Aksi</th>
+                  <tr>
+                    <th className={`${THEAD} w-[14%] text-left`}>Port</th>
+                    <th className={`${THEAD} w-[14%] text-left`}>Admin state</th>
+                    <th className={`${THEAD} text-left`}>Mode</th>
+                    <th className={`${THEAD} w-[14%] text-left`}>Sumber DHCP</th>
+                    <th className={`${THEAD} w-[16%] text-center`}>Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
                   {Array.from({ length: specs.eth_ports }, (_, i) => (
-                    <tr key={i} className="border-b last:border-0">
-                      <td className={`${cell} font-mono text-fiber`}>eth_0/{i + 1}</td>
-                      <td className={`${cell} text-muted`}>—</td>
-                      <td className={`${cell} font-mono`}>LAN</td>
-                      <td className={`${cell} text-muted`}>—</td>
-                      <td className={cell}>
-                        <EditBtn label={`Konfigurasi eth_0/${i + 1}`}
-                                 onClick={() => setModal({ kind: "eth-port", port: i + 1 })} />
+                    <tr key={i} className={TROW}>
+                      <td className={`${TCELL} font-mono text-fiber`}>eth_0/{i + 1}</td>
+                      <td className={`${TCELL} text-muted`}>—</td>
+                      <td className={`${TCELL} font-mono`}>LAN</td>
+                      <td className={`${TCELL} text-muted`}>—</td>
+                      <td className={`${TCELL} text-center`}>
+                        <ConfigureLink label={`Konfigurasi eth_0/${i + 1}`}
+                                       onClick={() => setModal({ kind: "eth-port", port: i + 1 })} />
                       </td>
                     </tr>
                   ))}
@@ -1170,29 +1194,29 @@ export function OnuDetail() {
         )}
       </Section>
 
-      {/* WiFi */}
+      {/* 6. `WiFi` acuan: tabel sejenis dengan kolom SSID, Action rata tengah. */}
       <Section label="WiFi" note={specs ? `${specs.wifi_ssids} SSID` : undefined}>
         {specs && specs.wifi_ssids > 0 ? (
           <>
-            <div className="overflow-x-auto rounded-sm border">
-              <table className="w-full min-w-[34rem] text-xs">
+            <div className="overflow-x-auto border">
+              <table className="w-full min-w-[34rem] border-collapse">
                 <thead>
-                  <tr className="border-b bg-sunken font-mono text-xs uppercase text-muted">
-                    <th className={cell}>Radio</th>
-                    <th className={cell}>Admin state</th>
-                    <th className={cell}>SSID</th>
-                    <th className={cell}>Aksi</th>
+                  <tr>
+                    <th className={`${THEAD} w-[12%] text-left`}>Radio</th>
+                    <th className={`${THEAD} w-[14%] text-left`}>Admin state</th>
+                    <th className={`${THEAD} text-left`}>SSID</th>
+                    <th className={`${THEAD} w-[16%] text-center`}>Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
                   {Array.from({ length: specs.wifi_ssids }, (_, i) => (
-                    <tr key={i} className="border-b last:border-0">
-                      <td className={`${cell} font-mono text-fiber`}>wifi_0/{i + 1}</td>
-                      <td className={`${cell} text-muted`}>—</td>
-                      <td className={`${cell} text-muted`}>—</td>
-                      <td className={cell}>
-                        <EditBtn label={`Konfigurasi wifi_0/${i + 1}`}
-                                 onClick={() => setModal({ kind: "wifi-port", port: i + 1 })} />
+                    <tr key={i} className={TROW}>
+                      <td className={`${TCELL} font-mono text-fiber`}>wifi_0/{i + 1}</td>
+                      <td className={`${TCELL} text-muted`}>—</td>
+                      <td className={`${TCELL} text-muted`}>—</td>
+                      <td className={`${TCELL} text-center`}>
+                        <ConfigureLink label={`Konfigurasi wifi_0/${i + 1}`}
+                                       onClick={() => setModal({ kind: "wifi-port", port: i + 1 })} />
                       </td>
                     </tr>
                   ))}
@@ -1208,8 +1232,9 @@ export function OnuDetail() {
         )}
       </Section>
 
-      {/* 7. LAYANAN SEKUNDER (desain acuan §7): label rata kanan + nilai. Hanya nilai nyata
-          dari katalog ONU Types; yang belum ada di backend ditandai "Segera". */}
+      {/* 7. LAYANAN SEKUNDER acuan (`VoIP`, `IPTV`, `CATV` di bawah tabel WiFi): baris
+          label/nilai biasa. Hanya nilai nyata dari katalog ONU Types; yang backend-nya
+          belum ada ditandai "Segera", tidak dikarang. */}
       <Section label="Layanan">
         <div className="flex flex-col">
           <DRow label="Layanan VoIP" value={
@@ -1231,12 +1256,15 @@ export function OnuDetail() {
         </div>
       </Section>
 
-      {/* 8. AKSI SIKLUS HIDUP (desain acuan §8): tiap tombol membuka modal konfirmasi
-          (kontrak `/api/onus/{id}/actions/{kind}`), tidak ada aksi satu klik. */}
+      {/* 8. BARIS AKSI SIKLUS HIDUP acuan: deretan tombol terisi penuh BERWARNA MENURUT
+          PERAN — kuning/amber untuk aksi mengganggu layanan (reboot, resync, restore,
+          nonaktifkan) dan merah penuh untuk Hapus; sisanya netral. Tiap tombol tetap
+          membuka modal konfirmasi (kontrak `/api/onus/{id}/actions/{kind}`), tidak ada
+          aksi satu klik, dan tombol merusak tetap manager-only. */}
       <Section label="Aksi">
         <div className="flex flex-wrap items-center gap-1.5">
-          <Button size="sm" onClick={() => setModal({ kind: "reboot" })}>Reboot</Button>
-          <Button size="sm" onClick={() => setModal({ kind: "resync-config" })}>Resync config</Button>
+          <Button size="sm" variant="primary" onClick={() => setModal({ kind: "reboot" })}>Reboot</Button>
+          <Button size="sm" variant="primary" onClick={() => setModal({ kind: "resync-config" })}>Resync config</Button>
           <Button size="sm" onClick={infoDialog}>Ubah data pelanggan</Button>
           <Button size="sm" onClick={locationDialog}>Ubah lokasi</Button>
           <Button size="sm" onClick={() => setModal({ kind: "speed-profile" })}>Ubah speed</Button>
@@ -1245,47 +1273,51 @@ export function OnuDetail() {
           {isManager && (
             <Button size="sm" onClick={() => setModal({ kind: "replace-sn" })}>Replace ONU / ganti SN</Button>
           )}
-          <Button size="sm"
+          <Button size="sm" variant="primary"
                   onClick={() => setModal({ kind: d.admin_state === "disabled" ? "enable" : "disable" })}>
             {d.admin_state === "disabled" ? "Aktifkan ONU" : "Nonaktifkan ONU"}
           </Button>
           {isManager && (
-            <Button size="sm" variant="danger" onClick={() => setModal({ kind: "restore-factory" })}>
+            <Button size="sm" variant="primary" onClick={() => setModal({ kind: "restore-factory" })}>
               Restore factory
             </Button>
           )}
           {isManager && (
-            <Button size="sm" variant="danger" onClick={() => setModal({ kind: "delete" })}>Hapus</Button>
+            <Button size="sm" variant="dangerSolid" onClick={() => setModal({ kind: "delete" })}>Hapus</Button>
           )}
         </div>
       </Section>
 
-      <Panel title="Log aksi terakhir"
-        action={<Link className="text-fiber hover:underline" to={`/logs?q=${d.serial_number}`}>
-          Buka di Logs
-        </Link>}>
-        <TableCard
-          query={logs}
-          loadingText="Memuat log ..."
-          empty="Belum ada log untuk ONU ini."
-          columns={["Waktu", "Pengguna", "Aksi", "Hasil", "Job", "Command"]}
-          row={(l: OnuLog) => (
-            <tr key={l.id} className="border-b last:border-0">
-              <td className={cell}>{fmtDateTime(l.created_at)}</td>
-              <td className={cell}>{dash(l.username)}</td>
-              <td className={`${cell} font-mono`}>{l.action}</td>
-              <td className={cell}>
-                <span className={l.success ? "text-up" : "text-down"}>{l.success ? "Berhasil" : "Gagal"}</span>
-              </td>
-              <td className={`${cell} font-mono`}>{l.job_id === null ? "—" : `#${l.job_id}`}</td>
-              <td className={`${cell} max-w-[22rem] truncate font-mono text-xs text-muted`}
-                  title={l.raw_command ?? ""}>
-                {dash(l.raw_command)}
-              </td>
-            </tr>
-          )}
-        />
-      </Panel>
+      {/* 9. BAGIAN BAWAH acuan (catatan/tiket): dipisah garis dari baris aksi, lalu isinya.
+          Di Nexfiber isinya log aksi ONU — tetap memakai Panel/TableCard bersama. */}
+      <div className="border-t pt-3">
+        <Panel title="Log aksi terakhir"
+          action={<Link className="text-fiber hover:underline" to={`/logs?q=${d.serial_number}`}>
+            Buka di Logs
+          </Link>}>
+          <TableCard
+            query={logs}
+            loadingText="Memuat log ..."
+            empty="Belum ada log untuk ONU ini."
+            columns={["Waktu", "Pengguna", "Aksi", "Hasil", "Job", "Command"]}
+            row={(l: OnuLog) => (
+              <tr key={l.id} className="border-b last:border-0">
+                <td className={cell}>{fmtDateTime(l.created_at)}</td>
+                <td className={cell}>{dash(l.username)}</td>
+                <td className={`${cell} font-mono`}>{l.action}</td>
+                <td className={cell}>
+                  <span className={l.success ? "text-up" : "text-down"}>{l.success ? "Berhasil" : "Gagal"}</span>
+                </td>
+                <td className={`${cell} font-mono`}>{l.job_id === null ? "—" : `#${l.job_id}`}</td>
+                <td className={`${cell} max-w-[22rem] truncate font-mono text-xs text-muted`}
+                    title={l.raw_command ?? ""}>
+                  {dash(l.raw_command)}
+                </td>
+              </tr>
+            )}
+          />
+        </Panel>
+      </div>
 
       {/* Semua modal aksi ONU dirender satu kali di sini; isinya dipilih oleh `modal`. */}
       <OnuActionModals state={modal} onu={modalOnu} onClose={() => setModal(null)}

@@ -28,12 +28,16 @@ def test_block_order_matches_reference_layout(src: str):
     """Blok harus muncul dalam urutan referensi: grid identitas, Status, Trafik/Sinyal,
     Profil Kecepatan, Port Ethernet, WiFi, VoIP, CATV, baris aksi."""
     labels = re.findall(r'<Section label="([^"]+)"', src)
+    # Baris tombol "Status" kini memakai <Section> yang sama seperti blok lain: pada
+    # halaman referensi SELURUH halaman adalah satu `<dl>` panjang dengan label kolom
+    # kiri, jadi baris Status tidak lagi jadi kartu dengan markup sendiri.
     # "Traffic/Signal" memakai judul persis aplikasi referensi (permintaan pemilik).
     assert labels == [
-        "Traffic/Signal", "Profil Kecepatan", "Port Ethernet", "WiFi", "Layanan", "Aksi",
+        "Status", "Traffic/Signal", "Profil Kecepatan", "Port Ethernet", "WiFi", "Layanan",
+        "Aksi",
     ], labels
-    # Kartu identitas/status mendahului seluruh Section, baris aksi sesudahnya.
-    assert src.index("lg:grid-cols-2") < src.index('<Section label="Traffic/Signal"')
+    # Grid identitas dua kolom mendahului seluruh Section, baris aksi sesudahnya.
+    assert src.index("lg:grid-cols-2") < src.index('<Section label="Status"')
     assert src.index('<Section label="WiFi"') < src.index("Restore factory")
 
 
