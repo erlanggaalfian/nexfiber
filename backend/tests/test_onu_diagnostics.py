@@ -326,7 +326,7 @@ async def test_driver_status_report_uses_allowed_commands_in_one_session():
     assert isinstance(report, OnuReport) and report.view == "status"
     assert log == list(replies)  # urutan command persis, tidak ada command tambahan
     assert len(sessions) == 1  # satu sesi CLI untuk semua command (PRD 4.3)
-    assert "[SNMP]" in report.output
+    assert "[SNMP]" not in report.output  # Rx OLT sudah ada di output attenuation CLI
     # command yang terdaftar "Ditolak" di NEXFIBER-CLI-REFERENCE tidak boleh dipakai
     for banned in ("wan-info", "eth-status", "traffic-info", f"show mac {iface}"):
         assert banned not in report.raw_command

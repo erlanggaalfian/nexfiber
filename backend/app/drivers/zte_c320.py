@@ -645,15 +645,11 @@ class ZteC320Driver(OltDriver):
         async with self._open_cli() as cli:
             outputs = [await cli.send_command(command) for command in commands]
         attenuation, catv, detail_info, ip_host, eth, vlan, voip, macs = outputs
-        # Rx OLT dari SNMP lewat jalur optical yang sudah ada — bukan walk OID kedua.
-        samples = await self.fetch_optical(slot, port)
-        olt_rx = next((s.olt_rx_power_dbm for s in samples if s.onu_id == onu_id), None)
         return OnuReport(
             view="status",
             output=onu_report.status_report(
                 attenuation=attenuation, catv=catv, detail_info=detail_info,
                 ip_host=ip_host, eth=eth, vlan=vlan, voip=voip, macs=macs,
-                olt_rx_dbm=olt_rx,
             ),
             raw_command=" ; ".join(commands),
         )
