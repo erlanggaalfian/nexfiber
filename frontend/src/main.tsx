@@ -9,6 +9,9 @@ import { pageTitle } from "./lib/nav";
 import { Dashboard } from "./pages/Dashboard";
 import { Lainnya } from "./pages/Lainnya";
 import { Login } from "./pages/Login";
+import { OnuTypes } from "./pages/settings/OnuTypes";
+import { Splitters } from "./pages/settings/Splitters";
+import { UserManagement } from "./pages/settings/UserManagement";
 import { Setup } from "./pages/Setup";
 import "./styles/index.css";
 
@@ -53,6 +56,9 @@ createRoot(document.getElementById("root")!).render(
           <Route element={<RequireAuth><Layout /></RequireAuth>}>
             <Route index element={<Dashboard />} />
             <Route path="/lainnya" element={<Lainnya />} />
+            <Route path="/settings/users" element={<UserManagement />} />
+            <Route path="/settings/onu-types" element={<OnuTypes />} />
+            <Route path="/settings/splitters" element={<Splitters />} />
             {LATER.map((p) => <Route key={p} path={p} element={<Placeholder />} />)}
             <Route path="*" element={<NotFound />} />
           </Route>

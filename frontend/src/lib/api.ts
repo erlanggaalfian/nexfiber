@@ -128,3 +128,27 @@ export type SystemStatus = {
   jobs_pending: number;
   last_poll_at: string | null;
 };
+
+export type Zone = {
+  id: number; owner_id: number; name: string; external_id: string | null;
+  latitude: number | null; longitude: number | null; splitter_count: number; onu_count: number;
+};
+
+export type OnuType = {
+  id: number; pon_type: string; name: string; eth_ports: number; wifi_ssids: number;
+  voip_ports: number; catv: boolean; capability: string; allow_custom_profiles: boolean;
+  is_active: boolean; onu_count: number;
+};
+
+export type Splitter = {
+  id: number; name: string; code: string | null; type: string; ratio: string | null;
+  capacity: number | null; zone_id: number | null; zone_name: string | null;
+  parent_id: number | null; parent_name: string | null; olt_id: number | null;
+  pon_port_id: number | null; location: string | null; latitude: number | null;
+  longitude: number | null; insertion_loss_db: number | null; notes: string | null;
+  onu_count: number;
+};
+
+export type SplitterDetail = Splitter & {
+  onus: { id: number; serial_number: string; name: string | null; customer_name: string | null; splitter_port: number | null }[];
+};
