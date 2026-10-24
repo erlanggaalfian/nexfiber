@@ -436,9 +436,10 @@ export function OnuDetail() {
           <Button onClick={() => readLive("status")} disabled={act.isPending}>Status</Button>
           <Button onClick={() => readLive("running")} disabled={act.isPending}>Show running-config</Button>
           <Button onClick={() => readLive("software")} disabled={act.isPending}>Info SW</Button>
-          <span className="rounded-sm border px-2 py-1 text-xs text-faint" title="Phase 2">
-            TR-069 status · Segera
-          </span>
+          {/* Tombol status TR-069 di aplikasi referensi hanya muncul saat profil TR-069 ONU
+              menunjuk server ACS internal aplikasi. Nexfiber belum punya server ACS internal
+              maupun katalog profil TR-069 (Phase 2, DECISIONS.md), jadi kondisinya tidak pernah
+              benar dan tombolnya tidak dirender sama sekali — bukan placeholder "Segera". */}
           <Button variant={live ? "fiber" : "secondary"} aria-pressed={live}
                   onClick={() => setLive(!live)}>
             {live ? "LIVE aktif" : "LIVE!"}

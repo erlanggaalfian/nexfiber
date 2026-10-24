@@ -71,7 +71,7 @@ pakai token/komponen Nexfiber sendiri (`Panel`, `StatusBadge`, `SignalBar`, `Dra
 |---|---|---|
 | Edit "Tipe ONU" & "Preset Konfigurasi" dari detail | read-only | tidak ada endpoint ubah tipe/preset pasca-otorisasi; menambahnya = fitur baru di luar halaman ini |
 | Modal "IP Manajemen" (set DHCP/Static) | read-only | tidak ada endpoint/driver `set_mgmt_ip` di Nexfiber |
-| "TR609/TR-069 Profile" + tombol TR069 Status | label "Segera" | TR-069 = Phase 2 terkunci (DECISIONS.md) |
+| "TR609/TR-069 Profile" + tombol TR069 Status | baris profil = label "Segera"; tombol **tidak dirender** | Referensi hanya menampilkan tombol saat `onus.tr069_profile === 'ACS-Smartolt'` (profil ACS internal aplikasi, baris `is_default=1` di tabel `tr069_profiles`). Nexfiber tidak punya server ACS internal, tabel profil TR-069, maupun field profil di API ONU → kondisinya tidak pernah benar, jadi tombolnya disembunyikan (TR-069 = Phase 2 terkunci, DECISIONS.md) |
 | "Akses Remote WAN" | label "Segera" | sama, Phase 2 |
 | PPPoE username/password + toggle mata | username read-only, password TIDAK ditampilkan | password ONU disimpan terenkripsi dan tidak pernah dikirim ke frontend (AGENTS.md); menampilkannya = regresi keamanan |
 | Modal "Mode ONU / Mode setup WAN" | read-only | tidak ada endpoint ubah mode ONU/WAN (bukan scope `authorize_onu`, DECISIONS.md) |

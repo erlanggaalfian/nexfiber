@@ -67,14 +67,26 @@ def test_reference_app_branding_not_copied(src: str):
 
 
 def test_phase2_menus_are_labelled_not_fake_buttons(src: str):
-    """TR-069 / WAN remote / port configure muncul sebagai penanda 'Segera', bukan tombol
+    """WAN remote / port configure muncul sebagai penanda 'Segera', bukan tombol
     yang memanggil endpoint karangan."""
-    for marker in ("TR-069 status · Segera", "Akses remote WAN", "TR-069 profile"):
+    for marker in ("Akses remote WAN", "TR-069 profile"):
         assert marker in src
     assert "tr069" not in src.lower().replace("tr-069", "")
     # Kolom aksi port Ethernet tidak boleh jadi <Button ... onClick=...>
     port_block = src[src.index('<Section label="Port Ethernet"') : src.index('<Section label="WiFi"')]
     assert "<Button" not in port_block
+
+
+def test_tr069_status_button_hidden_without_internal_acs(src: str):
+    """Referensi hanya menampilkan tombol "TR069 Status" saat profil TR-069 ONU memakai
+    server ACS internal aplikasi. Nexfiber belum punya server ACS internal / katalog profil
+    TR-069, jadi penandanya tidak boleh dirender dalam bentuk apa pun (termasuk
+    placeholder "Segera") sampai prasyarat itu ada."""
+    status_block = src[src.index('<Section label="Status"') : src.index('<Section label="Trafik/Sinyal"')]
+    assert "TR-069 status" not in status_block
+    assert "TR-069 status · Segera" not in src
+    # Dan tidak boleh ada kondisi visibility berdasarkan field yang belum dikirim backend.
+    assert "tr069_profile" not in src
 
 
 def test_pppoe_password_never_rendered(src: str):
