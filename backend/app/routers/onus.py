@@ -103,6 +103,16 @@ async def rescan_pending(olt_id: int, db: AsyncSession = Depends(get_db),
     return JobAccepted(job_id=await olt_service.enqueue_olt_job(
         db, olt_id, "sync_unconfigured", user))
 
+@router.post("/sync", **ACCEPTED)
+async def sync_onus(olt_id: int, db: AsyncSession = Depends(get_db),
+                    user: User = Depends(get_current_user)):
+    """Tombol "Sync pelanggan" (PRD 3.4.5): baca ulang ONU terdaftar dari satu OLT.
+
+    Memakai job sync_onu_status yang sudah ada — jangan bikin alur sinkron sendiri.
+    """
+    return JobAccepted(job_id=await olt_service.enqueue_olt_job(
+        db, olt_id, "sync_onu_status", user))
+
 @router.get("/customer-id-taken")
 async def customer_id_taken(customer_id: str, db: AsyncSession = Depends(get_db),
                             _: User = Depends(get_current_user)) -> dict:

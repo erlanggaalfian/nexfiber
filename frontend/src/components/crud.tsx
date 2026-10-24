@@ -2,7 +2,8 @@
  *  drawer kanan 480px, hapus = dialog konfirmasi kecil). Satu sumber supaya tiap halaman tidak
  *  menulis ulang markup yang sama.
  */
-import { Dialog } from "radix-ui";
+import { CaretDown, X } from "@phosphor-icons/react";
+import { Dialog, Popover } from "radix-ui";
 import type { ReactNode } from "react";
 import { Empty, ErrorState, Skeleton } from "./data";
 import { Button } from "./ui/button";
@@ -115,6 +116,61 @@ export function UsageBar({ used, capacity }: { used: number; capacity: number | 
         <span className={`h-1 ${pct >= 100 ? "bg-down" : "bg-fiber"}`} style={{ width: `${pct}%` }} />
       </span>
       {used}/{capacity ?? "—"}
+    </span>
+  );
+}
+
+/** Filter multi-pilih DESIGN 12.5: tombol kecil yang jadi "Status · 2" saat aktif,
+ *  isinya checkbox. Dipakai semua filter tabel Configured supaya tidak ada tujuh
+ *  variasi dropdown yang ditulis tangan.
+ *
+ *  ponytail: tanpa kotak cari di dalam dropdown — daftar pilihan saat ini (status,
+ *  sinyal, OLT, VLAN, zone, splitter) masih pendek. skipped: search box,
+ *  tambah kalau satu daftar lewat ~20 item.
+ */
+export function MultiFilter({ label, options, value, onChange }: {
+  label: string;
+  options: { value: string; label: string }[];
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const toggle = (v: string) =>
+    onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <Button size="sm" aria-label={`Filter ${label}`}>
+          {value.length ? `${label} · ${value.length}` : label}
+          <CaretDown size={12} aria-hidden />
+        </Button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          align="start"
+          sideOffset={4}
+          className="z-50 max-h-72 w-56 overflow-y-auto rounded-md border bg-surface p-2 shadow-modal data-[state=open]:animate-[fade-in_150ms_ease-out]"
+        >
+          {options.length === 0 && <p className="p-1 text-muted">Belum ada pilihan</p>}
+          {options.map((o) => (
+            <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-sunken">
+              <input type="checkbox" checked={value.includes(o.value)} onChange={() => toggle(o.value)} />
+              <span className="truncate">{o.label}</span>
+            </label>
+          ))}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+/** Chip filter aktif (DESIGN 12.5): "Status: Offline ✕". */
+export function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-sm border bg-sunken px-2 py-0.5 text-xs">
+      {label}
+      <button type="button" onClick={onRemove} aria-label={`Hapus filter ${label}`} className="text-muted hover:text-ink">
+        <X size={10} aria-hidden />
+      </button>
     </span>
   );
 }

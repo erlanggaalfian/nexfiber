@@ -16,6 +16,10 @@ import { Splitters } from "./pages/settings/Splitters";
 import { UserManagement } from "./pages/settings/UserManagement";
 import { Setup } from "./pages/Setup";
 import { SpeedProfile } from "./pages/settings/SpeedProfile";
+import { AuthorizeOnu } from "./pages/AuthorizeOnu";
+import { Configured } from "./pages/Configured";
+import { OnuDetail } from "./pages/OnuDetail";
+import { Unconfigured } from "./pages/Unconfigured";
 import "./styles/index.css";
 
 const queryClient = new QueryClient({
@@ -45,7 +49,6 @@ function Placeholder() {
 }
 
 const LATER = [
-  "/unconfigured", "/unconfigured/authorize/:oltId/:serial", "/configured", "/onu/:id",
   "/settings/*", "/logs", "/akun/password",
 ];
 
@@ -58,6 +61,10 @@ createRoot(document.getElementById("root")!).render(
           <Route path="/setup" element={<Setup />} />
           <Route element={<RequireAuth><Layout /></RequireAuth>}>
             <Route index element={<Dashboard />} />
+            <Route path="/unconfigured" element={<Unconfigured />} />
+            <Route path="/unconfigured/authorize/:oltId/:serial" element={<AuthorizeOnu />} />
+            <Route path="/configured" element={<Configured />} />
+            <Route path="/onu/:id" element={<OnuDetail />} />
             <Route path="/lainnya" element={<Lainnya />} />
             <Route path="/olt/:id" element={<OltDetail />} />
             <Route path="/settings/olts" element={<OltManagement />} />

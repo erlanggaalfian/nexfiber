@@ -51,6 +51,39 @@ export const qs = (params: Record<string, string | number | undefined | null>) =
   return s ? `?${s}` : "";
 };
 
+/** Query string yang mengulang kunci untuk nilai banyak (`?signal=weak&signal=los`),
+ *  bentuk yang dipahami FastAPI untuk parameter list. */
+export const qsMulti = (params: Record<string, string | number | string[] | undefined | null>) => {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (Array.isArray(v)) v.forEach((item) => item !== "" && p.append(k, String(item)));
+    else if (v !== undefined && v !== null && v !== "") p.set(k, String(v));
+  }
+  const s = p.toString();
+  return s ? `?${s}` : "";
+};
+
+/** Unduh file dari endpoint yang butuh Authorization — <a href> biasa tidak mengirim token. */
+export async function download(path: string, fallbackName: string) {
+  const headers = new Headers();
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(path, { headers });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, detailText(body.detail) || `HTTP ${res.status} dari API`);
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1];
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name ?? fallbackName;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export type Role = "superadmin" | "admin" | "user";
 export type Me = {
   id: number; username: string; full_name: string; role: Role; admin_id: number | null; must_change_password: boolean;
