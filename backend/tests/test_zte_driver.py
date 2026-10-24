@@ -35,6 +35,18 @@ def _driver() -> ZteC320Driver:
         cli_port=22, snmp_community="public", snmp_port=161,
     )
 
+def test_open_cli_uses_zte_zxros_device_type():
+    # BUG NYATA (OLT SBI, 2026-10-24): device_type default netmiko "generic_termserver"
+    # tak tahu login-prompt ZXA10 -- session macet di "Username:"/"Password:" selamanya.
+    ssh = _driver()._open_cli()
+    assert ssh._params["device_type"] == "zte_zxros"
+    telnet = ZteC320Driver(
+        host="10.0.0.1", cli_username="a", cli_password="b", cli_protocol="telnet",
+        cli_port=23, snmp_community="public", snmp_port=161,
+    )._open_cli()
+    assert telnet._params["device_type"] == "zte_zxros_telnet"
+
+
 def test_decode_pon_ifindex():
     assert decode_pon_ifindex(268501248) == (1, 1)
     assert decode_pon_ifindex(IFX_1_3_6) == (3, 6)

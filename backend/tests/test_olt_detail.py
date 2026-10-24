@@ -18,55 +18,63 @@ from app.drivers.zte_c320 import (
 from app.services import sync_service, vlan_service
 from app.worker import handlers
 
-# Format nyata (sumber: driver produksi SmartOLT, verifikasi live 2026-08-28). Slot
-# OFFLINE tidak punya RealType/HardVer/SoftVer sama sekali.
+# Transkrip nyata diambil read-only dari OLT SBI (103.210.52.64, 2026-10-24) — bukan
+# dugaan lagi. show gpon onu uncfg di device ini kosong saat capture (tak ada ONU
+# unconfigured), tidak dipakai di sini.
 SHOW_CARD = """
-Rack Shelf Slot CfgType   RealType  Port HardVer  SoftVer    Status
----- ----- ---- --------- --------- ---- -------- ---------- --------
-1    1     1    GTGO      GTGOE     8    V1.0.0   V2.1.0     INSERVICE
-1    1     3    SCXN      SCXN      2    V2.0.0   V2.1.0     INSERVICE
-1    1     5    SMXA                8                        OFFLINE
-ZXAN#
+Rack Shelf Slot CfgType RealType Port  HardVer SoftVer         Status
+-------------------------------------------------------------------------------
+1    1     0    PRWH    PRWH     0     V1.0.0                  INSERVICE
+1    1     1    PRWH    PRWH     0     V1.0.0                  NOPOWER
+1    1     3    GTGO             8                             OFFLINE
+1    1     6    GTGO    GTGOG    8     V1.0.0  V2.1.0          INSERVICE
+1    1     10   SCXM    SCXM     0     V1.0.0  V2.1.0          INSERVICE
+OLT_C300_SBI_01#
 """
 
 SHOW_PROCESSOR = """
-Rack Shelf Slot CPU%  CpuPeak%  Mem%  BoardId  MemPeak%
----- ----- ---- ----- --------- ----- -------- --------
-1    1     1    12%   40%       55%   1        60%
-1    1     3    7%    31%       48%   3        52%
-ZXAN#
+Rack   Shelf    Slot   CPU(5s)   CPU(1m)    CPU(5m)   PhyMem(MB)  Memory
+-------------------------------------------------------------------------------
+1       1       6       13%       13%       13%       512         25%
+1       1       10      12%       22%       19%       510         52%
+OLT_C300_SBI_01#
 """
 
 SHOW_VERSION = """
-ZXAN#show version-running
-Version full name  : ZXA10 C320 V2.1.0
-ZXAN#
+PhyLoc  FileType   VerType    VerTag            BuildTime           VerLength
+-------------------------------------------------------------------------------
+1/1/6   GTGOG      MVR        V2.1.0            2017-01-17 00:41:50 6906120
+1/1/6   GTGOG      BT         V4.0.17           2018-10-30 00:50:09 524288
+OLT_C300_SBI_01#
 """
 
 
 def test_parse_cards_reads_slot_rows_only():
     cards = _parse_cards(SHOW_CARD)
-    assert [c.slot for c in cards] == [1, 3, 5]
-    assert cards[1].real_type == "SCXN"
-    assert cards[0].port_count == 8
+    assert [c.slot for c in cards] == [0, 1, 3, 6, 10]
+    assert cards[3].real_type == "GTGOG"
+    assert cards[0].port_count == 0
     assert cards[2].status == "offline"
+    # Slot tanpa RealType sama sekali tetap terbaca, Port-nya jangan jatuh ke RealType.
+    assert cards[2].real_type == "GTGO"
+    assert cards[2].port_count == 8
 
 
 def test_parse_processor_maps_cpu_and_memory_per_slot():
-    assert _parse_processor(SHOW_PROCESSOR) == {1: (12.0, 55.0), 3: (7.0, 48.0)}
+    assert _parse_processor(SHOW_PROCESSOR) == {6: (13.0, 25.0), 10: (12.0, 52.0)}
 
 
 def test_merge_card_load_attaches_load_and_keeps_processor_only_slots():
     cards = _merge_card_load(
-        [OltCard(slot=1), OltCard(slot=3)], {1: (12.0, 55.0), 9: (2.0, 10.0)}
+        [OltCard(slot=6), OltCard(slot=10)], {6: (13.0, 25.0), 9: (2.0, 10.0)}
     )
     assert [(c.slot, c.cpu_pct, c.ram_pct) for c in cards] == [
-        (1, 12.0, 55.0), (3, None, None), (9, 2.0, 10.0),
+        (6, 13.0, 25.0), (9, 2.0, 10.0), (10, None, None),
     ]
 
 
 def test_parse_software_version():
-    assert _parse_software_version(SHOW_VERSION) == "ZXA10 C320 V2.1.0"
+    assert _parse_software_version(SHOW_VERSION) == "V2.1.0"
     assert _parse_software_version("") is None
 
 

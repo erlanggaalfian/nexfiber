@@ -2,10 +2,14 @@
 
 Command templates for authorize/modify/backup_config were built from real running-config
 transcripts captured off a production ZTE C320 (gpon-onu interface blocks). Parsers for
-list_unconfigured, show card, show processor, and pon power attenuation were corrected
-against a second production ZTE C320 driver's live-verified output (/var/www/smartolt.*,
-2026-10-24) — still mark delete/set_state/reboot/fetch_inventory CLI syntax as UNVERIFIED
-until confirmed against our own live device.
+list_unconfigured, show card, show processor, show version-running, and pon power
+attenuation were VERIFIED against a real live device (OLT "SBI", C300, read-only CLI
+session, 2026-10-24) -- confirmed and corrected multiple parser bugs found this way (card
+rows with missing RealType, processor column order, version-running multi-row format).
+CLI transport also fixed: netmiko device_type="generic_termserver" never logs in to ZXA10
+(stuck at Username:/Password: prompt forever) -- switched to "zte_zxros"/"zte_zxros_telnet".
+Still mark delete/set_state/reboot/fetch_inventory CLI syntax as UNVERIFIED
+until confirmed against a live device (only read-only commands were run against SBI).
 """
 
 import re
@@ -125,13 +129,20 @@ class ZteC320Driver(OltDriver):
         self._snmp = SnmpTransport(host, snmp_community, snmp_port)
 
     def _open_cli(self) -> SshTransport | TelnetTransport:
-        cls = SshTransport if self._cli_protocol == "ssh" else TelnetTransport
-        return cls(
-            host=self._host,
-            username=self._cli_username,
-            password=self._cli_password,
-            port=self._cli_port,
-            secret=self._cli_enable_password,
+        # BUG NYATA (ketemu read-only via OLT SBI, 2026-10-24): device_type default
+        # "generic_termserver(_telnet)" netmiko tidak tahu login-prompt ZXA10 — tidak
+        # pernah mengirim username/password, session macet di "Username:"/"Password:".
+        # netmiko punya device_type khusus untuk ZTE ZXROS; pakai itu.
+        if self._cli_protocol == "ssh":
+            return SshTransport(
+                host=self._host, username=self._cli_username, password=self._cli_password,
+                port=self._cli_port, secret=self._cli_enable_password,
+                device_type="zte_zxros",
+            )
+        return TelnetTransport(
+            host=self._host, username=self._cli_username, password=self._cli_password,
+            port=self._cli_port, secret=self._cli_enable_password,
+            device_type="zte_zxros_telnet",
         )
 
     def _result(self, command: str, output: str) -> DriverResult:
@@ -147,7 +158,9 @@ class ZteC320Driver(OltDriver):
         (atau sebaliknya) — bug nyata SmartOLT. Satu protokol gagal tidak membatalkan
         yang lain, jadi tiap percobaan punya try/except sendiri.
         """
-        command = "show version"
+        command = "show version-running"
+        # "show version" ditolak sebagai ambiguous command di C300 (ketemu read-only
+        # via OLT SBI, 2026-10-24) — "show version-running" selalu diterima.
         cli_ok, cli_message, raw_output = False, "", ""
         try:
             async with self._open_cli() as cli:
@@ -583,37 +596,48 @@ def _as_float(token: str) -> float | None:
     except ValueError:
         return None
 
-_CARD_ROW_RE = re.compile(
-    r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+([A-Z][A-Z0-9]+)\s+"
-    r"(?:([A-Z][A-Z0-9]+)\s+)?(\d+)\s+"
-    r"(?:(V\S+)\s+(V\S+)\s+)?([A-Z]+)\s*$"
-)
-# Regex diadaptasi dari driver produksi SmartOLT (verifikasi live 2026-08-28): slot
-# OFFLINE tidak punya RealType/HardVer/SoftVer, grup-grup itu jadi opsional lewat `?`.
+_CARD_ROW_RE = re.compile(r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S.*\S)\s*$")
+# Transkrip nyata (OLT SBI, 2026-10-24, read-only, lihat NEXFIBER-CLI-REFERENCE.md):
+# kolom RealType/HardVer/SoftVer masing-masing BISA kosong SENDIRI-SENDIRI (tidak
+# selalu bareng), dan Port tetap ada walau RealType kosong. Makanya diparse dari token
+# tengah secara posisional, bukan regex kolom tetap seperti dugaan sebelumnya.
 
 def _parse_cards(output: str) -> list[OltCard]:
-    """`show card`, kolom: Rack Shelf Slot CfgType [RealType] Port [HardVer SoftVer] Status."""
+    """`show card`, kolom: Rack Shelf Slot CfgType [RealType] Port [HardVer] [SoftVer] Status."""
     cards: list[OltCard] = []
     for line in output.splitlines():
         m = _CARD_ROW_RE.match(line)
         if not m:
             continue
+        rack, shelf, slot, rest = m.groups()
+        if not (rack.isdigit() and shelf.isdigit() and slot.isdigit()):
+            continue
+        tokens = rest.split()
+        if len(tokens) < 2:
+            continue
+        status = tokens[-1]
+        mid = tokens[:-1]
+        cfg_type = mid[0]
+        port_idx = next((i for i, t in enumerate(mid[1:], start=1) if t.isdigit()), None)
+        if port_idx is None:
+            continue
+        real_type = mid[1] if port_idx == 2 else None
+        port_count = int(mid[port_idx])
+        versions = mid[port_idx + 1:]
+        hardware_version = versions[0] if versions else None
+        software_version = versions[1] if len(versions) > 1 else None
         cards.append(OltCard(
-            slot=int(m.group(3)),
-            cfg_type=m.group(4),
-            real_type=m.group(5) or m.group(4),
-            port_count=int(m.group(6)),
-            hardware_version=m.group(7),
-            software_version=m.group(8),
-            status=m.group(9).lower(),
+            slot=int(slot), cfg_type=cfg_type, real_type=real_type or cfg_type,
+            port_count=port_count, hardware_version=hardware_version,
+            software_version=software_version, status=status.lower(),
         ))
     return cards
 
 _PROCESSOR_ROW_RE = re.compile(
     r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)%\s+(\d+)%\s+(\d+)%\s+(\d+)\s+(\d+)%"
 )
-# Kolom nyata (verifikasi live, driver SmartOLT): Rack Shelf Slot CPU% CpuPeak% Mem%
-# BoardId MemPeak% — slot ada di grup 3, BUKAN kolom pertama seperti dugaan lama.
+# Transkrip nyata (OLT SBI, 2026-10-24, read-only): Rack Shelf Slot CPU(5s) CPU(1m)
+# CPU(5m) PhyMem(MB) Memory(%) — CPU "sekarang" = CPU(5s), RAM = kolom Memory terakhir.
 
 def _parse_processor(output: str) -> dict[int, tuple[float | None, float | None]]:
     """`show processor` -> {slot: (cpu_pct, ram_pct)}."""
@@ -622,7 +646,7 @@ def _parse_processor(output: str) -> dict[int, tuple[float | None, float | None]
         m = _PROCESSOR_ROW_RE.match(line)
         if not m:
             continue
-        load[int(m.group(3))] = (_as_float(m.group(4)), _as_float(m.group(6)))
+        load[int(m.group(3))] = (_as_float(m.group(4)), _as_float(m.group(8)))
     return load
 
 def _merge_card_load(
@@ -639,11 +663,15 @@ def _merge_card_load(
     return sorted(cards, key=lambda c: c.slot)
 
 def _parse_software_version(output: str) -> str | None:
-    """`show version-running`: ambil token versi pertama, mis. "ZXA10 C320 V2.1.0".
-
-    Baris gema prompt (`ZXAN#show version-running`) dilewati — kalau tidak, nilai yang
-    tersimpan jadi teks perintah, bukan versi.
+    """`show version-running`: kolom nyata PhyLoc FileType VerType VerTag BuildTime
+    VerLength (transkrip OLT SBI, 2026-10-24, read-only) — bukan satu baris "Version
+    full name:" seperti dugaan lama. Ambil VerTag dari baris VerType=MVR pertama
+    (firmware utama slot); kalau tidak ada format itu, coba pola lama sebagai fallback.
     """
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[2] == "MVR":
+            return parts[3][:100]
     for line in output.splitlines():
         stripped = line.strip()
         if not stripped or "#" in stripped:  # "#" = prompt CLI, bukan baris data
