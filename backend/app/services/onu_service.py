@@ -87,13 +87,6 @@ async def list_pending(db: AsyncSession, olt_id: int | None, user: User) -> list
         for u, name, slot, port in await onu_repo.list_pending(db, olt_id, scope_olt_ids(user))
     ]
 
-async def list_vlans(db: AsyncSession, olt_id: int | None, user: User) -> list[Vlan]:
-    return await onu_repo.list_vlans(db, olt_id, scope_olt_ids(user))
-
-async def list_speed_profiles(db: AsyncSession, olt_id: int | None,
-                              user: User) -> list[SpeedProfile]:
-    return await onu_repo.list_speed_profiles(db, olt_id, scope_olt_ids(user))
-
 async def customer_id_taken(db: AsyncSession, customer_id: str) -> bool:
     return await onu_repo.exists_customer_id(db, customer_id)
 

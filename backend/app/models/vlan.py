@@ -1,4 +1,14 @@
-from sqlalchemy import BigInteger, Boolean, Enum, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -10,7 +20,12 @@ TagAction = Enum("transparent", "translate", "tag", name="vlan_tag_action")
 
 class Vlan(TimestampMixin, Base):
     __tablename__ = "vlans"
-    __table_args__ = (UniqueConstraint("olt_id", "vlan_id", name="uq_vlan_olt_vlanid"),)
+    __table_args__ = (
+        UniqueConstraint("olt_id", "vlan_id", name="uq_vlan_olt_vlanid"),
+        # NULL != NULL di Postgres, jadi constraint di atas tidak mengikat VLAN global.
+        Index("uq_vlan_global_vlanid", "vlan_id", unique=True,
+              postgresql_where=text("olt_id IS NULL")),
+    )
 
     olt_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("olts.id"), nullable=True

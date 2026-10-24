@@ -11,7 +11,7 @@ from app.core.exceptions import CommandRejectedError
 from app.drivers.base import OltDriver
 from app.models.job import Job
 from app.models.olt import Olt
-from app.services import onu_service, sync_service
+from app.services import onu_service, speed_profile_service, sync_service, vlan_service
 
 Handler = Callable[[AsyncSession, Job, Olt, OltDriver], Awaitable[dict]]
 
@@ -32,6 +32,18 @@ async def set_state(db, job, olt, driver):
 
 async def apply_speed_profile(db, job, olt, driver):
     return await onu_service.apply_speed_profile(db, job, driver)
+
+async def create_vlan(db, job, olt, driver):
+    return await vlan_service.push_create(db, job, driver)
+
+async def delete_vlan(db, job, olt, driver):
+    return await vlan_service.push_delete(db, job, driver)
+
+async def push_speed_profile(db, job, olt, driver):
+    return await speed_profile_service.push_to_olt(db, job, driver)
+
+async def sync_speed_profiles(db, job, olt, driver):
+    return await speed_profile_service.sync_from_olt(db, job, driver)
 
 async def sync_onu_status(db, job, olt, driver):
     return await sync_service.sync_onu_status(db, olt, driver)
@@ -64,6 +76,10 @@ HANDLERS: dict[str, Handler] = {
     "reboot_onu": reboot_onu,
     "set_state": set_state,
     "apply_speed_profile": apply_speed_profile,
+    "create_vlan": create_vlan,
+    "delete_vlan": delete_vlan,
+    "push_speed_profile": push_speed_profile,
+    "sync_speed_profiles": sync_speed_profiles,
     "sync_onu_status": sync_onu_status,
     "sync_onu_optical": sync_onu_optical,
     "sync_unconfigured": sync_unconfigured,
