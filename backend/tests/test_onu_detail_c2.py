@@ -204,6 +204,13 @@ def test_parse_attenuation_only_fills_missing():
     assert rx2 == -30.0
 
 
+def test_parse_attenuation_falls_back_to_nm_format():
+    # Format alternatif (verifikasi live, driver SmartOLT) saat label key:value absen.
+    output = "1490nm Tx: 2.50 Rx: -21.30\n1310nm Rx: -16.80\n"
+    rx, tx, olt_rx = _parse_attenuation(output, None, None, None)
+    assert (rx, tx, olt_rx) == (-21.30, 2.50, -16.80)
+
+
 def test_parse_equip_versions():
     active, standby, hardware = _parse_equip(EQUIP, None)
     assert (active, standby, hardware) == ("V1.2.3P4", "V1.2.2P9", "V5.0")

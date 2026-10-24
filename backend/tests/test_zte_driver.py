@@ -21,6 +21,7 @@ from app.drivers.zte_c320 import (
     _parse_onu_ids,
     _parse_onu_iface,
     _parse_slot_port,
+    _parse_unconfigured,
     decode_pon_ifindex,
     phase_state_to_status,
 )
@@ -38,6 +39,16 @@ def test_decode_pon_ifindex():
     assert decode_pon_ifindex(268501248) == (1, 1)
     assert decode_pon_ifindex(IFX_1_3_6) == (3, 6)
     assert decode_pon_ifindex(IFX_1_4_3) == (4, 3)
+
+
+def test_parse_unconfigured_matches_real_gpon_onu_prefix():
+    # Format asli (verifikasi live, driver SmartOLT) — bukan "gpon-olt_" seperti dugaan lama.
+    output = "gpon-onu_1/2/1:1      ZTEGCC929729      unknown\ngpon-onu_1/2/3:5      ZTEGAABBCCDD\n"
+    onus = _parse_unconfigured(output)
+    assert [(o.slot, o.port, o.serial_number, o.onu_type) for o in onus] == [
+        (2, 1, "ZTEGCC929729", "unknown"),
+        (2, 3, "ZTEGAABBCCDD", None),
+    ]
 
 def test_phase_state_to_status():
     assert phase_state_to_status(4) == "online"

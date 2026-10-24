@@ -1,12 +1,14 @@
 """ZTE ZXA10 C300/C320 driver (PRD 4.3). MVP's only vendor implementation.
 
 Command templates for authorize/modify/backup_config were built from real running-config
-transcripts captured off a production ZTE C320 (gpon-onu interface blocks). Commands for
-list_unconfigured/delete/set_state/reboot/fetch_inventory use the vendor's publicly
-documented CLI syntax (ZXA10 C300/C320 command reference) because no real transcript was
-available for those operations — mark as UNVERIFIED until confirmed against a live device,
-and replace tests/fixtures/cli/zte_unconfigured.txt etc. with real output before production use.
+transcripts captured off a production ZTE C320 (gpon-onu interface blocks). Parsers for
+list_unconfigured, show card, show processor, and pon power attenuation were corrected
+against a second production ZTE C320 driver's live-verified output (/var/www/smartolt.*,
+2026-10-24) — still mark delete/set_state/reboot/fetch_inventory CLI syntax as UNVERIFIED
+until confirmed against our own live device.
 """
+
+import re
 
 from app.drivers.base import OltDriver
 from app.drivers.errors import ZTE_ERROR_PATTERNS, is_error_output
@@ -239,19 +241,10 @@ class ZteC320Driver(OltDriver):
         return self._result(" ; ".join(commands), output)
 
     async def list_unconfigured(self) -> list[UnconfiguredOnu]:
-        # UNVERIFIED: public syntax, no real transcript available (see module docstring).
         command = "show gpon onu uncfg"
         async with self._open_cli() as cli:
             output = await cli.send_command(command)
-        onus: list[UnconfiguredOnu] = []
-        for line in output.splitlines():
-            parts = line.split()
-            # Expected columns (public docs): gpon-olt_1/3/6  <sn>  [onu_type]
-            if len(parts) >= 2 and parts[0].startswith("gpon-olt_"):
-                slot, port = _parse_slot_port(parts[0])
-                onus.append(UnconfiguredOnu(slot=slot, port=port, serial_number=parts[1],
-                                             onu_type=parts[2] if len(parts) > 2 else None))
-        return onus
+        return _parse_unconfigured(output)
 
     async def authorize(self, req: AuthorizeRequest) -> DriverResult:
         commands = build_authorize_commands(req)
@@ -423,10 +416,10 @@ class ZteC320Driver(OltDriver):
     async def fetch_onu_detail(self, slot: int, port: int, onu_id: int) -> OnuLiveDetail:
         """Baca live satu ONU untuk tab Status/Running config/Info software.
 
-        Keempat perintah ✅ terverifikasi di NEXFIBER-CLI-REFERENCE.md ("Baca — ONU");
-        yang belum terverifikasi adalah *format keluarannya* — tidak ada satu pun
-        transkrip `detail-info`/`attenuation`/`equip` di repo, jadi parser di bawah
-        toleran: field yang tidak cocok tetap None, bukan bikin job gagal.
+        Keempat perintah ✅ terverifikasi di NEXFIBER-CLI-REFERENCE.md ("Baca — ONU").
+        `detail-info` & `attenuation` punya fallback regex yang dikonfirmasi lewat driver
+        produksi ZTE C320 lain (2026-10-24); field yang masih tak cocok tetap None, bukan
+        bikin job gagal.
         Satu sesi CLI untuk semua perintah (PRD 4.3: satu koneksi per OLT).
         """
         iface = f"gpon-onu_1/{slot}/{port}:{onu_id}"
@@ -527,6 +520,21 @@ def _parse_slot_port(iface: str) -> tuple[int, int]:
     _rack, slot, port = rack_slot_port.split("/")
     return int(slot), int(port)
 
+_UNCFG_ROW_RE = re.compile(r"(?:gpon-onu_)?(\d+/\d+/\d+):\d+\s+(\S+)(?:\s+(\S+))?")
+# Format asli (verifikasi live, driver SmartOLT): "gpon-onu_1/2/1:1  <SN>  <type>" —
+# prefiks "gpon-onu_", bukan "gpon-olt_" seperti dugaan lama (parser lama tidak pernah
+# match apa pun dari device nyata; Rx tidak ada di baris ini, ONU belum punya SNMP index).
+
+def _parse_unconfigured(output: str) -> list[UnconfiguredOnu]:
+    onus: list[UnconfiguredOnu] = []
+    for line in output.splitlines():
+        m = _UNCFG_ROW_RE.search(line)
+        if m:
+            slot, port = _parse_slot_port(f"gpon-onu_{m.group(1)}")
+            onus.append(UnconfiguredOnu(slot=slot, port=port, serial_number=m.group(2),
+                                         onu_type=m.group(3)))
+    return onus
+
 def _parse_onu_ids(output: str) -> list[int]:
     ids: list[int] = []
     for line in output.splitlines():
@@ -565,11 +573,9 @@ def _parse_traffic_profiles(output: str) -> list[TrafficProfile]:
     return profiles
 
 # --- Kesehatan OLT -----------------------------------------------------------------
-# UNVERIFIED: `show card`, `show processor` dan `show version-running` tercatat
-# "terverifikasi" di NEXFIBER-CLI-REFERENCE.md sebagai perintah, tetapi tidak ada satu pun
-# transkrip keluarannya di repo ini. Parser di bawah mengikuti format kolom ZXA10 yang
-# terdokumentasi publik dan sengaja dibuat toleran: baris yang tidak cocok dilewati, bukan
-# bikin job gagal. Ganti dengan parsing berdasarkan transkrip nyata sebelum dipercaya penuh.
+# Format kolom dikonfirmasi lewat driver produksi ZTE C320 lain (/var/www/smartolt.*,
+# 2026-10-24), bukan dugaan dokumentasi publik lagi. `show version-running` masih belum
+# punya sumber verifikasi kedua, tetap toleran: baris yang tak cocok dilewati saja.
 
 def _as_float(token: str) -> float | None:
     try:
@@ -577,38 +583,46 @@ def _as_float(token: str) -> float | None:
     except ValueError:
         return None
 
+_CARD_ROW_RE = re.compile(
+    r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+([A-Z][A-Z0-9]+)\s+"
+    r"(?:([A-Z][A-Z0-9]+)\s+)?(\d+)\s+"
+    r"(?:(V\S+)\s+(V\S+)\s+)?([A-Z]+)\s*$"
+)
+# Regex diadaptasi dari driver produksi SmartOLT (verifikasi live 2026-08-28): slot
+# OFFLINE tidak punya RealType/HardVer/SoftVer, grup-grup itu jadi opsional lewat `?`.
+
 def _parse_cards(output: str) -> list[OltCard]:
-    """`show card`, kolom: Rack Shelf Slot CfgType RealType Port HardVer SoftVer Status."""
+    """`show card`, kolom: Rack Shelf Slot CfgType [RealType] Port [HardVer SoftVer] Status."""
     cards: list[OltCard] = []
     for line in output.splitlines():
-        parts = line.split()
-        # Baris data diawali tiga angka (rack, shelf, slot); header/pemisah tidak.
-        if len(parts) < 5 or not all(p.isdigit() for p in parts[:3]):
+        m = _CARD_ROW_RE.match(line)
+        if not m:
             continue
-        port_count = next((int(p) for p in parts[5:6] if p.isdigit()), None)
         cards.append(OltCard(
-            slot=int(parts[2]),
-            cfg_type=parts[3],
-            real_type=parts[4],
-            port_count=port_count,
-            hardware_version=parts[6] if len(parts) > 6 else None,
-            software_version=parts[7] if len(parts) > 7 else None,
-            status=parts[-1].lower() if len(parts) > 8 else None,
+            slot=int(m.group(3)),
+            cfg_type=m.group(4),
+            real_type=m.group(5) or m.group(4),
+            port_count=int(m.group(6)),
+            hardware_version=m.group(7),
+            software_version=m.group(8),
+            status=m.group(9).lower(),
         ))
     return cards
 
+_PROCESSOR_ROW_RE = re.compile(
+    r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)%\s+(\d+)%\s+(\d+)%\s+(\d+)\s+(\d+)%"
+)
+# Kolom nyata (verifikasi live, driver SmartOLT): Rack Shelf Slot CPU% CpuPeak% Mem%
+# BoardId MemPeak% — slot ada di grup 3, BUKAN kolom pertama seperti dugaan lama.
+
 def _parse_processor(output: str) -> dict[int, tuple[float | None, float | None]]:
-    """`show processor`, kolom: Slot CPU(%) Peak Memory(%) ... -> {slot: (cpu, ram)}."""
+    """`show processor` -> {slot: (cpu_pct, ram_pct)}."""
     load: dict[int, tuple[float | None, float | None]] = {}
     for line in output.splitlines():
-        parts = line.split()
-        if len(parts) < 3 or not parts[0].isdigit():
+        m = _PROCESSOR_ROW_RE.match(line)
+        if not m:
             continue
-        numbers = [v for v in (_as_float(p) for p in parts[1:]) if v is not None]
-        if not numbers:
-            continue
-        # Kolom kedua = CPU sekarang, kolom terakhir = memory; peak di antaranya diabaikan.
-        load[int(parts[0])] = (numbers[0], numbers[-1] if len(numbers) > 1 else None)
+        load[int(m.group(3))] = (_as_float(m.group(4)), _as_float(m.group(6)))
     return load
 
 def _merge_card_load(
@@ -731,7 +745,9 @@ def _parse_attenuation(output: str, rx: float | None, tx: float | None,
     """`show pon power attenuation`: isi hanya yang masih kosong dari detail-info.
 
     Label ZTE: `OltRxOnuTx` = daya yang diterima OLT (olt_rx), `OnuRxOltTx` = daya yang
-    diterima ONU (rx). Nilai dari detail-info selalu menang.
+    diterima ONU (rx). Nilai dari detail-info selalu menang. Format baris alternatif
+    (verifikasi live, driver SmartOLT): "1490nm Tx: <tx> Rx: <rx>" (arah ONU) dan
+    "1310nm Rx: <olt_rx>" (arah OLT) — dicoba sebagai fallback kedua.
     """
     for line in output.splitlines():
         pair = _kv(line)
@@ -745,6 +761,15 @@ def _parse_attenuation(output: str, rx: float | None, tx: float | None,
             rx = rx if rx is not None else _dbm(value)
         elif "onutx" in label or label.endswith("tx"):
             tx = tx if tx is not None else _dbm(value)
+    if rx is None or tx is None:
+        m = re.search(r"1490nm\s+Tx\s*:\s*(\S+)\s+Rx\s*:\s*([-]?\d+\.?\d*)", output, re.I)
+        if m:
+            tx = tx if tx is not None else _dbm(m.group(1))
+            rx = rx if rx is not None else _dbm(m.group(2))
+    if olt_rx is None:
+        m = re.search(r"1310nm\s+Rx\s*:\s*([-]?\d+\.?\d*)", output, re.I)
+        if m:
+            olt_rx = _dbm(m.group(1))
     return rx, tx, olt_rx
 
 def _parse_equip(output: str,

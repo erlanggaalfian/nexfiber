@@ -118,3 +118,46 @@ OLT tanpa sparkline, aktivitas terbaru, "Diperbarui HH:MM" + tombol Refresh):
 - User dev untuk login: dibuat via `POST /api/auth/setup` (bukan script
   manual) — username `admin`, password lihat catatan terpisah (jangan
   simpan password asli di file markdown).
+
+## Audit fitur SmartOLT — pola diadopsi (Fase C, belum dikerjakan sekarang)
+Hasil audit kode SmartOLT (seluruh action handler + backend) vs PRD Nexfiber:
+mayoritas fitur besar (Replace ONU, Restore factory, CSV export, ONU preset,
+backup config OLT, VLAN management, mode IP manajemen ONU, port config fisik)
+**sudah tercakup** di PRD-FINAL.md §3.4.6–3.4.12, cuma belum dibangun. VPN
+Tunnels & TR-069 tetap ditunda (lihat di atas) — jangan diusulkan lagi.
+Dua pola teknis layak diadopsi saat halaman terkait dibangun:
+- **`test_connection` job**: hasil CLI dan SNMP harus dua boolean terpisah
+  dari tes sungguhan, BUKAN string-matching pesan driver. SmartOLT pernah
+  bug: status SNMP ditentukan dari mencocokkan teks pesan, hasilnya selalu
+  salah setelah refactor driver. Terapkan saat job `test_connection`/OLT
+  Management dibangun.
+- **ETag ringan via CRC32-XOR per baris** untuk polling status ONU (tabel
+  Configured/Dashboard): hitung `BIT_XOR(CRC32(kolom-kolom relevan))` per
+  OLT, kirim data penuh hanya kalau checksum berubah — hemat bandwidth/
+  re-render saat polling tabel besar. Terapkan saat polling status ONU di
+  Configured/Dashboard dibangun (SSE job-stream yang sudah ada untuk job
+  lain tetap dipakai apa adanya, ini khusus untuk endpoint polling tabel).
+- Pola background job via `exec(...)` non-blocking dari form SmartOLT TIDAK
+  diadopsi — arsitektur tabel job Postgres + worker Nexfiber sudah lebih
+  benar untuk ini.
+
+## TODO — Speed Profile pisah Download/Upload (belum dikerjakan)
+Permintaan user: satu profil `speed_profiles` sekarang gabung download+upload
+dalam satu baris (`download_kbps`+`upload_kbps`). User minta dipisah jadi dua
+entitas profil independen (profil Download sendiri, profil Upload sendiri)
+supaya bebas mencampur kombinasi down/up tanpa harus buat baris baru untuk
+tiap kombinasi. Ini sejalan dengan PRD-FINAL.md §4.6 baris `speed_profiles`
+yang sudah menyebut field `direction` ENUM(`download`,`upload`) — field itu
+belum pernah diimplementasikan di model `backend/app/models/speed_profile.py`
+maupun di `frontend/src/pages/settings/SpeedProfile.tsx` (kedua tempat masih
+pakai 1 baris = 1 pasang down+up).
+- Scope saat dikerjakan: migrasi skema (tambah `direction` ENUM, atau pecah
+  jadi dua baris per arah — putuskan saat eksekusi, cek dulu apakah `onu_presets`
+  `download_profile`/`upload_profile` (sudah berupa 2 field nama terpisah,
+  §4.6 baris 504) butuh ikut berubah referensinya.
+- Dampak ke dropdown: halaman Form Otorisasi/ONU Preset yang pilih profil
+  speed by name HARUS bisa pilih Download dan Upload dari dua dropdown
+  terpisah, bukan satu dropdown "paket".
+- Belum ditentukan track Fase mana — ajukan sebagai task tersendiri setelah
+  Fase C selesai, JANGAN digabung diam-diam ke track C yang sedang berjalan
+  (hindari migrasi skema bentrok dengan C1-C3 yang sedang paralel).

@@ -18,22 +18,22 @@ from app.drivers.zte_c320 import (
 from app.services import sync_service, vlan_service
 from app.worker import handlers
 
-# Keluaran CLI contoh. UNVERIFIED seperti ditandai di zte_c320.py: formatnya mengikuti
-# kolom ZXA10 yang terdokumentasi publik, bukan transkrip nyata dari device.
+# Format nyata (sumber: driver produksi SmartOLT, verifikasi live 2026-08-28). Slot
+# OFFLINE tidak punya RealType/HardVer/SoftVer sama sekali.
 SHOW_CARD = """
 Rack Shelf Slot CfgType   RealType  Port HardVer  SoftVer    Status
 ---- ----- ---- --------- --------- ---- -------- ---------- --------
-1    1     1    GTGO      GTGO      8    V1.0     V2.1.0     INSERVICE
-1    1     3    SCXN      SCXN      2    V2.0     V2.1.0     INSERVICE
-1    1     5    GTGH      NULL      8    NULL     NULL       OFFLINE
+1    1     1    GTGO      GTGOE     8    V1.0.0   V2.1.0     INSERVICE
+1    1     3    SCXN      SCXN      2    V2.0.0   V2.1.0     INSERVICE
+1    1     5    SMXA                8                        OFFLINE
 ZXAN#
 """
 
 SHOW_PROCESSOR = """
-Slot  Cpu(%)  Peak(%)  Mem(%)
-----  ------  -------  ------
-1     12      40       55
-3     7       31       48
+Rack Shelf Slot CPU%  CpuPeak%  Mem%  BoardId  MemPeak%
+---- ----- ---- ----- --------- ----- -------- --------
+1    1     1    12%   40%       55%   1        60%
+1    1     3    7%    31%       48%   3        52%
 ZXAN#
 """
 
