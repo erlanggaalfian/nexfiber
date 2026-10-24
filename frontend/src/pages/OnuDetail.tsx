@@ -29,11 +29,11 @@ import {
 } from "../components/data";
 import { Button } from "../components/ui/button";
 import {
-  api, type OnuDetail as Detail, type OnuLog, type OnuType, type SignalPoint,
+  api, ApiError, type OnuDetail as Detail, type OnuLog, type OnuType, type SignalPoint,
   type SpeedProfile, type Splitter, type Vlan, type Zone,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { useJob } from "../lib/jobs";
+import { DONE, useJob } from "../lib/jobs";
 import { deltaMbps, type TrafficPoint, type TrafficSample } from "../lib/traffic";
 
 const RANGES = [["24h", "24 jam"], ["7d", "7 hari"], ["30d", "30 hari"]] as const;
@@ -436,6 +436,13 @@ export function OnuDetail() {
   /** Panel output diagnostik: satu panel, isi = hasil job view yang terakhir diminta. */
   const [diagView, setDiagView] = useState<DiagView | null>(null);
   const [diagJobId, setDiagJobId] = useState<number | null>(null);
+  /** View tombol yang sedang berjalan (penanda tombol aktif); null = tidak ada pembacaan. */
+  const [diagRunView, setDiagRunView] = useState<DiagView | null>(null);
+  /** Pesan khusus toolbar diagnostik (mis. penolakan 409), terpisah dari `note` aksi job. */
+  const [diagMsg, setDiagMsg] = useState("");
+  /** Waktu mulai pembacaan (ms epoch) untuk penghitung detik; tetap sama saat job_id datang. */
+  const [diagStart, setDiagStart] = useState<number | null>(null);
+  const [diagSecs, setDiagSecs] = useState(0);
   const [live, setLive] = useState(false);
 
   const onu = useQuery({
@@ -511,9 +518,37 @@ export function OnuDetail() {
   const diag = useMutation({
     mutationFn: (view: DiagView) =>
       api<{ job_id: number }>(`/api/onus/${serial}/diagnostics`, { method: "POST", json: { view } }),
-    onSuccess: (r) => setDiagJobId(r.job_id),
-    onError: (e: Error) => setNote(e.message),
+    onSuccess: (r, view) => {
+      setDiagView(view);
+      setDiagJobId(r.job_id);
+    },
+    onError: (e: Error) => {
+      setDiagRunView(null);
+      // 409 = backend sengaja menolak job sejenis yang tumpang-tindih untuk ONU yang sama.
+      // Pesannya dibuat jelas dan panel hasil sebelumnya dibiarkan utuh.
+      if (e instanceof ApiError && e.status === 409) {
+        setDiagMsg("Pembacaan untuk ONU ini masih berjalan, tunggu selesai.");
+        return;
+      }
+      setNote(e.message);
+    },
   });
+
+  /** Satu job diagnostik butuh ~4-8 detik di OLT, jadi tombol harus mati sampai job SELESAI
+   *  (success/failed/cancelled), bukan hanya selama request POST. Polling job berhenti sendiri
+   *  saat status selesai (useJob di lib/jobs.ts). */
+  const diagJobActive =
+    diagJobId !== null && !diagJob.isError && !(diagJob.data && DONE.has(diagJob.data.status));
+  const diagRunning = diag.isPending || diagJobActive;
+
+  /** Penghitung detik berjalan selama pembacaan, dihitung dari waktu klik. */
+  useEffect(() => {
+    if (!diagRunning || diagStart === null) return;
+    const tick = () => setDiagSecs(Math.floor((Date.now() - diagStart) / 1000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [diagRunning, diagStart]);
 
   if (onu.isPending) return <Skeleton text="Memuat detail ONU ..." rows={6} />;
   if (onu.isError || !onu.data) {
@@ -532,7 +567,11 @@ export function OnuDetail() {
   const latest = traffic.points.at(-1) ?? null;
 
   const runDiag = (view: DiagView) => {
-    setDiagView(view);
+    if (diagRunning) return; // tombol sudah disabled; jaga-jaga bila terpanggil lewat keyboard
+    setDiagMsg("");
+    setDiagRunView(view);
+    setDiagStart(Date.now());
+    setDiagSecs(0);
     diag.mutate(view);
   };
 
@@ -541,8 +580,11 @@ export function OnuDetail() {
   const diagResult = (diagJob.data?.result ?? {}) as Record<string, unknown>;
   const diagOutput = typeof diagResult.output === "string" ? diagResult.output : "";
   const diagOutputView = typeof diagResult.view === "string" ? diagResult.view : null;
-  const diagStatus = diagJob.data?.status ?? (diag.isPending ? "pending" : null);
+  const diagStatus = diagJob.data?.status ?? (diagRunning ? "pending" : null);
   const diagText = () => {
+    if (diagRunning) {
+      return `Sedang membaca dari OLT ... ${diagSecs}s`;
+    }
     if (diagOutput && (diagOutputView === null || diagOutputView === diagView)) return diagOutput;
     if (diagJob.data?.status === "failed") {
       return `Job #${diagJob.data.id} gagal: ${diagJob.data.error_message ?? "tanpa keterangan"}`;
@@ -724,23 +766,23 @@ export function OnuDetail() {
           <span className="font-mono text-xs font-semibold uppercase tracking-[0.05em] text-muted">
             Diagnostik ONU:
           </span>
-          <Button size="sm" onClick={() => runDiag("status")} disabled={diag.isPending}>
-            {DIAG_LABEL.status}
+          <Button size="sm" onClick={() => runDiag("status")} disabled={diagRunning}>
+            {DIAG_LABEL.status}{diagRunning && diagRunView === "status" ? " ..." : ""}
           </Button>
           {/* Running-config utuh memuat nilai konfigurasi sensitif: tombolnya hanya dirender
               untuk admin/superadmin, dan backend tetap menolak role lain (403). */}
           {isManager && (
-            <Button size="sm" onClick={() => runDiag("running")} disabled={diag.isPending}>
-              {DIAG_LABEL.running}
+            <Button size="sm" onClick={() => runDiag("running")} disabled={diagRunning}>
+              {DIAG_LABEL.running}{diagRunning && diagRunView === "running" ? " ..." : ""}
             </Button>
           )}
-          <Button size="sm" onClick={() => runDiag("software")} disabled={diag.isPending}>
-            {DIAG_LABEL.software}
+          <Button size="sm" onClick={() => runDiag("software")} disabled={diagRunning}>
+            {DIAG_LABEL.software}{diagRunning && diagRunView === "software" ? " ..." : ""}
           </Button>
           {/* Penanda status TR-069 tidak dirender sampai ada profil ACS internal (Phase 2,
               DECISIONS.md) — bukan placeholder "Segera", karena kondisinya tidak pernah benar. */}
           <span className="ml-auto flex items-center gap-2">
-            {diagView && diagOutput && (
+            {diagView && diagOutput && !diagRunning && (
               <Button size="sm" variant="quiet"
                       onClick={() => navigator.clipboard?.writeText(diagOutput)}>
                 Salin
@@ -752,12 +794,16 @@ export function OnuDetail() {
             </Button>
           </span>
         </div>
-        {diagView && (
+        {diagMsg && (
+          <p className="mt-2 text-sm text-amber" role="status">{diagMsg}</p>
+        )}
+        {(diagView || diagRunning) && (
           <>
             <p className="mt-2 font-mono text-xs text-muted">
-              {DIAG_LABEL[diagView]}
+              {DIAG_LABEL[diagRunView ?? diagView ?? "status"]}
               {diagJobId !== null && ` · job #${diagJobId}`}
               {diagStatus && ` · ${diagStatus}`}
+              {diagRunning && ` · ${diagSecs}s`}
             </p>
             <pre className="mt-1.5 max-h-[32rem] overflow-auto rounded-sm bg-sunken p-3 font-mono text-xs whitespace-pre">
               {diagText()}
