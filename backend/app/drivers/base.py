@@ -2,8 +2,10 @@ from abc import ABC, abstractmethod
 
 from app.drivers.types import (
     AuthorizeRequest,
+    ConnectionCheck,
     DriverResult,
     ModifyRequest,
+    OltHealth,
     OnuSnapshot,
     OnuStatusSample,
     OpticalSample,
@@ -24,7 +26,16 @@ class OltDriver(ABC):
     capabilities: set[str]  # e.g. {"snmp_rx", "cli_rx", "tr069_profile", "wan_config"}
 
     @abstractmethod
-    async def test_connection(self) -> DriverResult: ...
+    async def test_connection(self) -> ConnectionCheck:
+        """CLI dan SNMP diuji terpisah; satu boolean per protokol (lihat ConnectionCheck)."""
+
+    @abstractmethod
+    async def fetch_health(self) -> OltHealth:
+        """CPU/RAM/suhu/uptime/versi/kartu untuk tab Monitoring (PRD 3.4.7)."""
+
+    @abstractmethod
+    async def set_vlan_ports(self, vlan_id: int, ports: dict[str, str]) -> DriverResult:
+        """{nama_port: "tagged"|"untagged"} di port uplink."""
 
     @abstractmethod
     async def list_unconfigured(self) -> list[UnconfiguredOnu]: ...

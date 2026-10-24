@@ -51,6 +51,9 @@ async def sync_onu_status(db, job, olt, driver):
 async def sync_onu_optical(db, job, olt, driver):
     return await sync_service.sync_onu_optical(db, olt, driver)
 
+async def sync_olt_metrics(db, job, olt, driver):
+    return await sync_service.sync_olt_metrics(db, olt, driver)
+
 async def sync_unconfigured(db, job, olt, driver):
     return await sync_service.sync_unconfigured(db, olt, driver)
 
@@ -59,13 +62,32 @@ async def backup_olt_config(db, job, olt, driver):
     return await sync_service.backup_olt_config(db, olt, driver, triggered_by)
 
 async def test_connection(db, job, olt, driver):
-    result = await driver.test_connection()
-    if not result.success:
-        raise CommandRejectedError(result.message or "OLT rejected command")
+    """Dua boolean terpisah dari dua tes sungguhan (DECISIONS "Audit fitur SmartOLT").
+
+    Job gagal hanya kalau KEDUA protokol gagal; satu protokol hidup tetap berarti OLT
+    terjangkau, dan hasil per protokol disimpan apa adanya di result job.
+    """
+    check = await driver.test_connection()
+    result = {
+        "cli_ok": check.cli_ok,
+        "snmp_ok": check.snmp_ok,
+        "cli_message": check.cli_message,
+        "snmp_message": check.snmp_message,
+        "raw_output": check.raw_output[:2000],
+    }
+    if not (check.cli_ok or check.snmp_ok):
+        olt.status = "unreachable"
+        olt.last_error = f"CLI: {check.cli_message} | SNMP: {check.snmp_message}"[:500]
+        raise CommandRejectedError(olt.last_error)
     olt.status = "online"
     olt.last_sync_at = datetime.now(UTC)
-    olt.last_error = None
-    return {"raw_output": result.raw_output[:2000]}
+    olt.last_error = None if (check.cli_ok and check.snmp_ok) else (
+        f"CLI: {check.cli_message} | SNMP: {check.snmp_message}"[:500]
+    )
+    return result
+
+async def set_vlan_ports(db, job, olt, driver):
+    return await vlan_service.push_ports(db, job, driver)
 
 async def tr069_push(db, job, olt, driver):
     raise NotImplementedPhase2("Phase 2, belum diimplementasi")
@@ -82,8 +104,10 @@ HANDLERS: dict[str, Handler] = {
     "sync_speed_profiles": sync_speed_profiles,
     "sync_onu_status": sync_onu_status,
     "sync_onu_optical": sync_onu_optical,
+    "sync_olt_metrics": sync_olt_metrics,
     "sync_unconfigured": sync_unconfigured,
     "backup_olt_config": backup_olt_config,
     "test_connection": test_connection,
+    "set_vlan_ports": set_vlan_ports,
     "tr069_push": tr069_push,
 }

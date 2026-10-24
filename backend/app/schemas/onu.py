@@ -107,6 +107,12 @@ class VlanOut(BaseModel):
     name: str
     type: str
     description: str | None
+    gemport: int | None = None
+    tag_action: str = "tag"
+    user_vlan: int | None = None
+    # {"<nama port uplink>": "tagged"|"untagged"} — tab VLANs Detail OLT (PRD 3.4.7).
+    uplink_ports: dict[str, str] = {}
+    is_active: bool = True
 
     model_config = {"from_attributes": True}
 

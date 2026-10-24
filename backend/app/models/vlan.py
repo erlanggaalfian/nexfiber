@@ -9,6 +9,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -37,4 +38,7 @@ class Vlan(TimestampMixin, Base):
     gemport: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tag_action: Mapped[str] = mapped_column(TagAction, nullable=False, default="tag")
     user_vlan: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # {"<nama port uplink>": "tagged"|"untagged"} — PRD 3.4.7 tab VLANs. JSONB karena hanya
+    # dibaca/ditulis utuh di satu tab, tidak pernah di-query per port.
+    uplink_ports: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

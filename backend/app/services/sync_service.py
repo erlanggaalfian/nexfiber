@@ -3,6 +3,7 @@ session + built driver, does the work, and leaves committing to the caller.
 """
 
 import hashlib
+from dataclasses import asdict
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, select, update
@@ -103,6 +104,27 @@ async def sync_onu_optical(db: AsyncSession, olt: Olt, driver: OltDriver) -> dic
         updated += 1
     _mark_olt_ok(olt, now)
     return {"updated": updated}
+
+async def sync_olt_metrics(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict:
+    """Optical ONU + kesehatan OLT dalam SATU job per OLT (DECISIONS "Job & scheduling":
+    gabung ke job optical, jangan bikin sync_olt_health terpisah) — satu siklus koneksi ke
+    OLT tiap 15 menit, bukan dua.
+    """
+    optical = await sync_onu_optical(db, olt, driver)
+    now = datetime.now(UTC)
+    health = await driver.fetch_health()
+    olt.cpu_pct = health.cpu_pct
+    olt.ram_pct = health.ram_pct
+    olt.temperature_c = health.temperature_c
+    olt.uptime_seconds = health.uptime_seconds
+    olt.software_version = health.software_version
+    olt.cards = [asdict(card) for card in health.cards]
+    olt.uplink_ports = health.uplink_ports
+    await _upsert_pon_ports(
+        db, olt.id, {(p.slot, p.port): p.ifindex for p in await driver.list_pon_ports()}, now
+    )
+    _mark_olt_ok(olt, now)
+    return {**optical, "cards": len(health.cards), "uplink_ports": health.uplink_ports}
 
 async def sync_unconfigured(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict:
     """UPSERT what the scan saw, then drop rows it didn't. Only reached when the scan

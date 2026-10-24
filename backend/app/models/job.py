@@ -24,11 +24,13 @@ JobType = Enum(
     "set_state",
     "sync_onu_status",
     "sync_onu_optical",
+    "sync_olt_metrics",
     "sync_unconfigured",
     "backup_olt_config",
     "apply_speed_profile",
     "create_vlan",
     "delete_vlan",
+    "set_vlan_ports",
     "push_speed_profile",
     "sync_speed_profiles",
     "tr069_push",
@@ -54,7 +56,8 @@ class Job(TimestampMixin, Base):
             # Postgres rejects that in an index predicate — so list the sync_* values explicitly.
             postgresql_where=text(
                 "status IN ('pending','running') "
-                "AND job_type IN ('sync_onu_status','sync_onu_optical','sync_unconfigured')"
+                "AND job_type IN ('sync_onu_status','sync_onu_optical','sync_unconfigured',"
+                "'sync_olt_metrics')"
             ),
         ),
     )

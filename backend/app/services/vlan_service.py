@@ -18,7 +18,7 @@ from app.models.user import User
 from app.models.vlan import Vlan
 from app.repositories import olt_repo, onu_repo
 from app.repositories.activity_log_repo import log_activity
-from app.schemas.vlan import VlanCreate
+from app.schemas.vlan import VlanCreate, VlanUpdate
 from app.services import job_service
 from app.services.onu_service import ensure_writes_allowed
 
@@ -67,6 +67,43 @@ async def create_vlan(db: AsyncSession, body: VlanCreate, user: User) -> tuple[V
     await db.commit()
     await db.refresh(vlan)
     return vlan, job_id
+
+
+async def update_vlan(db: AsyncSession, vlan_db_id: int, body: VlanUpdate, user: User) -> Vlan:
+    """Edit atribut VLAN di DB saja. Nama/deskripsi/gemport tidak mengubah objek VLAN di
+    perangkat (ZTE hanya kenal `vlan <id>` + description), jadi tidak ada job di sini —
+    kecuali description, yang ikut terkirim pada push berikutnya.
+    """
+    vlan = await _get_scoped(db, vlan_db_id, user)
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(vlan, field, value)
+    await log_activity(db, action="vlan.update", entity_type="vlan", entity_id=str(vlan.id),
+                       success=True, user_id=user.id, olt_id=vlan.olt_id,
+                       after=body.model_dump(exclude_unset=True, mode="json"))
+    await db.commit()
+    await db.refresh(vlan)
+    return vlan
+
+
+async def set_ports(db: AsyncSession, vlan_db_id: int, ports: dict[str, str],
+                    user: User) -> int:
+    """Konfigurasi tagged/untagged port uplink: simpan niat lalu enqueue job push.
+
+    Menyentuh perangkat = job (AGENTS.md), tidak pernah panggil driver dari endpoint HTTP.
+    """
+    vlan = await _get_scoped(db, vlan_db_id, user)
+    if vlan.olt_id is None:
+        raise ConflictError("VLAN global tidak punya port uplink; pilih VLAN milik OLT")
+    ensure_writes_allowed()
+    vlan.uplink_ports = ports
+    job = await job_service.enqueue(db, "set_vlan_ports", olt_id=vlan.olt_id,
+                                    payload={"vlan_db_id": vlan.id, "ports": ports},
+                                    created_by=user.id)
+    await log_activity(db, action="vlan.set_ports", entity_type="vlan", entity_id=str(vlan.id),
+                       success=True, user_id=user.id, olt_id=vlan.olt_id, job_id=job.id,
+                       after={"ports": ports})
+    await db.commit()
+    return job.id
 
 
 async def delete_vlan(db: AsyncSession, vlan_db_id: int, user: User) -> int | None:
@@ -139,3 +176,12 @@ async def push_delete(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
     await _record(db, job, vlan, "vlan.push_delete", result)
     await db.delete(vlan)
     return {"raw_command": result.raw_command}
+
+
+async def push_ports(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
+    ensure_writes_allowed()
+    vlan = await _load(db, job)
+    ports: dict[str, str] = job.payload.get("ports", {})
+    result = await driver.set_vlan_ports(vlan.vlan_id, ports)
+    await _record(db, job, vlan, "vlan.push_ports", result)
+    return {"raw_command": result.raw_command, "ports": len(ports)}

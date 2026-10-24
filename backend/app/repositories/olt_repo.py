@@ -75,6 +75,19 @@ async def list_pon_ports(db: AsyncSession, olt_id: int) -> list[tuple[PonPort, i
     )
     return [(pon, count) for pon, count in await db.execute(stmt)]
 
+async def owner_name(db: AsyncSession, olt: Olt) -> str:
+    return await db.scalar(select(User.full_name).where(User.id == olt.owner_id)) or "—"
+
+async def onu_count_by_status(db: AsyncSession, olt_id: int) -> dict[str, int]:
+    """Ringkasan status ONU satu OLT untuk header Detail OLT (PRD 3.4.7)."""
+    stmt = (
+        select(Onu.status, func.count())
+        .join(PonPort, Onu.pon_port_id == PonPort.id)
+        .where(PonPort.olt_id == olt_id, Onu.deleted_at.is_(None))
+        .group_by(Onu.status)
+    )
+    return {status: n for status, n in await db.execute(stmt)}
+
 async def count_by_status(db: AsyncSession, scope: Scope) -> dict[str, int]:
     stmt = (
         select(Olt.status, func.count())

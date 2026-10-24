@@ -8,6 +8,7 @@ from app.models.user import User
 from app.schemas.olt import (
     JobAccepted,
     OltCreate,
+    OltDetail,
     OltOut,
     OltRow,
     OltTestRequest,
@@ -55,6 +56,14 @@ async def delete_olt(olt_id: int, confirm_name: str | None = Query(None, max_len
                      db: AsyncSession = Depends(get_db), user: User = Depends(admin)) -> None:
     await olt_service.delete_olt(db, olt_id, user, confirm_name)
 
+@router.get("/{olt_id}/detail", response_model=OltDetail)
+async def get_detail(olt_id: int, db: AsyncSession = Depends(get_db),
+                     user: User = Depends(get_current_user)):
+    """Halaman Detail OLT (PRD 3.4.7). Role user boleh baca (tab Monitoring + Daftar ONU);
+    scope OLT sudah membatasi baris mana yang terlihat.
+    """
+    return await olt_service.get_detail(db, olt_id, user)
+
 @router.get("/{olt_id}/pon-ports", response_model=list[PonPortOut])
 async def list_pon_ports(olt_id: int, db: AsyncSession = Depends(get_db),
                          user: User = Depends(get_current_user)):
@@ -64,6 +73,16 @@ async def list_pon_ports(olt_id: int, db: AsyncSession = Depends(get_db),
 async def test_connection(olt_id: int, db: AsyncSession = Depends(get_db),
                           user: User = Depends(admin)):
     job_id = await olt_service.enqueue_olt_job(db, olt_id, "test_connection", user)
+    return JobAccepted(job_id=job_id)
+
+@router.post("/{olt_id}/refresh-metrics", response_model=JobAccepted,
+             status_code=status.HTTP_202_ACCEPTED)
+async def refresh_metrics(olt_id: int, db: AsyncSession = Depends(get_db),
+                          user: User = Depends(admin)):
+    """Tombol Refresh tab Monitoring: antre job sync_olt_metrics yang sama dengan
+    scheduler 15 menit (DECISIONS: satu job optical+health, bukan dua).
+    """
+    job_id = await olt_service.enqueue_olt_job(db, olt_id, "sync_olt_metrics", user)
     return JobAccepted(job_id=job_id)
 
 @router.post("/{olt_id}/backup", response_model=JobAccepted,

@@ -93,5 +93,36 @@ class PonPortOut(BaseModel):
     capacity: int
     last_sync_at: datetime | None
 
+class OltCardOut(BaseModel):
+    """Satu baris olts.cards (JSONB). Bentuknya mengikuti drivers.types.OltCard."""
+
+    slot: int
+    cfg_type: str | None = None
+    real_type: str | None = None
+    port_count: int | None = None
+    hardware_version: str | None = None
+    software_version: str | None = None
+    status: str | None = None
+    cpu_pct: float | None = None
+    ram_pct: float | None = None
+
+class OltDetail(OltOut):
+    """Satu panggilan untuk seluruh halaman Detail OLT (PRD 3.4.7): identitas + kesehatan
+    + PON + ringkasan ONU. Nama port uplink diambil dari pon_ports/cards yang sudah
+    disinkron job sync_olt_metrics, bukan panggilan langsung ke perangkat.
+    """
+
+    owner_name: str
+    onu_count: int
+    onu_by_status: dict[str, int]
+    cpu_pct: float | None
+    ram_pct: float | None
+    temperature_c: float | None
+    uptime_seconds: int | None
+    software_version: str | None
+    cards: list[OltCardOut]
+    pon_ports: list[PonPortOut]
+    uplink_ports: list[str]
+
 class JobAccepted(BaseModel):
     job_id: int

@@ -38,7 +38,9 @@ def start_scheduler() -> AsyncIOScheduler:
                           max_instances=1, coalesce=True, **when)
 
     add("sync_onu_status", "interval", minutes=1)
-    add("sync_onu_optical", "interval", minutes=15)
+    # DECISIONS "Job & scheduling": optical + kesehatan OLT satu job (sync_olt_metrics),
+    # satu koneksi per OLT tiap 15 menit. Jangan tambah job sync_olt_health terpisah.
+    add("sync_olt_metrics", "interval", minutes=15)
     add("sync_unconfigured", "interval", minutes=1)
     add("backup_olt_config", "cron", hour=2)  # PRD only says "harian"; 02:00 = quiet hours
     scheduler.start()

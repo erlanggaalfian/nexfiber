@@ -50,6 +50,16 @@ class Olt(TimestampMixin, Base):
     latitude: Mapped[float | None] = mapped_column(Numeric(9, 6), nullable=True)
     longitude: Mapped[float | None] = mapped_column(Numeric(9, 6), nullable=True)
     status: Mapped[str] = mapped_column(OltStatus, nullable=False, default="unreachable")
+    # Kesehatan perangkat (DECISIONS "Kesehatan OLT — skema DB"): kolom langsung di olts,
+    # data per-card sebagai JSONB. Diisi job sync_olt_metrics tiap 15 menit.
+    cpu_pct: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    ram_pct: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    temperature_c: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    uptime_seconds: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    software_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    cards: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # Nama port uplink hasil scan (gei_1/5/1, ...), pilihan port di tab VLANs.
+    uplink_ports: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

@@ -15,8 +15,12 @@ from app.drivers.transport.ssh import SshTransport
 from app.drivers.transport.telnet import TelnetTransport
 from app.drivers.types import (
     AuthorizeRequest,
+    ConnectionCheck,
     DriverResult,
     ModifyRequest,
+    OltCard,
+    OltHealth,
+    OnuLiveDetail,
     OnuSnapshot,
     OnuStatusSample,
     OpticalSample,
@@ -29,6 +33,12 @@ from app.drivers.types import (
 # public ZTE MIB documentation. ifindex is pon_ports.ifindex, resolved by the caller.
 OID_IF_OPER_STATUS = "1.3.6.1.2.1.2.2.1.8"  # ifOperStatus: 1=up, 2=down
 OID_IF_DESCR = "1.3.6.1.2.1.2.2.1.2"  # ifDescr, e.g. "gpon-olt_1/3/6"
+
+# Kesehatan OLT (NEXFIBER-SNMP-OID.md, ditandai terverifikasi di sana).
+OID_SYS_UPTIME = "1.3.6.1.2.1.1.3"  # sysUpTime, satuan 1/100 detik
+OID_OLT_TEMPERATURE = "1.3.6.1.4.1.3902.1015.2.1.3.2"
+# Nama interface uplink ZTE di ifDescr: gei_1/5/1 (GE), xgei_1/5/1 (10GE).
+UPLINK_PREFIXES = ("gei_", "xgei_", "gei-", "xgei-")
 
 # Optical power OIDs (ZTE enterprise MIB). UNVERIFIED like list_unconfigured/delete/
 # set_state/reboot/fetch_inventory above — community-sourced (public GitHub monitoring
@@ -128,10 +138,105 @@ class ZteC320Driver(OltDriver):
                                  message="OLT rejected command")
         return DriverResult(success=True, raw_command=command, raw_output=output)
 
-    async def test_connection(self) -> DriverResult:
+    async def test_connection(self) -> ConnectionCheck:
+        """CLI dan SNMP diuji sendiri-sendiri, dua boolean dari dua percobaan nyata.
+
+        DECISIONS "Audit fitur SmartOLT": JANGAN tentukan status SNMP dari teks pesan CLI
+        (atau sebaliknya) — bug nyata SmartOLT. Satu protokol gagal tidak membatalkan
+        yang lain, jadi tiap percobaan punya try/except sendiri.
+        """
+        command = "show version"
+        cli_ok, cli_message, raw_output = False, "", ""
+        try:
+            async with self._open_cli() as cli:
+                raw_output = await cli.send_command(command)
+        except Exception as exc:
+            cli_message = f"CLI gagal: {exc}"
+        else:
+            if is_error_output(raw_output, ZTE_ERROR_PATTERNS):
+                cli_message = "CLI menolak perintah"
+            else:
+                cli_ok, cli_message = True, "CLI menjawab"
+
+        snmp_ok, snmp_message = False, ""
+        try:
+            rows = await self._snmp.bulkwalk(OID_SYS_UPTIME)
+        except Exception as exc:
+            snmp_message = f"SNMP gagal: {exc}"
+        else:
+            if rows:
+                snmp_ok, snmp_message = True, "SNMP menjawab"
+            else:
+                snmp_message = "SNMP tidak mengembalikan data"
+
+        return ConnectionCheck(cli_ok=cli_ok, snmp_ok=snmp_ok, cli_message=cli_message,
+                               snmp_message=snmp_message, raw_command=command,
+                               raw_output=raw_output)
+
+    async def fetch_health(self) -> OltHealth:
+        """`show card` + `show processor` + `show version-running` (semua terverifikasi di
+        NEXFIBER-CLI-REFERENCE), suhu dan uptime lewat SNMP. Satu koneksi CLI untuk ketiga
+        perintah — ini yang dibagi dengan optical di job sync_olt_metrics.
+        """
         async with self._open_cli() as cli:
-            output = await cli.send_command("show version")
-            return self._result("show version", output)
+            cards_out = await cli.send_command("show card")
+            processor_out = await cli.send_command("show processor")
+            version_out = await cli.send_command("show version-running")
+        cards = _merge_card_load(_parse_cards(cards_out), _parse_processor(processor_out))
+        main = next((c for c in cards if c.cpu_pct is not None), None)
+        return OltHealth(
+            cpu_pct=main.cpu_pct if main else None,
+            ram_pct=main.ram_pct if main else None,
+            temperature_c=await self._snmp_first_float(OID_OLT_TEMPERATURE),
+            uptime_seconds=await self._snmp_uptime_seconds(),
+            software_version=_parse_software_version(version_out),
+            cards=cards,
+            uplink_ports=await self._list_uplink_ports(),
+        )
+
+    async def _list_uplink_ports(self) -> list[str]:
+        """Nama port uplink dari ifDescr (SNMP), bukan parsing CLI: tabel yang sama sudah
+        dipakai list_pon_ports, dan nama interface uplink ZTE berawalan gei/xgei.
+        """
+        try:
+            rows = await self._snmp.bulkwalk(OID_IF_DESCR)
+        except Exception:
+            return []
+        return sorted({str(v) for _oid, v in rows if str(v).startswith(UPLINK_PREFIXES)})
+
+    async def _snmp_first_float(self, oid: str) -> float | None:
+        try:
+            rows = await self._snmp.bulkwalk(oid)
+        except Exception:
+            return None  # kesehatan bersifat best-effort: OID tak ada != job gagal
+        try:
+            return float(str(rows[0][1])) if rows else None
+        except ValueError:
+            return None
+
+    async def _snmp_uptime_seconds(self) -> int | None:
+        ticks = await self._snmp_first_float(OID_SYS_UPTIME)
+        return int(ticks // 100) if ticks is not None else None  # TimeTicks = 1/100 detik
+
+    async def set_vlan_ports(self, vlan_id: int, ports: dict[str, str]) -> DriverResult:
+        """Tagged/untagged VLAN di port uplink (NEXFIBER-CLI-REFERENCE "Ubah — VLAN dan
+        uplink", status produksi). `ports` = {nama_port: "tagged"|"untagged"}.
+        """
+        commands: list[str] = []
+        for port_name, mode in sorted(ports.items()):
+            commands.append(f"interface {port_name}")
+            if mode == "untagged":
+                # Kode 60584: `untag` ditolak selama port masih trunk — hybrid dulu.
+                commands += ["switchport mode hybrid", f"switchport vlan {vlan_id} untag"]
+            else:
+                commands += ["switchport mode trunk", f"switchport vlan {vlan_id} tag"]
+            commands.append("exit")
+        if not commands:
+            return DriverResult(success=True, raw_command="", raw_output="",
+                                message="Tidak ada port uplink yang dipilih")
+        async with self._open_cli() as cli:
+            output = await cli.send_config_set(commands)
+        return self._result(" ; ".join(commands), output)
 
     async def list_unconfigured(self) -> list[UnconfiguredOnu]:
         # UNVERIFIED: public syntax, no real transcript available (see module docstring).
@@ -149,21 +254,7 @@ class ZteC320Driver(OltDriver):
         return onus
 
     async def authorize(self, req: AuthorizeRequest) -> DriverResult:
-        iface = f"gpon-olt_1/{req.slot}/{req.port}"
-        onu_iface = f"gpon-onu_1/{req.slot}/{req.port}:{req.onu_id}"
-        commands = [
-            f"interface {iface}",
-            f"onu {req.onu_id} type {req.onu_type} sn {req.serial_number}",
-            "exit",
-            f"interface {onu_iface}",
-        ]
-        if req.name:
-            commands.append(f"name {req.name}")
-        if req.line_profile_id:
-            commands.append(f"tcont 1 profile {req.line_profile_id}")
-        if req.srv_profile_id:
-            commands.append(f"tcont 2 profile {req.srv_profile_id}")
-        commands.append("exit")
+        commands = build_authorize_commands(req)
         async with self._open_cli() as cli:
             output = await cli.send_config_set(commands)
         return self._result(" ; ".join(commands), output)
@@ -327,6 +418,109 @@ class ZteC320Driver(OltDriver):
             output = await cli.send_command(command)
         return _parse_onu_ids(output)
 
+    # --- Detail ONU (PRD 3.4.6) ---------------------------------------------------
+
+    async def fetch_onu_detail(self, slot: int, port: int, onu_id: int) -> OnuLiveDetail:
+        """Baca live satu ONU untuk tab Status/Running config/Info software.
+
+        Keempat perintah ✅ terverifikasi di NEXFIBER-CLI-REFERENCE.md ("Baca — ONU");
+        yang belum terverifikasi adalah *format keluarannya* — tidak ada satu pun
+        transkrip `detail-info`/`attenuation`/`equip` di repo, jadi parser di bawah
+        toleran: field yang tidak cocok tetap None, bukan bikin job gagal.
+        Satu sesi CLI untuk semua perintah (PRD 4.3: satu koneksi per OLT).
+        """
+        iface = f"gpon-onu_1/{slot}/{port}:{onu_id}"
+        commands = [
+            f"show gpon onu detail-info {iface}",
+            f"show pon power attenuation {iface}",
+            f"show gpon remote-onu equip {iface}",
+            f"show running-config interface {iface}",
+        ]
+        async with self._open_cli() as cli:
+            detail_out = await cli.send_command(commands[0])
+            power_out = await cli.send_command(commands[1])
+            equip_out = await cli.send_command(commands[2])
+            config_out = await cli.send_command(commands[3])
+        detail = _parse_onu_detail_info(detail_out)
+        detail.rx_power_dbm, detail.tx_power_dbm, detail.olt_rx_power_dbm = _parse_attenuation(
+            power_out, detail.rx_power_dbm, detail.tx_power_dbm, detail.olt_rx_power_dbm
+        )
+        detail.software_version, detail.software_version_standby, detail.hardware_version = (
+            _parse_equip(equip_out, detail.hardware_version)
+        )
+        detail.running_config = config_out.strip()
+        detail.raw_command = " ; ".join(commands)
+        return detail
+
+    async def set_onu_vlan(self, slot: int, port: int, onu_id: int, old_vlan: int | None,
+                           new_vlan: int) -> DriverResult:
+        """NEXFIBER-CLI-REFERENCE "Ubah — VLAN ONU" (status: 🔧 produksi).
+
+        # UNVERIFIED: uji di ONU test — urutannya dari driver produksi lain, belum pernah
+        # dijalankan dari Nexfiber. JANGAN dieksekusi ke OLT produksi oleh agent manapun.
+        """
+        onu_iface = f"gpon-onu_1/{slot}/{port}:{onu_id}"
+        commands = [
+            f"interface {onu_iface}",
+            "no service-port 1",
+            f"service-port 1 vport 1 user-vlan {new_vlan} vlan {new_vlan}",
+            "exit",
+            f"pon-onu-mng {onu_iface}",
+        ]
+        if old_vlan is not None:
+            commands += [f"no flow 1 pri 0 vlan {old_vlan}",
+                         f"no vlan-filter iphost 1 pri 0 vlan {old_vlan}"]
+        commands += [f"flow 1 pri 0 vlan {new_vlan}",
+                     f"vlan-filter iphost 1 pri 0 vlan {new_vlan}", "exit"]
+        async with self._open_cli() as cli:
+            output = await cli.send_config_set(commands)
+        return self._result(" ; ".join(commands), output)
+
+    async def restore_factory(self, slot: int, port: int, onu_id: int) -> DriverResult:
+        """# UNVERIFIED: uji di ONU test.
+
+        Tidak ada perintah restore-factory ZTE di NEXFIBER-CLI-REFERENCE.md (yang tercatat
+        `ont restore-factory` itu milik CDATA, sintaks berbeda). Bentuk di bawah mengikuti
+        pola `pon-onu-mng` yang sama dengan reboot. JANGAN dipakai ke perangkat nyata
+        sebelum ada transkrip asli dari ONU test.
+        """
+        onu_iface = f"gpon-onu_1/{slot}/{port}:{onu_id}"
+        commands = [f"pon-onu-mng {onu_iface}", "restore factory", "exit"]
+        async with self._open_cli() as cli:
+            output = await cli.send_config_set(commands)
+        return self._result(" ; ".join(commands), output)
+
+def build_authorize_commands(req: AuthorizeRequest) -> list[str]:
+    """Scope MVP otorisasi (DECISIONS "Scope authorize_onu"): onu + type + sn + tcont +
+    gemport + service-port. Blok `pon-onu-mng` (flow/switchport-bind/PPPoE) sengaja TIDAK
+    dikirim di sini — domainnya Detail ONU. Urutan mengikuti NEXFIBER-CLI-REFERENCE
+    "Ubah — Otorisasi ONU": T-CONT dan gemport wajib sebelum `service-port`.
+
+    Pure function supaya bisa diuji tanpa device (fixture test, bukan OLT nyata).
+    """
+    onu_iface = f"gpon-onu_1/{req.slot}/{req.port}:{req.onu_id}"
+    commands = [
+        f"interface gpon-olt_1/{req.slot}/{req.port}",
+        f"onu {req.onu_id} type {req.onu_type} sn {req.serial_number}",
+        "exit",
+        f"interface {onu_iface}",
+    ]
+    if req.name:
+        commands.append(f"name {req.name}")
+    if req.description:
+        commands.append(f"description {req.description}")
+    if req.upload_profile:
+        commands.append(f"tcont 1 profile {req.upload_profile}")
+        commands.append("gemport 1 tcont 1")
+    if req.download_profile:
+        commands.append(f"gemport 1 traffic-limit downstream {req.download_profile}")
+    if req.vlan_id:
+        commands.append(
+            f"service-port 1 vport 1 user-vlan {req.vlan_id} vlan {req.vlan_id}"
+        )
+    commands.append("exit")
+    return commands
+
 def _parse_slot_port(iface: str) -> tuple[int, int]:
     # "gpon-olt_1/3/6" -> rack is always 1 in these transcripts; slot=3, port=6.
     rack_slot_port = iface.split("_", 1)[1]
@@ -356,7 +550,6 @@ def _kbps_after(parts: list[str], keyword: str) -> int | None:
 
 def _parse_traffic_profiles(output: str) -> list[TrafficProfile]:
     """Lines of `show running-config | include profile tcont|traffic`:
-
         profile tcont PAKET20_UP type 5 fixed 64 assured 64 maximum 20000
         profile traffic PAKET20_DN sir 1000 pir 20000
     """
@@ -370,3 +563,200 @@ def _parse_traffic_profiles(output: str) -> list[TrafficProfile]:
         elif parts[1] == "traffic":
             profiles.append(TrafficProfile(parts[2], "download", _kbps_after(parts, "pir")))
     return profiles
+
+# --- Kesehatan OLT -----------------------------------------------------------------
+# UNVERIFIED: `show card`, `show processor` dan `show version-running` tercatat
+# "terverifikasi" di NEXFIBER-CLI-REFERENCE.md sebagai perintah, tetapi tidak ada satu pun
+# transkrip keluarannya di repo ini. Parser di bawah mengikuti format kolom ZXA10 yang
+# terdokumentasi publik dan sengaja dibuat toleran: baris yang tidak cocok dilewati, bukan
+# bikin job gagal. Ganti dengan parsing berdasarkan transkrip nyata sebelum dipercaya penuh.
+
+def _as_float(token: str) -> float | None:
+    try:
+        return float(token.rstrip("%"))
+    except ValueError:
+        return None
+
+def _parse_cards(output: str) -> list[OltCard]:
+    """`show card`, kolom: Rack Shelf Slot CfgType RealType Port HardVer SoftVer Status."""
+    cards: list[OltCard] = []
+    for line in output.splitlines():
+        parts = line.split()
+        # Baris data diawali tiga angka (rack, shelf, slot); header/pemisah tidak.
+        if len(parts) < 5 or not all(p.isdigit() for p in parts[:3]):
+            continue
+        port_count = next((int(p) for p in parts[5:6] if p.isdigit()), None)
+        cards.append(OltCard(
+            slot=int(parts[2]),
+            cfg_type=parts[3],
+            real_type=parts[4],
+            port_count=port_count,
+            hardware_version=parts[6] if len(parts) > 6 else None,
+            software_version=parts[7] if len(parts) > 7 else None,
+            status=parts[-1].lower() if len(parts) > 8 else None,
+        ))
+    return cards
+
+def _parse_processor(output: str) -> dict[int, tuple[float | None, float | None]]:
+    """`show processor`, kolom: Slot CPU(%) Peak Memory(%) ... -> {slot: (cpu, ram)}."""
+    load: dict[int, tuple[float | None, float | None]] = {}
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) < 3 or not parts[0].isdigit():
+            continue
+        numbers = [v for v in (_as_float(p) for p in parts[1:]) if v is not None]
+        if not numbers:
+            continue
+        # Kolom kedua = CPU sekarang, kolom terakhir = memory; peak di antaranya diabaikan.
+        load[int(parts[0])] = (numbers[0], numbers[-1] if len(numbers) > 1 else None)
+    return load
+
+def _merge_card_load(
+    cards: list[OltCard], load: dict[int, tuple[float | None, float | None]]
+) -> list[OltCard]:
+    for card in cards:
+        card.cpu_pct, card.ram_pct = load.get(card.slot, (None, None))
+    # Slot yang hanya muncul di `show processor` tetap ditampilkan, biar CPU/RAM main
+    # control tidak hilang kalau parsing `show card` meleset.
+    known = {c.slot for c in cards}
+    for slot, (cpu, ram) in sorted(load.items()):
+        if slot not in known:
+            cards.append(OltCard(slot=slot, cpu_pct=cpu, ram_pct=ram))
+    return sorted(cards, key=lambda c: c.slot)
+
+def _parse_software_version(output: str) -> str | None:
+    """`show version-running`: ambil token versi pertama, mis. "ZXA10 C320 V2.1.0".
+
+    Baris gema prompt (`ZXAN#show version-running`) dilewati — kalau tidak, nilai yang
+    tersimpan jadi teks perintah, bukan versi.
+    """
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped or "#" in stripped:  # "#" = prompt CLI, bukan baris data
+            continue
+        lowered = stripped.lower()
+        if "version" in lowered or stripped.startswith("ZXA10"):
+            value = stripped.split(":", 1)[1].strip() if ":" in stripped else stripped
+            if value:
+                return value[:100]
+    return None
+
+# --- Detail ONU: parser keluaran CLI ------------------------------------------------
+# UNVERIFIED: perintahnya ✅ terverifikasi di NEXFIBER-CLI-REFERENCE.md, tapi tidak ada
+# transkrip keluaran `detail-info` / `attenuation` / `equip` di repo ini. Parser di bawah
+# mencari "Label : value" apa adanya dan melewati baris yang tidak cocok — ganti dengan
+# parsing berdasarkan transkrip nyata dari ONU test sebelum dipercaya penuh.
+
+def _kv(line: str) -> tuple[str, str] | None:
+    """"Phase state        : working" -> ("phase state", "working")."""
+    if ":" not in line:
+        return None
+    label, _, value = line.partition(":")
+    label, value = label.strip().lower(), value.strip()
+    return (label, value) if label and value else None
+
+def _dbm(value: str) -> float | None:
+    # "-22.106(dbm)" / "-22.11 dBm" / "-22.11"
+    token = value.split("(")[0].split()[0] if value else ""
+    try:
+        return round(float(token), 2)
+    except ValueError:
+        return None
+
+def _meters(value: str) -> int | None:
+    # "1832 m" / "1.83(km)"
+    token = value.split("(")[0].split()[0] if value else ""
+    try:
+        number = float(token)
+    except ValueError:
+        return None
+    return int(number * 1000) if "km" in value.lower() else int(number)
+
+ONU_DETAIL_FIELDS = {
+    "phase state": "phase_state",
+    "onu state": "status",
+    "run state": "status",
+    "online duration": None,  # format jam:menit:detik tidak seragam, lihat _duration_seconds
+}
+
+def _duration_seconds(value: str) -> int | None:
+    """"12 day 04:31:22" / "04:31:22" -> detik. Format lain -> None."""
+    days = 0
+    rest = value
+    if "day" in value:
+        head, _, rest = value.partition("day")
+        try:
+            days = int(head.strip())
+        except ValueError:
+            return None
+    parts = rest.strip().split(":")
+    if len(parts) != 3 or not all(p.strip().isdigit() for p in parts):
+        return None
+    h, m, s = (int(p) for p in parts)
+    return days * 86400 + h * 3600 + m * 60 + s
+
+def _parse_onu_detail_info(output: str) -> OnuLiveDetail:
+    """`show gpon onu detail-info gpon-onu_<pon>:<id>`."""
+    detail = OnuLiveDetail()
+    for line in output.splitlines():
+        pair = _kv(line)
+        if pair is None:
+            continue
+        label, value = pair
+        if label in ("phase state", "onu state", "run state"):
+            # phase_state = apa adanya dari OLT; status dipetakan terpisah oleh service.
+            detail.phase_state = detail.phase_state or value
+        elif "online duration" in label or label == "uptime":
+            detail.online_duration_s = _duration_seconds(value)
+        elif "rx optical power" in label or label == "onu rx power":
+            detail.rx_power_dbm = _dbm(value)
+        elif "tx optical power" in label or label == "onu tx power":
+            detail.tx_power_dbm = _dbm(value)
+        elif "olt rx" in label:
+            detail.olt_rx_power_dbm = _dbm(value)
+        elif "temperature" in label:
+            detail.temperature_c = _dbm(value)
+        elif "voltage" in label or "supply voltage" in label:
+            detail.voltage_v = _dbm(value)
+        elif label in ("onu distance", "distance", "fiber length"):
+            detail.distance_m = _meters(value)
+        elif "hardware version" in label:
+            detail.hardware_version = value[:50]
+        elif "software version" in label and detail.software_version is None:
+            detail.software_version = value[:50]
+    return detail
+
+def _parse_attenuation(output: str, rx: float | None, tx: float | None,
+                       olt_rx: float | None) -> tuple[float | None, float | None, float | None]:
+    """`show pon power attenuation`: isi hanya yang masih kosong dari detail-info."""
+    for line in output.splitlines():
+        pair = _kv(line)
+        if pair is None:
+            continue
+        label, value = pair
+        if "up" in label and "rx" in label:
+            olt_rx = olt_rx if olt_rx is not None else _dbm(value)
+        elif "down" in label and "rx" in label:
+            rx = rx if rx is not None else _dbm(value)
+        elif "tx" in label:
+            tx = tx if tx is not None else _dbm(value)
+    return rx, tx, olt_rx
+
+def _parse_equip(output: str,
+                 hardware: str | None) -> tuple[str | None, str | None, str | None]:
+    """`show gpon remote-onu equip`: versi SW aktif/standby + versi HW (tab Info software)."""
+    active = standby = None
+    for line in output.splitlines():
+        pair = _kv(line)
+        if pair is None:
+            continue
+        label, value = pair
+        if "standby" in label and "version" in label:
+            standby = value[:50]
+        elif ("active" in label or "running" in label) and "version" in label:
+            active = value[:50]
+        elif label in ("software version", "sw version") and active is None:
+            active = value[:50]
+        elif "hardware version" in label or label == "hw version":
+            hardware = hardware or value[:50]
+    return active, standby, hardware
