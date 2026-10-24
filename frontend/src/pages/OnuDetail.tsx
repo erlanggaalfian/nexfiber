@@ -741,7 +741,7 @@ export function OnuDetail() {
               {d.wan_mode === "pppoe" && (
                 <>
                   <DRow label="Nama pengguna PPPoE" value={dash(d.pppoe_username)} />
-                  <DRow label="Kata sandi PPPoE" value={<span className="text-faint">Tersimpan terenkripsi</span>} />
+                  <DRow label="Kata sandi PPPoE" value={<span className="text-faint">Tidak ditampilkan</span>} />
                 </>
               )}
               <DRow label="Akses remote WAN" value={<span className="text-faint">Segera</span>} />
