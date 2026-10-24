@@ -29,7 +29,7 @@ def test_block_order_matches_reference_layout(src: str):
     Profil Kecepatan, Port Ethernet, WiFi, VoIP, CATV, baris aksi."""
     labels = re.findall(r'<Section label="([^"]+)"', src)
     assert labels == [
-        "Trafik / Sinyal", "Profil Kecepatan", "Port Ethernet", "WiFi",
+        "Trafik / Sinyal", "Profil Kecepatan", "Port Ethernet", "WiFi", "Layanan", "Aksi",
     ], labels
     # Kartu identitas/status mendahului seluruh Section, baris aksi sesudahnya.
     assert src.index("lg:grid-cols-2") < src.index('<Section label="Trafik / Sinyal"')
@@ -40,10 +40,11 @@ def test_identity_grid_keeps_reference_field_order(src: str):
     """Urutan baris kolom kiri (OLT .. Lokasi) dipaku supaya tidak bergeser diam-diam."""
     rows = re.findall(r'<DRow label="([^"]+)"', src)
     left = rows[: rows.index("Lokasi") + 1]
-    assert left[:6] == ["OLT", "Shelf", "Slot", "Port", "ONU", "Kanal"], left[:6]
+    # Shelf/Slot/Port/Kanal/Tx ONU sengaja dibuang (permintaan user).
+    assert left[:2] == ["OLT", "ONU"], left[:2]
+    assert not {"Shelf", "Slot", "Port", "Kanal", "Tx ONU"} & set(rows)
     assert "SN" in left and "Tipe ONU" in left and "Zone" in left and "Splitter / ODP" in left
     right = rows[rows.index("Lokasi") + 1 :]
-    assert right[0] == "Tx ONU", right[0]
     assert "VLAN terpasang" in right and "Mode ONU" in right
 
 
