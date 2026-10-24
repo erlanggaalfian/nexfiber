@@ -29,12 +29,11 @@ def test_block_order_matches_reference_layout(src: str):
     Profil Kecepatan, Port Ethernet, WiFi, VoIP, CATV, baris aksi."""
     labels = re.findall(r'<Section label="([^"]+)"', src)
     assert labels == [
-        "Status", "Trafik/Sinyal", "Profil Kecepatan", "Port Ethernet", "WiFi",
-        "Layanan VoIP", "CATV",
+        "Trafik / Sinyal", "Profil Kecepatan", "Port Ethernet", "WiFi",
     ], labels
-    # Grid identitas harus mendahului seluruh Section, baris aksi harus sesudahnya.
-    assert src.index("lg:grid-cols-2") < src.index('<Section label="Status"')
-    assert src.index('<Section label="CATV"') < src.index("Restore factory")
+    # Kartu identitas/status mendahului seluruh Section, baris aksi sesudahnya.
+    assert src.index("lg:grid-cols-2") < src.index('<Section label="Trafik / Sinyal"')
+    assert src.index('<Section label="WiFi"') < src.index("Restore factory")
 
 
 def test_identity_grid_keeps_reference_field_order(src: str):
@@ -42,10 +41,10 @@ def test_identity_grid_keeps_reference_field_order(src: str):
     rows = re.findall(r'<DRow label="([^"]+)"', src)
     left = rows[: rows.index("Lokasi") + 1]
     assert left[:6] == ["OLT", "Shelf", "Slot", "Port", "ONU", "Kanal"], left[:6]
-    assert "SN" in left and "Tipe ONU" in left and "Zone" in left and "Splitter" in left
+    assert "SN" in left and "Tipe ONU" in left and "Zone" in left and "Splitter / ODP" in left
     right = rows[rows.index("Lokasi") + 1 :]
-    assert right[0] == "Status"
-    assert "VLAN terpasang" in right and "Mode ONU" in right and "Sinyal Rx" in right
+    assert right[0] == "Tx ONU", right[0]
+    assert "VLAN terpasang" in right and "Mode ONU" in right
 
 
 def test_only_existing_onu_endpoints_are_called(src: str):
@@ -86,8 +85,7 @@ def test_tr069_status_button_hidden_without_internal_acs(src: str):
     server ACS internal aplikasi. Nexfiber belum punya server ACS internal / katalog profil
     TR-069, jadi penandanya tidak boleh dirender dalam bentuk apa pun (termasuk
     placeholder "Segera") sampai prasyarat itu ada."""
-    status_block = src[src.index('<Section label="Status"') : src.index('<Section label="Trafik/Sinyal"')]
-    assert "TR-069 status" not in status_block
+    assert "TR-069 status" not in src
     assert "TR-069 status · Segera" not in src
     # Dan tidak boleh ada kondisi visibility berdasarkan field yang belum dikirim backend.
     assert "tr069_profile" not in src
