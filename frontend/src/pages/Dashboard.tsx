@@ -10,7 +10,7 @@ const sum = (r: Record<string, number>) => Object.values(r).reduce((a, b) => a +
 
 function Cell({ label, value, sub, to }: { label: string; value: number; sub?: ReactNode; to: string }) {
   return (
-    <Link to={to} className="block bg-surface p-3 hover:bg-sunken lg:p-4">
+    <Link to={to} className="hover-lift block bg-surface p-3 hover:bg-sunken lg:p-4">
       <p className="text-xs text-muted">{label}</p>
       <p className="font-mono text-metric font-semibold">{nf.format(value)}</p>
       <p className="min-h-4 text-xs text-muted">{sub}</p>
@@ -24,7 +24,7 @@ function Strip({ d }: { d: Dash }) {
   const online = onu.online ?? 0;
   return (
     // gap-px over bg-line draws the 1px dividers for both 4x1 and 2x2.
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-line lg:grid-cols-4">
+    <div className="stagger grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-line lg:grid-cols-4">
       <Cell label="Total OLT" value={sum(d.olt_by_status)} sub={`${nf.format(d.olt_by_status.online ?? 0)} terhubung`} to="/settings/olts" />
       <Cell label="ONU Online" value={online} sub={`dari ${nf.format(total)}`} to="/configured?status=online" />
       <Cell

@@ -30,7 +30,7 @@ export function Drawer({ title, onClose, onSubmit, busy, error, children }: {
     <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
-        <Dialog.Content className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[480px] flex-col border-l bg-surface shadow-modal">
+        <Dialog.Content className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[480px] flex-col border-l bg-surface shadow-modal data-[state=closed]:animate-[drawer-out_200ms_ease-in] data-[state=open]:animate-[drawer-in_250ms_ease-out]">
           <Dialog.Title className="border-b px-4 py-3 text-lg font-semibold">{title}</Dialog.Title>
           <form
             onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
@@ -85,7 +85,7 @@ export function TableCard<T>({ query, columns, empty, row, loadingText }: {
 }) {
   const rows = query.data ?? [];
   return (
-    <section className="rounded-md border bg-surface">
+    <section className="entrance rounded-md border bg-surface">
       {query.isPending ? (
         <Skeleton text={loadingText} rows={4} />
       ) : query.isError ? (
