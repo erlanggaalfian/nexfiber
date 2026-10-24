@@ -32,7 +32,8 @@ function fmtUptime(seconds: number | null) {
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  return d > 0 ? `${d}h ${h}j` : h > 0 ? `${h}j ${m}m` : `${m}m`;
+  // Satuan Indonesia: h=hari, j=jam, m=menit — jangan pakai "h" untuk jam supaya tidak rancu.
+  return d > 0 ? `${d} hari ${h} jam` : h > 0 ? `${h} jam ${m} mnt` : `${m} menit`;
 }
 
 const pct = (v: number | null) => (v === null ? "—" : `${Number(v).toFixed(0)}%`);
