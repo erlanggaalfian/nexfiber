@@ -53,7 +53,8 @@ def _concurrency() -> int:
         value = 8
     return max(1, min(value, 12))
 
-_slots = asyncio.Semaphore(_concurrency())
+MAX_PARALLEL_JOBS = _concurrency()
+_slots = asyncio.Semaphore(MAX_PARALLEL_JOBS)
 
 async def claim_one() -> tuple[int, int | None] | None:
     async with SessionLocal() as db:
@@ -136,7 +137,10 @@ async def run(stop: asyncio.Event) -> None:
             if loop.time() >= next_heartbeat:
                 await heartbeat()
                 next_heartbeat = loop.time() + HEARTBEAT_INTERVAL_S
-            while (claimed := await claim_one()) is not None:
+            # Klaim sebanyak slot yang masih bebas saja. Kalau semua slot penuh, job
+            # dibiarkan pending supaya worker lain (atau siklus berikutnya) bisa ambil —
+            # bukan ditahan sebagai 'running' tanpa dikerjakan.
+            while len(tasks) < MAX_PARALLEL_JOBS and (claimed := await claim_one()) is not None:
                 task = asyncio.create_task(run_job(*claimed))
                 tasks.add(task)
                 task.add_done_callback(tasks.discard)
