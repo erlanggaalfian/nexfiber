@@ -275,9 +275,11 @@ async def test_sync_onu_metadata_fills_zone_odp_address_speed_vlan():
 
     profiles = {(p.direction, p.name, p.speed_kbps, p.device_profile_id)
                 for p in db.added if isinstance(p, SpeedProfile)}
+    # Kolom `name` = nama tampilan (token SmartOLT dibuang, lihat app.core.profile_name);
+    # `device_profile_id` tetap nama di perangkat apa adanya karena dipakai di command CLI.
     assert profiles == {
-        ("upload", "SMARTOLT-HFA_Lite", 10240, "SMARTOLT-HFA_Lite-UP"),
-        ("download", "SMARTOLT-HFA_Lite", 20480, "SMARTOLT-HFA_Lite-DOWN"),
+        ("upload", "HFA_Lite", 10240, "SMARTOLT-HFA_Lite-UP"),
+        ("download", "HFA_Lite", 20480, "SMARTOLT-HFA_Lite-DOWN"),
     }
     assert onu.upload_speed_profile_id is not None
     assert onu.download_speed_profile_id is not None

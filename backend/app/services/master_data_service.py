@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
+from app.core.profile_name import clean_profile_name
 from app.core.rbac import SUPERADMIN, owner_of
 from app.models.olt import Olt, PonPort
 from app.models.onu import Onu
@@ -393,8 +394,22 @@ async def get_or_create_splitter(db: AsyncSession, name: str, *, zone_id: int | 
 # "Gunakan preset" + "Simpan sebagai preset" di Form Otorisasi (PRD 3.4.4). Scope ikut
 # pola zone/splitter: owner-scoped lewat rbac.owner_of, Superadmin lihat semua.
 
+def _preset_out(preset: OnuPreset) -> OnuPresetOut:
+    """Nama profile di preset dibersihkan saat tampil, sama seperti baris speed_profiles.
+
+    Form Otorisasi mencocokkan `download_profile`/`upload_profile` preset ke `name` speed
+    profile dari API; dua-duanya harus lewat pembersih yang sama atau preset lama (berisi
+    `SMARTOLT-...`) berhenti cocok.
+    """
+    out = OnuPresetOut.model_validate(preset)
+    return out.model_copy(update={
+        "download_profile": clean_profile_name(out.download_profile),
+        "upload_profile": clean_profile_name(out.upload_profile),
+    })
+
+
 async def list_presets(db: AsyncSession, user: User) -> list[OnuPresetOut]:
-    return [OnuPresetOut.model_validate(p) for p in await repo.list_presets(db, owner_of(user))]
+    return [_preset_out(p) for p in await repo.list_presets(db, owner_of(user))]
 
 
 async def create_preset(db: AsyncSession, body: OnuPresetCreate, user: User) -> OnuPresetOut:
@@ -412,7 +427,7 @@ async def create_preset(db: AsyncSession, body: OnuPresetCreate, user: User) -> 
     preset = OnuPreset(owner_id=owner_id, **body.model_dump())
     await _save(db, preset, action="onu_preset.create", entity="onu_preset", user=user,
                 after=body.model_dump(mode="json"))
-    return OnuPresetOut.model_validate(preset)
+    return _preset_out(preset)
 
 
 async def delete_preset(db: AsyncSession, preset_id: int, user: User) -> None:

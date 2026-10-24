@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import CommandRejectedError, ConflictError, NotFoundError
+from app.core.profile_name import clean_profile_name
 from app.core.rbac import scope_olt_ids
 from app.drivers.base import OltDriver
 from app.models.job import Job
@@ -52,7 +53,9 @@ def strip_device_suffix(device_name: str, direction: str) -> str:
 def _row(profile: SpeedProfile, olt_name: str | None, vlan: Vlan | None,
          onu_count: int) -> SpeedProfileRow:
     return SpeedProfileRow(
-        id=profile.id, name=profile.name, direction=profile.direction,
+        # Nama dibersihkan saat TAMPIL juga, bukan cuma saat disimpan: baris lama di DB
+        # produksi masih memuat token `SMARTOLT` dan tidak dimigrasi.
+        id=profile.id, name=clean_profile_name(profile.name), direction=profile.direction,
         speed_kbps=profile.speed_kbps, olt_id=profile.olt_id, olt_name=olt_name,
         vlan_db_id=profile.vlan_db_id, vlan_id=vlan.vlan_id if vlan else None,
         vlan_name=vlan.name if vlan else None, device_profile_id=profile.device_profile_id,
@@ -157,7 +160,8 @@ async def get_or_create_from_device(db: AsyncSession, olt_id: int, device_name: 
     if kbps is None:
         return None
     profile = SpeedProfile(
-        name=strip_device_suffix(device_name, direction)[:100], direction=direction,
+        name=clean_profile_name(strip_device_suffix(device_name, direction))[:100],
+        direction=direction,
         speed_kbps=kbps, olt_id=olt_id, device_profile_id=device_name[:50],
     )
     db.add(profile)
@@ -235,13 +239,19 @@ async def push_to_olt(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
 
 def merge_profiles(existing: list[SpeedProfile], device: list) -> list[tuple[str, str, int]]:
     """Ubah tiap <name>_UP / <name>_DN dari device jadi (name, direction, kbps) untuk
-    profile per-arah yang belum ada di DB. Pure function supaya bisa diuji tanpa device."""
-    known = {(p.name, p.direction) for p in existing}
+    profile per-arah yang belum ada di DB. Pure function supaya bisa diuji tanpa device.
+
+    `name` yang dikembalikan masih nama DEVICE (tanpa suffix arah) karena pemanggil
+    memakainya untuk `device_profile_id`; token SmartOLT dibuang saat menulis kolom `name`.
+    Pencocokan "sudah ada" pakai nama yang sudah dibersihkan di kedua sisi, supaya baris
+    `5Mbps` lama tidak terduplikat oleh device `SMARTOLT-5Mbps`.
+    """
+    known = {(clean_profile_name(p.name), p.direction) for p in existing}
     rows = []
     for item in device:
         suffix = DEVICE_SUFFIX[item.direction]
         name = item.name.removesuffix(suffix)
-        if (name, item.direction) in known or item.kbps is None:
+        if (clean_profile_name(name), item.direction) in known or item.kbps is None:
             continue
         rows.append((name, item.direction, item.kbps))
     return rows
@@ -254,7 +264,9 @@ async def sync_from_olt(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
     )).scalars().all())
     added = merge_profiles(existing, device)
     for name, direction, kbps in added:
-        db.add(SpeedProfile(name=name, direction=direction, speed_kbps=kbps,
-                            olt_id=job.olt_id,
+        # `name` kolom = nama tampilan (bersih); `device_profile_id` = nama di perangkat apa
+        # adanya, karena dipakai di command CLI saat authorize/modify.
+        db.add(SpeedProfile(name=clean_profile_name(name), direction=direction,
+                            speed_kbps=kbps, olt_id=job.olt_id,
                             device_profile_id=f"{name}{DEVICE_SUFFIX[direction]}"))
     return {"found": len(device), "added": len(added)}

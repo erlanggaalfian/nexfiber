@@ -55,6 +55,7 @@ import {
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { DONE, useJob } from "../lib/jobs";
+import { cleanProfileName } from "../lib/profileName";
 import { deltaMbps, type TrafficPoint, type TrafficSample } from "../lib/traffic";
 
 const RANGES = [["24h", "24 jam"], ["7d", "7 hari"], ["30d", "30 hari"]] as const;
@@ -1108,11 +1109,11 @@ export function OnuDetail() {
               <tr>
                 <td className={`${cell} font-mono text-fiber`}>
                   {dash(d.download_profile_name)}
-                  <span className="ml-2 text-muted">{dash(d.line_profile_id)}</span>
+                  <span className="ml-2 text-muted">{dash(cleanProfileName(d.line_profile_id))}</span>
                 </td>
                 <td className={`${cell} font-mono text-fiber`}>
                   {dash(d.upload_profile_name)}
-                  <span className="ml-2 text-muted">{dash(d.srv_profile_id)}</span>
+                  <span className="ml-2 text-muted">{dash(cleanProfileName(d.srv_profile_id))}</span>
                 </td>
                 <td className={cell}>
                   <Button size="sm" onClick={speedDialog}>Konfigurasi profil</Button>

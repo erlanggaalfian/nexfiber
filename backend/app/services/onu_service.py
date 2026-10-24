@@ -20,6 +20,7 @@ from app.core.exceptions import (
     NotFoundError,
     ValidationAppError,
 )
+from app.core.profile_name import clean_profile_name
 from app.core.rbac import MANAGERS, scope_olt_ids
 from app.core.security import encrypt_secret
 from app.core.signal import BUCKETS, rx_bucket
@@ -54,8 +55,9 @@ def _row(onu: Onu, olt_name: str, slot: int, port: int, download_profile_name: s
     data = {c: getattr(onu, c) for c in OnuDetail.model_fields if hasattr(onu, c)}
     data["ip_address"] = str(onu.ip_address) if onu.ip_address else None
     return {**data, "olt_name": olt_name, "slot": slot, "port": port,
-            "download_profile_name": download_profile_name,
-            "upload_profile_name": upload_profile_name, "vlan_number": vlan_number,
+            "download_profile_name": clean_profile_name(download_profile_name),
+            "upload_profile_name": clean_profile_name(upload_profile_name),
+            "vlan_number": vlan_number,
             "zone_name": zone_name, "splitter_name": splitter_name,
             "preset_name": preset_name, "registered_by_name": registered_by_name}
 
