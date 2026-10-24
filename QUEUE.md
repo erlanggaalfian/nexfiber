@@ -12,4 +12,4 @@ Log tiap permintaan Erlangga ke proyek Nexfiber, urut dari paling lama. Status: 
 - [2026-10-24] selesai — "ambil olt sbi dari smartolt saja" (ambil kredensial dari record SmartOLT produksi id=12) → password diperbarui di DB, 6 bug nyata ditemukan & diperbaiki (parser card/processor/version-running, netmiko device_type, command show version, SNMP var_binds unpack) → commit `fc46175`, deployed, test_connection real: cli_ok=True snmp_ok=True
 - [2026-10-24] antri — tarik transkrip `show gpon remote-onu equip` dari OLT SBI (read-only) untuk menutup sisa decision point 2
 - [2026-10-24] selesai — buat file antrian permintaan ini (QUEUE.md)
-- [2026-10-24] jalan — fitur: pisah Speed Profile jadi profil Download dan Upload independen (lihat `DECISIONS.md` § "TODO — Speed Profile pisah Download/Upload")
+- [2026-10-24] selesai — fitur: pisah Speed Profile jadi profil Download dan Upload independen (lihat `DECISIONS.md` § "TODO — Speed Profile pisah Download/Upload") → migrasi `b7c8d9e0f1a2`, backend+frontend diperbarui, 88 test lulus, deploy via update.sh (commit `99ab441`)
