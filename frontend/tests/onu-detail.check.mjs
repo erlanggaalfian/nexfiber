@@ -193,11 +193,20 @@ check("password PPPoE tidak pernah dirender", () => {
 });
 
 check("aksi merusak tetap minta ketik serial + manager-only", () => {
-  assert.ok(page.includes("typed === d.serial_number"));
-  for (const action of ['setConfirm("restore-factory")', 'setConfirm("delete")']) {
+  // Konfirmasi ketik-serial sekarang hidup di komponen modal bersama.
+  const confirmModal = readFileSync(
+    join(here, "..", "src", "components", "onu", "modals", "ConfirmActionModal.tsx"), "utf8",
+  );
+  assert.ok(confirmModal.includes("typed === serial"), "konfirmasi ketik serial hilang");
+  for (const kind of ["delete", "restore-factory"]) {
+    assert.ok(confirmModal.includes(`"${kind}"`), kind);
+  }
+  assert.ok(/NEEDS_TYPED[^=]*=\s*\[\s*"delete",\s*"restore-factory"\s*\]/.test(confirmModal),
+            "daftar aksi wajib ketik serial berubah");
+  for (const action of ['setModal({ kind: "restore-factory" })', 'setModal({ kind: "delete" })']) {
     const i = page.indexOf(action);
     assert.notEqual(i, -1, action);
-    assert.ok(page.slice(i - 220, i).includes("isManager"), action);
+    assert.ok(page.slice(i - 260, i).includes("isManager"), action);
   }
 });
 
@@ -240,12 +249,15 @@ check("field yang dibuang pemilik tidak pernah dirender", () => {
     assert.ok(!page.includes(`label="${l}`), `baris masih ada: ${l}`);
   }
   // Slot/port hanya boleh dipakai untuk menyusun nama antarmuka, bukan sebagai baris sendiri.
-  assert.equal((page.match(/d\.slot/g) ?? []).length, 1, "slot dipakai di luar nama antarmuka");
+  // Pemetaan `modalOnu` (data untuk modal aksi) bukan tampilan, jadi dikeluarkan dari hitungan.
+  const render = page.slice(0, page.indexOf("const modalOnu")) +
+    page.slice(page.indexOf("attached_vlans:", page.indexOf("const modalOnu")));
+  assert.equal((render.match(/d\.slot/g) ?? []).length, 1, "slot dipakai di luar nama antarmuka");
   // IP hanya muncul sebagai TAUTAN (komponen IpLink) di baris Mgmt IP / WAN setup mode:
   // dua penjaga + dua props, tidak ada baris "IP" sendiri.
   assert.ok(page.includes("href={`http://${ip}`}"), "IP harus jadi tautan lewat IpLink");
   // 5 kemunculan: Mgmt IP (penjaga pemisah, penjaga tautan, prop) + WAN (penjaga, prop).
-  assert.equal((page.match(/d\.ip_address/g) ?? []).length, 5, "IP dipakai di luar tautan");
+  assert.equal((render.match(/d\.ip_address/g) ?? []).length, 5, "IP dipakai di luar tautan");
   assert.ok(!/<DRow label="(IP|IP address|Alamat IP)"/.test(page), "ada baris IP sendiri");
 });
 

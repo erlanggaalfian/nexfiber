@@ -43,15 +43,18 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { Confirm, Drawer, Field, TableCard, cell, input } from "../components/crud";
+import { Drawer, Field, TableCard, cell, input } from "../components/crud";
 import { OnuRearPanel } from "../components/onu/OnuRearPanel";
+import {
+  OnuActionModals, type ModalOnu, type OnuModalState,
+} from "../components/onu/modals/OnuActionModals";
 import {
   ErrorState, Panel, Skeleton, StatusBadge, fmtDateTime, nf, rxBucket, RX_BUCKETS,
 } from "../components/data";
 import { Button } from "../components/ui/button";
 import {
   api, ApiError, type OnuDetail as Detail, type OnuLog, type OnuType, type SignalPoint,
-  type SpeedProfile, type Splitter, type Vlan, type Zone,
+  type Splitter, type Zone,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { DONE, useJob } from "../lib/jobs";
@@ -142,7 +145,18 @@ function DRow(
   );
 }
 
+/** Tombol ikon pensil kecil di baris tabel (port Ethernet/WiFi): titik buka modal konfigurasi. */
+function EditBtn({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} aria-label={label} title={label}
+            className="inline-flex items-center text-faint hover:text-fiber">
+      <Pencil size={13} aria-hidden />
+    </button>
+  );
+}
+
 /** Header kartu: judul kecil + keterangan, pola berulang di desain Stitch. */
+
 function CardHead({ title, note, action }: { title: string; note?: string; action?: React.ReactNode }) {
   return (
     <div className="mb-2.5 flex flex-wrap items-center gap-2 border-b pb-2">
@@ -553,14 +567,10 @@ export function OnuDetail() {
   const qc = useQueryClient();
   const { isManager } = useAuth();
   const range = (params.get("range") ?? "24h") as "24h" | "7d" | "30d";
-  const [jobId, setJobId] = useState<number | null>(null);
-  const [confirm, setConfirm] = useState<null | "reboot" | "resync" | "restore-factory" | "delete" | "state">(null);
-  const [typed, setTyped] = useState("");
-  const [editing, setEditing] = useState<null | "speed" | "vlan" | "replace" | "info">(null);
-  const [form, setForm] = useState("");
+  /** Modal aksi ONU (kontrak `/api/onus/{id}/actions`), satu state untuk semua modal. */
+  const [modal, setModal] = useState<OnuModalState | null>(null);
+  const [editing, setEditing] = useState<null | "info">(null);
   const [info, setInfo] = useState<InfoForm | null>(null);
-  const [dnForm, setDnForm] = useState("");
-  const [upForm, setUpForm] = useState("");
   const [note, setNote] = useState("");
   /** Panel output diagnostik: satu panel, isi = hasil job view yang terakhir diminta. */
   const [diagView, setDiagView] = useState<DiagView | null>(null);
@@ -591,10 +601,6 @@ export function OnuDetail() {
     queryFn: () => api<OnuLog[]>(`/api/onus/${serial}/logs?limit=50`),
     enabled: serial !== "",
   });
-  const profiles = useQuery({
-    queryKey: ["speed-profiles"], queryFn: () => api<SpeedProfile[]>("/api/speed-profiles"),
-  });
-  const vlans = useQuery({ queryKey: ["vlans"], queryFn: () => api<Vlan[]>("/api/vlans") });
   const zones = useQuery({ queryKey: ["zones"], queryFn: () => api<Zone[]>("/api/zones") });
   const splitters = useQuery({
     queryKey: ["splitters", "all"], queryFn: () => api<Splitter[]>("/api/splitters"),
@@ -604,7 +610,6 @@ export function OnuDetail() {
   const onuTypes = useQuery({
     queryKey: ["onu-types"], queryFn: () => api<OnuType[]>("/api/onu-types"),
   });
-  const job = useJob(jobId);
   const diagJob = useJob(diagJobId);
   const traffic = useLiveTraffic(serial, live && serial !== "");
 
@@ -626,21 +631,6 @@ export function OnuDetail() {
       qc.invalidateQueries({ queryKey: ["onu"] });
       qc.invalidateQueries({ queryKey: ["onus"] });
     },
-  });
-
-  /** Semua aksi memakai jalur yang sama: POST -> job_id -> tampilkan status job. */
-  const act = useMutation({
-    mutationFn: ({ path, method = "POST", json }: { path: string; method?: string; json?: unknown }) =>
-      api<{ job_id: number }>(`/api/onus/${serial}${path}`, { method, json }),
-    onSuccess: (r) => {
-      setJobId(r.job_id);
-      setNote(`Job #${r.job_id} dibuat.`);
-      setConfirm(null);
-      setEditing(null);
-      setTyped("");
-      qc.invalidateQueries({ queryKey: ["onu"] });
-    },
-    onError: (e: Error) => setNote(e.message),
   });
 
   /** Diagnostik baca-saja: satu job per tombol (backend sibling), hasilnya string output. */
@@ -740,13 +730,23 @@ export function OnuDetail() {
   };
 
   const infoDialog = () => { setInfo(infoFrom(d)); setEditing("info"); };
-  const speedDialog = () => {
-    setDnForm(String(d.download_speed_profile_id ?? ""));
-    setUpForm(String(d.upload_speed_profile_id ?? ""));
-    setEditing("speed");
+  /** Modal lokasi: satu titik buka untuk semua baris lokasi/identitas kiri atas. */
+  const locationDialog = () => setModal({ kind: "location" });
+  /** Data yang dipakai modal aksi: subset detail, tanpa menyalin seluruh tipe halaman. */
+
+  const modalOnu: ModalOnu = {
+    id: d.id, serial_number: d.serial_number, onu_type_id: d.onu_type_id,
+    external_id: d.external_id, olt_id: d.olt_id, olt_name: d.olt_name,
+    slot: d.slot, port: d.port, onu_mode: d.onu_mode, wan_mode: d.wan_mode,
+    mgmt_ip_mode: d.mgmt_ip_mode, vlan_id: d.vlan_id, ip_address: d.ip_address,
+    download_profile_name: d.download_profile_name, upload_profile_name: d.upload_profile_name,
+    zone_id: d.zone_id, splitter_id: d.splitter_id, splitter_port: d.splitter_port,
+    name: d.name, customer_name: d.customer_name, address: d.address, contact: d.contact,
+    latitude: d.latitude, longitude: d.longitude,
+    attached_vlans: (vlanList ?? [])
+      .map((v) => v.vlan_id)
+      .filter((v): v is number => typeof v === "number"),
   };
-  const vlanDialog = () => { setForm(String(d.vlan_id ?? "")); setEditing("vlan"); };
-  const replaceDialog = () => { setForm(""); setEditing("replace"); };
 
   return (
     <div className="space-y-4">
@@ -773,10 +773,8 @@ export function OnuDetail() {
         )}
       </div>
 
-      {(note || job.data) && (
-        <p className="text-muted" role="status">
-          {note}{job.data ? ` Status job: ${job.data.status}${job.data.error_message ? ` — ${job.data.error_message}` : ""}` : ""}
-        </p>
+      {note && (
+        <p className="text-muted" role="status">{note}</p>
       )}
 
       {/* 1. BAGIAN ATAS (desain acuan §1): kiri meta, kanan ilustrasi panel + status +
@@ -795,23 +793,24 @@ export function OnuDetail() {
                 </Link>
               } />
               <DRow label="SN" value={<span className="font-semibold text-fiber">{d.serial_number}</span>}
-                    onEdit={isManager ? replaceDialog : undefined} />
-              <DRow label="ONU type" value={orNone(d.onu_type)} />
+                    onEdit={isManager ? () => setModal({ kind: "replace-sn" }) : undefined} />
+              <DRow label="ONU type" value={orNone(d.onu_type)}
+                    onEdit={isManager ? () => setModal({ kind: "onu-type" }) : undefined} />
               <DRow label="Configuration Preset" value={orNone(d.preset_name)} />
-              <DRow label="Zone" value={fromMasterOrDescription(d.zone_name, meta?.zone)} onEdit={infoDialog} />
-              <DRow label="Splitter" onEdit={infoDialog} value={
+              <DRow label="Zone" value={fromMasterOrDescription(d.zone_name, meta?.zone)} onEdit={locationDialog} />
+              <DRow label="Splitter" onEdit={locationDialog} value={
                 d.splitter_name
                   ? `${d.splitter_name}${d.splitter_port ? ` · port ${d.splitter_port}` : ""}`
                   : fromMasterOrDescription(null, meta?.splitter)
               } />
               {/* Sector belum ada kolomnya di master data Nexfiber: baris tetap ada supaya
                   urutan acuan utuh, nilainya `None` karena memang tidak ada datanya. */}
-              <DRow label="Sector" value={NONE} />
-              <DRow label="Name" value={orNone(d.customer_name ?? d.name)} onEdit={infoDialog} />
+              <DRow label="Sector" value={NONE} onEdit={locationDialog} />
+              <DRow label="Name" value={orNone(d.customer_name ?? d.name)} onEdit={locationDialog} />
               <DRow label="Address or comment"
                     value={fromMasterOrDescription(d.address, meta?.address ?? d.description)}
-                    onEdit={infoDialog} />
-              <DRow label="Contact" value={orNone(d.contact ?? d.phone)} onEdit={infoDialog} />
+                    onEdit={locationDialog} />
+              <DRow label="Contact" value={orNone(d.contact ?? d.phone)} onEdit={locationDialog} />
               <DRow label="Authorization date" value={
                 <>
                   {fromMasterOrDescription(
@@ -828,13 +827,14 @@ export function OnuDetail() {
                   </Link>
                 </>
               } />
-              <DRow label="ONU external ID" value={orNone(d.external_id)} onEdit={infoDialog} />
+              <DRow label="ONU external ID" value={orNone(d.external_id)}
+                    onEdit={() => setModal({ kind: "external-id" })} />
               <DRow label="Lokasi" value={d.latitude !== null && d.longitude !== null
                 ? <a className="text-fiber hover:underline" target="_blank" rel="noreferrer"
                      href={`https://www.openstreetmap.org/?mlat=${d.latitude}&mlon=${d.longitude}#map=17/${d.latitude}/${d.longitude}`}>
                     {Number(d.latitude).toFixed(5)}, {Number(d.longitude).toFixed(5)}
                   </a>
-                : "—"} />
+                : "—"} onEdit={locationDialog} />
             </div>
           </div>
 
@@ -888,7 +888,7 @@ export function OnuDetail() {
                     {d.ip_address && <IpLink ip={d.ip_address} />}
                   </>
                 )
-              } />
+              } onEdit={isManager ? () => setModal({ kind: "mgmt-ip" }) : undefined} />
               <DRow label="Attached VLANs" value={
                 vlanList === null ? (
                   <>
@@ -911,13 +911,13 @@ export function OnuDetail() {
                     )}
                   </>
                 )
-              } onEdit={vlanDialog} />
+              } onEdit={() => setModal({ kind: "attached-vlans" })} />
               {/* "Routing - WAN vlan: N" seperti acuan; nomor VLAN hanya ditempel bila ada. */}
               <DRow label="ONU mode" value={
                 d.onu_mode === null || d.onu_mode === ""
                   ? "—"
                   : `${d.onu_mode}${wanVlan === null ? "" : ` - WAN vlan: ${wanVlan}`}`
-              } />
+              } onEdit={() => setModal({ kind: "onu-mode" })} />
               {/* WAN setup mode: label mode dari WAN_MODE_LABEL (huruf kapital di teks, bukan
                   CSS uppercase) + IP sebagai tautan tab baru. `webpage` tidak punya IP WAN. */}
               <DRow label="WAN setup mode" value={
@@ -927,7 +927,7 @@ export function OnuDetail() {
                     {wanHasIp && d.ip_address && <IpLink ip={d.ip_address} />}
                   </>
                 )
-              } />
+              } onEdit={() => setModal({ kind: "onu-mode" })} />
               {/* Dua baris PPPoE hanya untuk mode pppoe; static/dhcp/webpage menyembunyikannya
                   sepenuhnya. Kata sandi TIDAK PERNAH dikirim backend, jadi barisnya ada (sesuai
                   acuan) tapi isinya keterangan jujur, bukan nilai palsu di balik tombol mata. */}
@@ -1116,7 +1116,10 @@ export function OnuDetail() {
                   <span className="ml-2 text-muted">{dash(cleanProfileName(d.srv_profile_id))}</span>
                 </td>
                 <td className={cell}>
-                  <Button size="sm" onClick={speedDialog}>Konfigurasi profil</Button>
+                  <Button size="sm" onClick={() => setModal({ kind: "speed-profile" })}>
+                    Konfigurasi profil
+                  </Button>
+
                 </td>
               </tr>
             </tbody>
@@ -1146,7 +1149,10 @@ export function OnuDetail() {
                       <td className={`${cell} text-muted`}>—</td>
                       <td className={`${cell} font-mono`}>LAN</td>
                       <td className={`${cell} text-muted`}>—</td>
-                      <td className={`${cell} text-faint`}>Segera</td>
+                      <td className={cell}>
+                        <EditBtn label={`Konfigurasi eth_0/${i + 1}`}
+                                 onClick={() => setModal({ kind: "eth-port", port: i + 1 })} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1184,7 +1190,10 @@ export function OnuDetail() {
                       <td className={`${cell} font-mono text-fiber`}>wifi_0/{i + 1}</td>
                       <td className={`${cell} text-muted`}>—</td>
                       <td className={`${cell} text-muted`}>—</td>
-                      <td className={`${cell} text-faint`}>Segera</td>
+                      <td className={cell}>
+                        <EditBtn label={`Konfigurasi wifi_0/${i + 1}`}
+                                 onClick={() => setModal({ kind: "wifi-port", port: i + 1 })} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1207,8 +1216,11 @@ export function OnuDetail() {
             specs
               ? (specs.voip_ports > 0 ? `${specs.voip_ports} port` : "Tidak didukung tipe ONU")
               : <span className="text-faint">Tipe ONU belum terdaftar</span>
-          } />
-          <DRow label="IPTV" value={<span className="text-faint">Segera</span>} />
+          } onEdit={specs && specs.voip_ports > 0
+            ? () => setModal({ kind: "voip-enable", port: 1 })
+            : undefined} />
+          <DRow label="IPTV" value={<span className="text-faint">Segera</span>}
+                onEdit={() => setModal({ kind: "iptv" })} />
           <DRow label="CATV" value={
             specs?.catv
               ? <span className="text-up">Didukung</span>
@@ -1219,23 +1231,31 @@ export function OnuDetail() {
         </div>
       </Section>
 
-      {/* 8. AKSI SIKLUS HIDUP (desain acuan §8). Perilaku & konfirmasi tidak diubah. */}
+      {/* 8. AKSI SIKLUS HIDUP (desain acuan §8): tiap tombol membuka modal konfirmasi
+          (kontrak `/api/onus/{id}/actions/{kind}`), tidak ada aksi satu klik. */}
       <Section label="Aksi">
         <div className="flex flex-wrap items-center gap-1.5">
-          <Button size="sm" onClick={() => setConfirm("reboot")}>Reboot</Button>
-          <Button size="sm" onClick={() => setConfirm("resync")}>Resync config</Button>
+          <Button size="sm" onClick={() => setModal({ kind: "reboot" })}>Reboot</Button>
+          <Button size="sm" onClick={() => setModal({ kind: "resync-config" })}>Resync config</Button>
           <Button size="sm" onClick={infoDialog}>Ubah data pelanggan</Button>
-          <Button size="sm" onClick={speedDialog}>Ubah speed</Button>
-          <Button size="sm" onClick={vlanDialog}>Ubah VLAN</Button>
-          {isManager && <Button size="sm" onClick={replaceDialog}>Replace ONU / ganti SN</Button>}
-          <Button size="sm" onClick={() => setConfirm("state")}>
+          <Button size="sm" onClick={locationDialog}>Ubah lokasi</Button>
+          <Button size="sm" onClick={() => setModal({ kind: "speed-profile" })}>Ubah speed</Button>
+          <Button size="sm" onClick={() => setModal({ kind: "attached-vlans" })}>Ubah VLAN</Button>
+          <Button size="sm" onClick={() => setModal({ kind: "move" })}>Move ONU</Button>
+          {isManager && (
+            <Button size="sm" onClick={() => setModal({ kind: "replace-sn" })}>Replace ONU / ganti SN</Button>
+          )}
+          <Button size="sm"
+                  onClick={() => setModal({ kind: d.admin_state === "disabled" ? "enable" : "disable" })}>
             {d.admin_state === "disabled" ? "Aktifkan ONU" : "Nonaktifkan ONU"}
           </Button>
           {isManager && (
-            <Button size="sm" variant="danger" onClick={() => setConfirm("restore-factory")}>Restore factory</Button>
+            <Button size="sm" variant="danger" onClick={() => setModal({ kind: "restore-factory" })}>
+              Restore factory
+            </Button>
           )}
           {isManager && (
-            <Button size="sm" variant="danger" onClick={() => setConfirm("delete")}>Hapus</Button>
+            <Button size="sm" variant="danger" onClick={() => setModal({ kind: "delete" })}>Hapus</Button>
           )}
         </div>
       </Section>
@@ -1267,114 +1287,10 @@ export function OnuDetail() {
         />
       </Panel>
 
-      {confirm === "reboot" && (
-        <Confirm title="Reboot ONU?" action="Reboot" busy={act.isPending} error={act.error?.message}
-          body="ONU akan mati sekitar satu menit. Dijalankan sebagai job oleh worker."
-          onConfirm={() => act.mutate({ path: "/reboot" })} onClose={() => setConfirm(null)} />
-      )}
-      {confirm === "resync" && (
-        <Confirm title="Resync config ke OLT?" action="Resync" busy={act.isPending} error={act.error?.message}
-          body="Konfigurasi dari database dikirim ulang ke OLT. Aman diulang."
-          onConfirm={() => act.mutate({ path: "/resync" })} onClose={() => setConfirm(null)} />
-      )}
-      {confirm === "state" && (
-        <Confirm
-          title={d.admin_state === "disabled" ? "Aktifkan ONU?" : "Nonaktifkan ONU?"}
-          action={d.admin_state === "disabled" ? "Aktifkan" : "Nonaktifkan"}
-          busy={act.isPending} error={act.error?.message}
-          body={d.admin_state === "disabled"
-            ? "Layanan pelanggan ini akan hidup kembali."
-            : "Layanan pelanggan ini akan mati sampai diaktifkan lagi."}
-          onConfirm={() => act.mutate({ path: "/state", json: { enabled: d.admin_state === "disabled" } })}
-          onClose={() => setConfirm(null)} />
-      )}
+      {/* Semua modal aksi ONU dirender satu kali di sini; isinya dipilih oleh `modal`. */}
+      <OnuActionModals state={modal} onu={modalOnu} onClose={() => setModal(null)}
+                       onDone={(kind, r) => setNote(r?.detail ?? `Aksi ${kind} terkirim.`)} />
 
-      {(confirm === "restore-factory" || confirm === "delete") && (
-        <Drawer
-          title={confirm === "delete" ? "Hapus ONU" : "Restore factory"}
-          busy={act.isPending}
-          error={act.error?.message}
-          onClose={() => { setConfirm(null); setTyped(""); }}
-          onSubmit={() => typed === d.serial_number && act.mutate(
-            confirm === "delete" ? { path: "", method: "DELETE" } : { path: "/restore-factory" })}
-        >
-          <p className="mb-3 text-down">
-            {confirm === "delete"
-              ? "ONU dihapus dari OLT dan di-soft-delete di Nexfiber. Riwayat sinyal tetap tersimpan."
-              : "ONU dikembalikan ke setelan pabrik. Seluruh konfigurasi di perangkat pelanggan hilang."}
-          </p>
-          <Field label={`Ketik serial number untuk konfirmasi: ${d.serial_number}`}>
-            <input className={input} value={typed} onChange={(e) => setTyped(e.target.value)}
-                   placeholder={d.serial_number} autoComplete="off" />
-          </Field>
-          {typed !== "" && typed !== d.serial_number && (
-            <p className="text-down">Serial number belum cocok.</p>
-          )}
-        </Drawer>
-      )}
-
-      {editing === "speed" && (
-        <Drawer title="Ubah speed profile" busy={act.isPending} error={act.error?.message}
-          onClose={() => setEditing(null)}
-          onSubmit={() => (dnForm || upForm) && act.mutate({
-            path: "/speed-profile",
-            json: {
-              download_speed_profile_id: dnForm ? Number(dnForm) : null,
-              upload_speed_profile_id: upForm ? Number(upForm) : null,
-            },
-          })}>
-          <Field label="Profile download">
-            <select className={input} value={dnForm} onChange={(e) => setDnForm(e.target.value)}>
-              <option value="">Jangan ubah</option>
-              {(profiles.data ?? []).filter((p) => p.direction === "download").map((p) => (
-                <option key={p.id} value={p.id}>{p.name} ({nf.format(p.speed_kbps / 1000)} Mbps)</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Profile upload">
-            <select className={input} value={upForm} onChange={(e) => setUpForm(e.target.value)}>
-              <option value="">Jangan ubah</option>
-              {(profiles.data ?? []).filter((p) => p.direction === "upload").map((p) => (
-                <option key={p.id} value={p.id}>{p.name} ({nf.format(p.speed_kbps / 1000)} Mbps)</option>
-              ))}
-            </select>
-          </Field>
-        </Drawer>
-      )}
-
-      {editing === "vlan" && (
-        <Drawer title="Ubah VLAN" busy={act.isPending} error={act.error?.message}
-          onClose={() => setEditing(null)}
-          onSubmit={() => form && act.mutate({ path: "/vlan", json: { vlan_id: Number(form) } })}>
-          <Field label="VLAN">
-            <select className={input} value={form} onChange={(e) => setForm(e.target.value)}>
-              <option value="">Pilih VLAN ...</option>
-              {(vlans.data ?? []).map((v) => (
-                <option key={v.id} value={v.id}>VLAN {v.vlan_id} · {v.name}</option>
-              ))}
-            </select>
-          </Field>
-          <p className="text-muted">Service-port ONU dikonfigurasi ulang di OLT lewat job.</p>
-        </Drawer>
-      )}
-
-      {editing === "replace" && (
-        <Drawer title="Replace ONU / ganti SN" busy={act.isPending} error={act.error?.message}
-          onClose={() => setEditing(null)}
-          onSubmit={() => form.length >= 4 && act.mutate({ path: "/replace", json: { serial_number: form } })}>
-          <Field label="Serial number lama">
-            <input className={input} value={d.serial_number} readOnly disabled />
-          </Field>
-          <Field label="Serial number baru">
-            <input className={input} value={form} onChange={(e) => setForm(e.target.value.trim())}
-                   placeholder="ZTEGC..." autoComplete="off" />
-          </Field>
-          <p className="text-muted">
-            ONU lama dihapus dari OLT lalu SN baru diotorisasi di ONU ID yang sama. Data pelanggan,
-            paket, VLAN, dan riwayat sinyal tetap ikut baris ini.
-          </p>
-        </Drawer>
-      )}
       {editing === "info" && info && (
         <Drawer title="Ubah data pelanggan" busy={saveInfo.isPending} error={saveInfo.error?.message}
           onClose={() => setEditing(null)}
