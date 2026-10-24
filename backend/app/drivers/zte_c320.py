@@ -870,6 +870,19 @@ class ZteC320Driver(OltDriver):
             output = await cli.send_config_set(commands)
         return self._result(" ; ".join(commands), output)
 
+    async def run_onu_commands(self, commands: list[str]) -> DriverResult:
+        """Blok perintah aksi ONU dari `zte_onu_actions` — satu sesi CLI, satu result.
+
+        Terbukti di OLT TGR (ONU uji gpon-onu_1/4/1:11, 2026-10-25): `send_config_set`
+        masuk `configure terminal` sendiri, jadi `commands` mulai dari `interface …`
+        atau `pon-onu-mng …` tanpa `configure terminal` manual.
+        """
+        if not commands:
+            raise ValueError("commands kosong")
+        async with self._open_cli() as cli:
+            output = await cli.send_config_set(commands)
+        return self._result(" ; ".join(commands), output)
+
     async def restore_factory(self, slot: int, port: int, onu_id: int) -> DriverResult:
         """# UNVERIFIED: uji di ONU test.
 

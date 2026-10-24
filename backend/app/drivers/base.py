@@ -125,6 +125,16 @@ class OltDriver(ABC):
     async def restore_factory(self, slot: int, port: int, onu_id: int) -> DriverResult:
         """Reset ONU ke setelan pabrik (aksi destruktif, selalu lewat job + konfirmasi UI)."""
 
+    async def run_onu_commands(self, commands: list[str]) -> DriverResult:
+        """Kirim satu blok perintah config ONU yang sudah dibangun pemanggil.
+
+        Dipakai aksi/konfigurasi ONU (modal SmartOLT) supaya setiap kind tidak perlu
+        method driver sendiri: pembangun perintahnya per-vendor, pengirimannya satu pintu.
+        Driver yang belum mendukung menolaknya.
+        """
+        raise NotImplementedError(f"{self.vendor} {self.model} belum mendukung aksi ONU ini")
+
+
     @abstractmethod
     async def create_vlan(self, vlan_id: int, description: str | None) -> DriverResult: ...
 
