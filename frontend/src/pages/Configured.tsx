@@ -44,7 +44,7 @@ const SIZES = [25, 50, 100, 200];
 
 /** Filter yang disimpan di URL; multi = daftar, single = satu nilai. */
 const MULTI_KEYS = ["status", "signal", "olt_id", "vlan_id", "zone_id", "splitter_id",
-                    "speed_profile_id", "onu_type"] as const;
+                    "download_speed_profile_id", "upload_speed_profile_id", "onu_type"] as const;
 type MultiKey = (typeof MULTI_KEYS)[number];
 
 type BulkAction = "reboot_onu" | "resync_onu" | "set_state" | "delete_onu";
@@ -151,13 +151,15 @@ export function Configured() {
       case "vlan_id": return find(vlans.data, (v) => `VLAN ${v.vlan_id}`);
       case "zone_id": return find(zones.data, (z) => z.name);
       case "splitter_id": return find(splitters.data, (s) => s.name);
-      case "speed_profile_id": return find(profiles.data, (p) => p.name);
+      case "download_speed_profile_id": return find(profiles.data, (p) => p.name);
+      case "upload_speed_profile_id": return find(profiles.data, (p) => p.name);
       default: return value;
     }
   };
   const chipTitle: Record<MultiKey, string> = {
     status: "Status", signal: "Sinyal", olt_id: "OLT", vlan_id: "VLAN", zone_id: "Zone",
-    splitter_id: "Splitter", speed_profile_id: "Profile", onu_type: "Tipe",
+    splitter_id: "Splitter", download_speed_profile_id: "Profile DN", upload_speed_profile_id: "Profile UP",
+    onu_type: "Tipe",
   };
   const activeChips = MULTI_KEYS.flatMap((k) => multi[k].map((v) => ({ key: k, value: v })));
   const onuTypes = useMemo(
@@ -202,9 +204,14 @@ export function Configured() {
           options={SIGNAL_OPTIONS} />
         <MultiFilter label="Tipe" value={multi.onu_type} onChange={(v) => patch({ onu_type: v })}
           options={onuTypes} />
-        <MultiFilter label="Profile" value={multi.speed_profile_id}
-          onChange={(v) => patch({ speed_profile_id: v })}
-          options={(profiles.data ?? []).map((p) => ({ value: String(p.id), label: p.name }))} />
+        <MultiFilter label="Profile download" value={multi.download_speed_profile_id}
+          onChange={(v) => patch({ download_speed_profile_id: v })}
+          options={(profiles.data ?? []).filter((p) => p.direction === "download")
+            .map((p) => ({ value: String(p.id), label: p.name }))} />
+        <MultiFilter label="Profile upload" value={multi.upload_speed_profile_id}
+          onChange={(v) => patch({ upload_speed_profile_id: v })}
+          options={(profiles.data ?? []).filter((p) => p.direction === "upload")
+            .map((p) => ({ value: String(p.id), label: p.name }))} />
         <MultiFilter label="VLAN" value={multi.vlan_id} onChange={(v) => patch({ vlan_id: v })}
           options={(vlans.data ?? []).map((v) => ({ value: String(v.id), label: `VLAN ${v.vlan_id} · ${v.name}` }))} />
         <MultiFilter label="Zone" value={multi.zone_id} onChange={(v) => patch({ zone_id: v })}

@@ -1,10 +1,8 @@
 /** Form Otorisasi — PRD 3.4.4, wireframe DESIGN 12.4 (dua kolom: Layanan kiri, Pelanggan kanan).
  *  Mengirim POST /api/onus/authorize lalu memantau job sampai selesai.
  *
- *  ponytail: Download/Upload jadi SATU dropdown Speed Profile — tabel speed_profiles sudah
- *  menyimpan download_kbps + upload_kbps dalam satu baris, jadi dua dropdown hanya akan
- *  memilih baris yang sama dua kali. skipped: pilih arah terpisah, tambah kalau speed_profiles
- *  dipecah per arah.
+ *  Speed profile dipisah jadi 2 dropdown (download/upload, Opsi A) — tiap arah pilih
+ *  baris speed_profiles sendiri, bebas dikombinasikan.
  */
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -27,7 +25,8 @@ const numOrNull = (v: string) => (v === "" ? null : Number(v));
 
 const schema = z.object({
   onu_type_id: z.string().min(1, "Pilih tipe ONU"),
-  speed_profile_id: z.string().min(1, "Pilih speed profile"),
+  download_speed_profile_id: z.string().min(1, "Pilih profile download"),
+  upload_speed_profile_id: z.string().min(1, "Pilih profile upload"),
   vlan_id: z.string().min(1, "Pilih VLAN"),
   onu_mode: z.enum(["routing", "bridging"]),
   wan_mode: z.enum(["webpage", "dhcp", "static", "pppoe"]),
@@ -51,7 +50,8 @@ const schema = z.object({
 type Form = z.infer<typeof schema>;
 
 const DEFAULTS: Form = {
-  onu_type_id: "", speed_profile_id: "", vlan_id: "", onu_mode: "routing", wan_mode: "pppoe",
+  onu_type_id: "", download_speed_profile_id: "", upload_speed_profile_id: "", vlan_id: "",
+  onu_mode: "routing", wan_mode: "pppoe",
   pppoe_username: "", pppoe_password: "", customer_name: "", customer_id: "", contact: "",
   address: "", external_id: "", zone_id: "", splitter_id: "", splitter_port: "",
   latitude: "", longitude: "",
@@ -103,12 +103,14 @@ export function AuthorizeOnu() {
   useEffect(() => {
     const p = (presets.data ?? []).find((x) => String(x.id) === presetId);
     if (!p) return;
-    const profile = (profiles.data ?? []).find((s) => s.name === p.download_profile);
+    const dn = (profiles.data ?? []).find((s) => s.direction === "download" && s.name === p.download_profile);
+    const up = (profiles.data ?? []).find((s) => s.direction === "upload" && s.name === p.upload_profile);
     const vlan = (vlans.data ?? []).find((v) => v.vlan_id === p.vlan);
     reset({
       ...getValues(),
       onu_type_id: String(p.onu_type_id),
-      speed_profile_id: profile ? String(profile.id) : "",
+      download_speed_profile_id: dn ? String(dn.id) : "",
+      upload_speed_profile_id: up ? String(up.id) : "",
       vlan_id: vlan ? String(vlan.id) : "",
       onu_mode: p.onu_mode,
       wan_mode: p.wan_mode,
@@ -119,7 +121,8 @@ export function AuthorizeOnu() {
 
   const authorize = useMutation({
     mutationFn: (f: Form) => {
-      const profile = (profiles.data ?? []).find((s) => String(s.id) === f.speed_profile_id);
+      const dn = (profiles.data ?? []).find((s) => String(s.id) === f.download_speed_profile_id);
+      const up = (profiles.data ?? []).find((s) => String(s.id) === f.upload_speed_profile_id);
       const pppoe = f.onu_mode === "routing" && f.wan_mode === "pppoe";
       return api<{ job_id: number }>("/api/onus/authorize", {
         method: "POST",
@@ -130,9 +133,11 @@ export function AuthorizeOnu() {
           contact: nullable(f.contact), address: nullable(f.address),
           external_id: nullable(f.external_id),
           onu_type: onu?.onu_type ?? null, onu_type_id: Number(f.onu_type_id),
-          vlan_id: Number(f.vlan_id), speed_profile_id: Number(f.speed_profile_id),
-          line_profile_id: profile?.line_profile_id ?? null,
-          srv_profile_id: profile?.srv_profile_id ?? null,
+          vlan_id: Number(f.vlan_id),
+          download_speed_profile_id: Number(f.download_speed_profile_id),
+          upload_speed_profile_id: Number(f.upload_speed_profile_id),
+          line_profile_id: dn?.device_profile_id ?? null,
+          srv_profile_id: up?.device_profile_id ?? null,
           zone_id: numOrNull(f.zone_id), splitter_id: numOrNull(f.splitter_id),
           splitter_port: numOrNull(f.splitter_port),
           preset_id: numOrNull(presetId),
@@ -150,13 +155,14 @@ export function AuthorizeOnu() {
   const savePreset = useMutation({
     mutationFn: () => {
       const f = getValues();
-      const profile = (profiles.data ?? []).find((s) => String(s.id) === f.speed_profile_id);
+      const dn = (profiles.data ?? []).find((s) => String(s.id) === f.download_speed_profile_id);
+      const up = (profiles.data ?? []).find((s) => String(s.id) === f.upload_speed_profile_id);
       const vlan = (vlans.data ?? []).find((v) => String(v.id) === f.vlan_id);
       return api<OnuPreset>("/api/onu-presets", {
         method: "POST",
         json: {
           name: presetName, onu_type_id: Number(f.onu_type_id), vlan: vlan?.vlan_id ?? null,
-          download_profile: profile?.name ?? null, upload_profile: profile?.name ?? null,
+          download_profile: dn?.name ?? null, upload_profile: up?.name ?? null,
           onu_mode: f.onu_mode, wan_mode: f.wan_mode,
           zone_id: numOrNull(f.zone_id), splitter_id: numOrNull(f.splitter_id),
         },
@@ -224,13 +230,19 @@ export function AuthorizeOnu() {
                 {(onuTypes.data ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </Field>
-            <Field label="Speed profile *" error={formState.errors.speed_profile_id?.message}>
-              <select className={input} {...register("speed_profile_id")}>
-                <option value="">Pilih speed profile</option>
-                {(profiles.data ?? []).map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} · {(s.download_kbps / 1000).toFixed(0)}/{(s.upload_kbps / 1000).toFixed(0)} Mbps
-                  </option>
+            <Field label="Profile download *" error={formState.errors.download_speed_profile_id?.message}>
+              <select className={input} {...register("download_speed_profile_id")}>
+                <option value="">Pilih profile download</option>
+                {(profiles.data ?? []).filter((s) => s.direction === "download").map((s) => (
+                  <option key={s.id} value={s.id}>{s.name} · {(s.speed_kbps / 1000).toFixed(0)} Mbps</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Profile upload *" error={formState.errors.upload_speed_profile_id?.message}>
+              <select className={input} {...register("upload_speed_profile_id")}>
+                <option value="">Pilih profile upload</option>
+                {(profiles.data ?? []).filter((s) => s.direction === "upload").map((s) => (
+                  <option key={s.id} value={s.id}>{s.name} · {(s.speed_kbps / 1000).toFixed(0)} Mbps</option>
                 ))}
               </select>
             </Field>

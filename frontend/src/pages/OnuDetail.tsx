@@ -102,6 +102,8 @@ export function OnuDetail() {
   const [typed, setTyped] = useState("");
   const [editing, setEditing] = useState<null | "speed" | "vlan" | "replace">(null);
   const [form, setForm] = useState("");
+  const [dnForm, setDnForm] = useState("");
+  const [upForm, setUpForm] = useState("");
   const [note, setNote] = useState("");
 
   const onu = useQuery({
@@ -154,7 +156,10 @@ export function OnuDetail() {
   const actions: { label: string; run: () => void; danger?: boolean; manager?: boolean }[] = [
     { label: "Reboot", run: () => setConfirm("reboot") },
     { label: "Resync config", run: () => setConfirm("resync") },
-    { label: "Ubah speed", run: () => { setForm(String(d.speed_profile_id ?? "")); setEditing("speed"); } },
+    { label: "Ubah speed", run: () => {
+      setDnForm(String(d.download_speed_profile_id ?? "")); setUpForm(String(d.upload_speed_profile_id ?? ""));
+      setEditing("speed");
+    } },
     { label: "Ubah VLAN", run: () => { setForm(String(d.vlan_id ?? "")); setEditing("vlan"); } },
     { label: "Replace ONU / ganti SN", run: () => { setForm(""); setEditing("replace"); }, manager: true },
     { label: d.admin_state === "disabled" ? "Aktifkan ONU" : "Nonaktifkan ONU", run: () => setConfirm("state") },
@@ -310,8 +315,12 @@ export function OnuDetail() {
 
       {tab === "Speed & traffic" && (
         <Panel title="Speed profile"
-          action={<Button size="sm" onClick={() => { setForm(String(d.speed_profile_id ?? "")); setEditing("speed"); }}>Ubah speed</Button>}>
-          <Row label="Paket" value={dash(d.speed_profile_name)} />
+          action={<Button size="sm" onClick={() => {
+            setDnForm(String(d.download_speed_profile_id ?? "")); setUpForm(String(d.upload_speed_profile_id ?? ""));
+            setEditing("speed");
+          }}>Ubah speed</Button>}>
+          <Row label="Paket download" value={dash(d.download_profile_name)} />
+          <Row label="Paket upload" value={dash(d.upload_profile_name)} />
           <Row label="Profile download (OLT)" value={dash(d.line_profile_id)} />
           <Row label="Profile upload (OLT)" value={dash(d.srv_profile_id)} />
           <Row label="VLAN" value={dash(d.vlan_number)} />
@@ -411,14 +420,26 @@ export function OnuDetail() {
       {editing === "speed" && (
         <Drawer title="Ubah speed profile" busy={act.isPending} error={act.error?.message}
           onClose={() => setEditing(null)}
-          onSubmit={() => form && act.mutate({ path: "/speed-profile", json: { speed_profile_id: Number(form) } })}>
-          <Field label="Speed profile">
-            <select className={input} value={form} onChange={(e) => setForm(e.target.value)}>
-              <option value="">Pilih profile ...</option>
-              {(profiles.data ?? []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({nf.format(p.download_kbps / 1000)}/{nf.format(p.upload_kbps / 1000)} Mbps)
-                </option>
+          onSubmit={() => (dnForm || upForm) && act.mutate({
+            path: "/speed-profile",
+            json: {
+              download_speed_profile_id: dnForm ? Number(dnForm) : null,
+              upload_speed_profile_id: upForm ? Number(upForm) : null,
+            },
+          })}>
+          <Field label="Profile download">
+            <select className={input} value={dnForm} onChange={(e) => setDnForm(e.target.value)}>
+              <option value="">Jangan ubah</option>
+              {(profiles.data ?? []).filter((p) => p.direction === "download").map((p) => (
+                <option key={p.id} value={p.id}>{p.name} ({nf.format(p.speed_kbps / 1000)} Mbps)</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Profile upload">
+            <select className={input} value={upForm} onChange={(e) => setUpForm(e.target.value)}>
+              <option value="">Jangan ubah</option>
+              {(profiles.data ?? []).filter((p) => p.direction === "upload").map((p) => (
+                <option key={p.id} value={p.id}>{p.name} ({nf.format(p.speed_kbps / 1000)} Mbps)</option>
               ))}
             </select>
           </Field>

@@ -124,7 +124,8 @@ export type OnuRow = {
   customer_id: string | null; olt_id: number; olt_name: string; slot: number; port: number;
   onu_index: number | null; onu_type: string | null; status: string; config_state: string;
   admin_state: string; rx_power_dbm: number | null; olt_rx_power_dbm: number | null;
-  speed_profile_name: string | null; vlan_number: number | null; zone_name: string | null;
+  download_profile_name: string | null; upload_profile_name: string | null;
+  vlan_number: number | null; zone_name: string | null;
   splitter_name: string | null; last_seen_at: string | null; last_down_at: string | null;
   last_down_reason: string | null;
 };
@@ -136,7 +137,8 @@ export type OnuDetail = OnuRow & {
   distance_m: number | null; mac_address: string | null; ip_address: string | null;
   vlan_id: number | null; zone_id: number | null; splitter_id: number | null;
   splitter_port: number | null;
-  speed_profile_id: number | null; line_profile_id: string | null; srv_profile_id: string | null;
+  download_speed_profile_id: number | null; upload_speed_profile_id: number | null;
+  line_profile_id: string | null; srv_profile_id: string | null;
   software_version: string | null; hardware_version: string | null;
   onu_mode: string | null; wan_mode: string | null; mgmt_ip_mode: string | null;
   pppoe_username: string | null; latitude: number | null; longitude: number | null;
@@ -175,8 +177,8 @@ export type Vlan = {
 };
 
 export type SpeedProfile = {
-  id: number; name: string; download_kbps: number; upload_kbps: number; olt_id: number | null;
-  line_profile_id: string | null; srv_profile_id: string | null;
+  id: number; name: string; direction: "download" | "upload"; speed_kbps: number;
+  olt_id: number | null; device_profile_id: string | null;
 };
 
 /** Baris tabel Settings -> Speed Profile (GET /api/speed-profiles, Fase B4). */

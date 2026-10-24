@@ -1,5 +1,6 @@
 /** Settings -> Speed Profile (PRD 3.4.12). VLAN hanya dibaca untuk dropdown — tidak ada
  *  create/edit VLAN di halaman ini (DECISIONS: UI VLAN penuh nanti di Detail OLT).
+ *  Opsi A: satu baris = satu arah (download/upload), bukan paket gabungan.
  */
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -18,8 +19,8 @@ const nullable = (v: string) => (v === "" ? null : v);
 
 const schema = z.object({
   name: z.string().min(1, "Wajib diisi").max(100),
-  download_kbps: z.coerce.number().int().min(64).max(10_000_000),
-  upload_kbps: z.coerce.number().int().min(64).max(10_000_000),
+  direction: z.enum(["download", "upload"]),
+  speed_kbps: z.coerce.number().int().min(64).max(10_000_000),
   olt_id: z.string(),
   vlan_db_id: z.string(),
   description: z.string().max(255),
@@ -31,8 +32,8 @@ const toPayload = (f: Form) => {
   const v = schema.parse(f);
   return {
     name: v.name,
-    download_kbps: v.download_kbps,
-    upload_kbps: v.upload_kbps,
+    direction: v.direction,
+    speed_kbps: v.speed_kbps,
     olt_id: nullable(v.olt_id) && Number(v.olt_id),
     vlan_db_id: nullable(v.vlan_db_id) && Number(v.vlan_db_id),
     description: nullable(v.description),
@@ -47,8 +48,8 @@ function ProfileDrawer({ edit, olts, vlans, onClose }: {
     resolver: zodResolver(schema),
     defaultValues: {
       name: edit?.name ?? "",
-      download_kbps: edit?.download_kbps ?? 20000,
-      upload_kbps: edit?.upload_kbps ?? 10000,
+      direction: edit?.direction ?? "download",
+      speed_kbps: edit?.speed_kbps ?? 20000,
       olt_id: edit?.olt_id ? String(edit.olt_id) : ALL,
       vlan_db_id: edit?.vlan_db_id ? String(edit.vlan_db_id) : ALL,
       description: edit?.description ?? "",
@@ -74,11 +75,15 @@ function ProfileDrawer({ edit, olts, vlans, onClose }: {
         <input className={input} autoFocus autoComplete="off" {...register("name")} />
       </Field>
       <div className="grid grid-cols-2 gap-2">
-        <Field label="Download (kbps)" error={formState.errors.download_kbps?.message}>
-          <input className={input} type="number" min={64} {...register("download_kbps")} />
+        <Field label="Arah" error={formState.errors.direction?.message}>
+          {/* direction tidak bisa diubah setelah dibuat (backend tolak field ini di PATCH) */}
+          <select className={input} disabled={!!edit} {...register("direction")}>
+            <option value="download">Download</option>
+            <option value="upload">Upload</option>
+          </select>
         </Field>
-        <Field label="Upload (kbps)" error={formState.errors.upload_kbps?.message}>
-          <input className={input} type="number" min={64} {...register("upload_kbps")} />
+        <Field label="Speed (kbps)" error={formState.errors.speed_kbps?.message}>
+          <input className={input} type="number" min={64} {...register("speed_kbps")} />
         </Field>
       </div>
       <Field label="OLT">
@@ -166,12 +171,12 @@ export function SpeedProfile() {
         query={{ ...profiles, data: rows }}
         loadingText="Memuat speed profile ..."
         empty="Belum ada speed profile."
-        columns={["Nama", "Download", "Upload", "OLT", "VLAN", "ONU", "Status", "Aksi"]}
+        columns={["Nama", "Arah", "Speed", "OLT", "VLAN", "ONU", "Status", "Aksi"]}
         row={(p: SpeedProfileRow) => (
           <tr key={p.id} className="border-b last:border-0">
             <td className={cell}>{p.name}</td>
-            <td className={`${cell} font-mono`}>{mbps(p.download_kbps)}</td>
-            <td className={`${cell} font-mono`}>{mbps(p.upload_kbps)}</td>
+            <td className={cell}>{p.direction === "download" ? "Download" : "Upload"}</td>
+            <td className={`${cell} font-mono`}>{mbps(p.speed_kbps)}</td>
             <td className={cell}>{p.olt_name ?? "Semua OLT"}</td>
             <td className={`${cell} font-mono`}>{p.vlan_id ?? "—"}</td>
             <td className={`${cell} font-mono`}>{p.onu_count}</td>
