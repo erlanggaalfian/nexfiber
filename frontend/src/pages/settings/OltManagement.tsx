@@ -7,7 +7,7 @@ import { Link, Navigate } from "react-router";
 import * as z from "zod";
 import { PageTitle, StatusBadge, fmtDateTime } from "../../components/data";
 import { Drawer, Field, TableCard, cell, filterInput, input } from "../../components/crud";
-import { Button } from "../../components/ui/button";
+import { Button, buttonClass } from "../../components/ui/button";
 import { api, qs, type Olt, type OltRow } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 
@@ -273,6 +273,7 @@ export function OltManagement() {
             <td className={cell}>{fmtDateTime(o.last_sync_at)}</td>
             <td className={cell}>
               <div className="flex gap-2">
+                <Link to={`/olt/${o.id}`} className={buttonClass("secondary", "sm")}>OLT Detail</Link>
                 <Button size="sm" onClick={() => setDrawer({ edit: o })}>Edit</Button>
                 <Button size="sm" onClick={() => recheck.mutate(o)} disabled={recheck.isPending}>
                   Cek koneksi
