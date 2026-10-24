@@ -54,6 +54,15 @@ async def replace_onu(db, job, olt, driver):
 async def restore_factory(db, job, olt, driver):
     return await onu_service.restore_factory(db, job, driver)
 
+async def read_onu_status(db, job, olt, driver):
+    return await onu_service.read_onu_status(db, job, driver)
+
+async def read_onu_running_config(db, job, olt, driver):
+    return await onu_service.read_onu_running_config(db, job, driver)
+
+async def read_onu_software(db, job, olt, driver):
+    return await onu_service.read_onu_software(db, job, driver)
+
 async def create_vlan(db, job, olt, driver):
     return await vlan_service.push_create(db, job, driver)
 
@@ -127,6 +136,9 @@ HANDLERS: dict[str, Handler] = {
     "set_onu_vlan": set_onu_vlan,
     "replace_onu": replace_onu,
     "restore_factory": restore_factory,
+    "read_onu_status": read_onu_status,
+    "read_onu_running_config": read_onu_running_config,
+    "read_onu_software": read_onu_software,
     "create_vlan": create_vlan,
     "delete_vlan": delete_vlan,
     "push_speed_profile": push_speed_profile,

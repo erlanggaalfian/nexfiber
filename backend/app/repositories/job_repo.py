@@ -73,6 +73,19 @@ async def release_stale_locks(db: AsyncSession, older_than: timedelta) -> int:
     await db.commit()
     return result.rowcount or 0
 
+async def exists_active_for_onu(db: AsyncSession, onu_id: int, job_type: str) -> bool:
+    """Debounce tombol mahal: ada job tipe sama untuk ONU ini yang masih jalan?
+
+    Dipakai job diagnostik Detail ONU (satu klik = ~8 command CLI); tanpa ini tombol yang
+    diklik berulang menumpuk sesi CLI ke OLT yang sama.
+    """
+    stmt = select(Job.id).where(
+        Job.onu_id == onu_id,
+        Job.job_type == job_type,
+        Job.status.in_(("pending", "running")),
+    ).limit(1)
+    return await db.scalar(stmt) is not None
+
 def _duration_ms(started_at: datetime | None, finished_at: datetime) -> int | None:
     if started_at is None:
         return None

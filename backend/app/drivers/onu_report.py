@@ -1,0 +1,191 @@
+"""Perakitan teks output diagnostik satu ONU (tombol Status / Running config / Info SW).
+
+Semua fungsi di sini PURE (teks masuk, teks keluar) supaya bisa diuji dengan fixture
+tanpa menyentuh OLT (AGENTS.md: parser CLI wajib punya unit test fixture).
+
+Aturan anti-fabrikasi (ONU-DETAIL-OUTPUT-PARITY-PROPOSAL §3.3): bila perangkat tidak
+menjawab sebuah blok, blok itu ditulis `NOT_REPORTED` atau pesan error perangkat apa
+adanya. TIDAK ADA nilai contoh/demo yang diisikan — aplikasi referensi melakukan itu
+(MAC `ec6c.b532.be20`, `eth_0/1 auto unlock 1632 0`, `pots_0/1 none`) dan itu bug, bukan
+fitur.
+"""
+
+import re
+
+from app.drivers.errors import ZTE_ERROR_PATTERNS, is_error_output
+
+NOT_REPORTED = "tidak dilaporkan perangkat"
+
+# Judul + urutan blok = kontrak output tombol (dipaku di test).
+STATUS_BLOCKS = (
+    "Optical status",
+    "ONU CATV port",
+    "ONU details",
+    "History",
+    "ONU WAN Interfaces",
+    "ONU LAN Interfaces status",
+    "Realtime VLAN info",
+    "VoIP status",
+    "MACs on OLT from this ONU",
+)
+RUNNING_BLOCKS = ("interface gpon-olt", "interface gpon-onu", "pon-onu-mng")
+SOFTWARE_BLOCKS = ("ONU Details", "Features reported by ONU", "Software Region")
+
+# Baris sisa sesi CLI yang bukan isi jawaban: echo command, prompt, paging.
+_NOISE_RE = re.compile(
+    r"^\s*(?:[\w.\-]+(?:\([\w\-/:]+\))?[#>]\s*.*|show\s+.*|Building configuration\.\.\."
+    r"|--More--|\x1b\[[0-9;]*[A-Za-z])\s*$",
+    re.I,
+)
+
+
+def clean_output(raw: str) -> str:
+    """Buang echo command/prompt/paging, rapikan baris kosong berulang.
+
+    Isi jawaban perangkat TIDAK diubah: tidak ada field yang ditambah, dihapus, atau
+    dinormalisasi nilainya.
+    """
+    lines = [ln.rstrip() for ln in (raw or "").replace("\r", "").split("\n")]
+    kept: list[str] = []
+    for line in lines:
+        if _NOISE_RE.match(line):
+            continue
+        if not line.strip() and (not kept or not kept[-1].strip()):
+            continue
+        kept.append(line)
+    while kept and not kept[-1].strip():
+        kept.pop()
+    return "\n".join(kept)
+
+
+def block_text(raw: str) -> str:
+    """Isi satu blok: teks perangkat apa adanya, atau penanda tidak dilaporkan.
+
+    Pesan error perangkat (`%Error …`) DITAMPILKAN apa adanya — itu jawaban nyata dan
+    lebih berguna daripada menyembunyikannya.
+    """
+    cleaned = clean_output(raw)
+    if not cleaned.strip():
+        return NOT_REPORTED
+    if is_error_output(cleaned, ZTE_ERROR_PATTERNS):
+        return cleaned.strip()
+    return cleaned
+
+
+def render(blocks: list[tuple[str, str]]) -> str:
+    """Judul blok + isi, dipisah satu baris kosong (format sama dengan contoh user)."""
+    return "\n\n".join(f"{title}\n{body}" for title, body in blocks).strip()
+
+
+# --- Status (9 blok) ---------------------------------------------------------------
+
+_HISTORY_RE = re.compile(
+    r"^[ \t]*(?:Authpass|Online/Offline)?\s*History\s*:?\s*$(.*?)"
+    r"(?=^\s*\S+\s*:\s|\Z)",
+    re.I | re.M | re.S,
+)
+
+
+def history_block(detail_info: str) -> str:
+    """Blok `History` diambil dari keluaran `show gpon onu detail-info` yang sama.
+
+    Tidak ada command tambahan: histori authpass/offline memang bagian dari output itu.
+    """
+    match = _HISTORY_RE.search((detail_info or "").replace("\r", ""))
+    if match is None:
+        return NOT_REPORTED
+    return block_text(match.group(1))
+
+
+def optical_block(attenuation: str, olt_rx_dbm: float | None) -> str:
+    """Blok 1: keluaran attenuation apa adanya + satu baris Rx OLT dari SNMP bila ada.
+
+    Nilai SNMP dibaca lewat jalur optical yang sudah ada di driver (DRY: tidak ada
+    pembacaan OID kedua di modul ini).
+    """
+    body = block_text(attenuation)
+    if olt_rx_dbm is None:
+        return body
+    line = f"1310nm OLT Rx for this ONU: {olt_rx_dbm:.2f} (dBm) [SNMP]"
+    return line if body == NOT_REPORTED else f"{body}\n{line}"
+
+
+def status_report(*, attenuation: str, catv: str, detail_info: str, ip_host: str,
+                  eth: str, vlan: str, voip: str, macs: str,
+                  olt_rx_dbm: float | None = None) -> str:
+    bodies = (
+        optical_block(attenuation, olt_rx_dbm),
+        block_text(catv),
+        block_text(detail_info),
+        history_block(detail_info),
+        block_text(ip_host),
+        block_text(eth),
+        block_text(vlan),
+        block_text(voip),
+        block_text(macs),
+    )
+    return render(list(zip(STATUS_BLOCKS, bodies, strict=True)))
+
+
+# --- Running config (3 blok) -------------------------------------------------------
+
+def registration_block(olt_iface_config: str, pon: str, onu_id: int) -> str:
+    """Blok 1: baris `onu <id> type <T> sn <SN>` dari config interface gpon-olt_<pon>.
+
+    Filter baris dikerjakan DI SINI, bukan dengan `| include` di perangkat: pipe butuh
+    bentuk command yang belum terverifikasi dan membuat output sulit diparse.
+    """
+    wanted = re.compile(rf"^\s*onu\s+{onu_id}\s+(?:type|sn)\b", re.I)
+    lines = [ln.strip() for ln in clean_output(olt_iface_config).split("\n") if wanted.match(ln)]
+    if not lines:
+        return NOT_REPORTED
+    return "\n".join([f"interface gpon-olt_{pon}", *(f" {ln}" for ln in lines)])
+
+
+def _strip_config_tail(raw: str) -> str:
+    """Buang baris `end` dan `!` penutup supaya tidak dobel dengan separator `!`."""
+    lines = [ln for ln in clean_output(raw).split("\n") if ln.strip().lower() != "end"]
+    text = "\n".join(lines).strip()
+    while text.endswith("!"):
+        text = text[:-1].rstrip()
+    return text
+
+
+def running_config_report(*, olt_iface_config: str, onu_iface_config: str,
+                          onu_mng_config: str, pon: str, onu_id: int) -> str:
+    """Tiga blok dipisah `!`, urutan: registrasi → interface ONU → pon-onu-mng.
+
+    Output ditampilkan UTUH tanpa penyamaran (keputusan eksplisit user). Pemanggil wajib
+    memastikan role berwenang; isi blok ini tidak boleh masuk log/fixture/dokumen.
+    """
+    blocks = []
+    for text in (registration_block(olt_iface_config, pon, onu_id),
+                 _strip_config_tail(onu_iface_config) or NOT_REPORTED,
+                 _strip_config_tail(onu_mng_config) or NOT_REPORTED):
+        blocks.append(text if text.strip() else NOT_REPORTED)
+    return "\n!\n".join(blocks) + "\n!"
+
+
+# --- Info SW ----------------------------------------------------------------------
+
+_REGION_RE = re.compile(
+    r"^\s*(?:Software\s+)?Region\s*(\d+)\s*(?:version)?\s*:.*$", re.I | re.M
+)
+
+
+def software_regions(equip: str) -> str:
+    """Region 1/2 hanya ditampilkan bila perangkat benar-benar melaporkannya.
+
+    Pada C300/C320 field per-region itu OMCI-only dan tidak keluar di CLI (dicatat juga
+    oleh driver referensi). Tidak ada tebakan di sini.
+    """
+    lines = [m.group(0).strip() for m in _REGION_RE.finditer(equip or "")]
+    return "\n".join(lines) if lines else f"{NOT_REPORTED} (CLI tidak mengekspos Region 1/2)"
+
+
+def software_report(*, equip: str, capability: str) -> str:
+    return render([
+        (SOFTWARE_BLOCKS[0], block_text(equip)),
+        (SOFTWARE_BLOCKS[1], block_text(capability)),
+        (SOFTWARE_BLOCKS[2], software_regions(equip)),
+    ])

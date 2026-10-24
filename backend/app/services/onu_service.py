@@ -20,7 +20,7 @@ from app.core.exceptions import (
     NotFoundError,
     ValidationAppError,
 )
-from app.core.rbac import scope_olt_ids
+from app.core.rbac import MANAGERS, scope_olt_ids
 from app.core.security import encrypt_secret
 from app.core.signal import BUCKETS, rx_bucket
 from app.drivers.base import OltDriver
@@ -33,7 +33,7 @@ from app.models.speed_profile import SpeedProfile
 from app.models.unconfigured_onu import UnconfiguredOnu
 from app.models.user import User
 from app.models.vlan import Vlan
-from app.repositories import olt_repo, onu_repo
+from app.repositories import job_repo, olt_repo, onu_repo
 from app.repositories.activity_log_repo import log_activity
 from app.schemas.onu import AuthorizeBody, OnuDetail, OnuInfoBody, OnuLog, OnuRow, PendingOnu
 from app.services import job_service, master_data_service
@@ -430,7 +430,10 @@ async def refresh_onu_detail(db: AsyncSession, job: Job, driver: OltDriver) -> d
     await log_activity(
         db, action="onu.refresh_detail", entity_type="onu", entity_id=str(onu.id), success=True,
         user_id=job.created_by, job_id=job.id, olt_id=onu.olt_id, onu_id=onu.id,
-        raw_command=detail.raw_command, raw_output=detail.running_config,
+        raw_command=detail.raw_command,
+        # raw_output SENGAJA tidak diisi: `show running-config interface …` memuat
+        # kredensial pelanggan (PPPoE/ACS/WiFi/SNMP ONU) dan activity_logs ikut ke backup.
+        # Isinya tetap sampai ke UI lewat job.result, yang retensinya terbatas.
     )
     return {
         "raw_command": detail.raw_command,
@@ -508,3 +511,76 @@ async def restore_factory(db: AsyncSession, job: Job, driver: OltDriver) -> dict
     result = await driver.restore_factory(pon.slot, pon.port, onu.onu_index)
     await _record(db, job, onu, "onu.restore_factory", result)
     return _result(result)
+
+# --- Diagnostik Detail ONU: Status / Running config / Info SW -----------------------
+# Read-only ke OLT (tidak lewat ensure_writes_allowed) tapi tetap lewat job karena setiap
+# aksi yang menyentuh OLT = job (AGENTS.md) dan satu sesi CLI per OLT dijaga worker.
+
+DIAGNOSTIC_JOBS = {
+    "status": "read_onu_status",
+    "running": "read_onu_running_config",
+    "software": "read_onu_software",
+}
+# Hanya view "running" yang memuat kredensial pelanggan (PPPoE/ACS/WiFi/SNMP ONU) —
+# dibatasi role manager pada OLT dalam scope-nya. Dua view lain tidak memuat kredensial.
+MANAGER_ONLY_VIEWS = {"running"}
+
+
+async def enqueue_diagnostic(db: AsyncSession, serial: str, view: str, user: User) -> int:
+    """POST /api/onus/{serial}/diagnostics — satu job per view, debounce per ONU.
+
+    RBAC dicek DI SINI (bukan hanya di router) supaya aturannya ikut ke semua pemanggil:
+    scope OLT lewat _get_row (di luar scope = 404), lalu role untuk view sensitif (403).
+    """
+    if view not in DIAGNOSTIC_JOBS:
+        raise ValidationAppError(f"View diagnostik '{view}' tidak dikenal")
+    onu = (await _get_row(db, serial, user))[0]
+    if view in MANAGER_ONLY_VIEWS and user.role not in MANAGERS:
+        raise ForbiddenError("Peran Anda tidak boleh membuka running-config ONU")
+    if onu.onu_index is None or onu.config_state != "success":
+        raise ConflictError(f"ONU {serial} is not provisioned yet")
+    job_type = DIAGNOSTIC_JOBS[view]
+    if await job_repo.exists_active_for_onu(db, onu.id, job_type):
+        raise ConflictError("Permintaan sejenis untuk ONU ini masih diproses")
+    job = await job_service.enqueue(db, job_type, olt_id=onu.olt_id, onu_id=onu.id,
+                                    payload={"view": view}, created_by=user.id)
+    await db.commit()
+    return job.id
+
+
+async def _run_diagnostic(db: AsyncSession, job: Job, driver: OltDriver, view: str) -> dict:
+    onu, pon = await _load(db, job)
+    fetch = {
+        "status": driver.fetch_onu_status_report,
+        "running": driver.fetch_onu_running_config,
+        "software": driver.fetch_onu_software_report,
+    }[view]
+    report = await fetch(pon.slot, pon.port, onu.onu_index)
+    # Jejak akses dicatat (siapa membuka apa, kapan) TANPA isi output: running-config
+    # memuat kredensial pelanggan dan activity_logs ikut ke backup.
+    await log_activity(
+        db, action=f"onu.read_{view}", entity_type="onu", entity_id=str(onu.id), success=True,
+        user_id=job.created_by, job_id=job.id, olt_id=onu.olt_id, onu_id=onu.id,
+        raw_command=report.raw_command,
+        after={"lines": report.output.count("\n") + 1 if report.output else 0},
+    )
+    return {"view": report.view, "output": report.output, "raw_command": report.raw_command}
+
+
+async def read_onu_status(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
+    return await _run_diagnostic(db, job, driver, "status")
+
+
+async def read_onu_running_config(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
+    """Output utuh tanpa penyamaran, hanya untuk role manager (dicek saat enqueue).
+
+    Dicek ulang di sisi job supaya job yang dibuat lewat jalur lain tetap tunduk.
+    """
+    creator = await db.get(User, job.created_by) if job.created_by else None
+    if creator is None or creator.role not in MANAGERS:
+        raise ForbiddenError("Peran pembuat job tidak boleh membuka running-config ONU")
+    return await _run_diagnostic(db, job, driver, "running")
+
+
+async def read_onu_software(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
+    return await _run_diagnostic(db, job, driver, "software")

@@ -9,6 +9,7 @@ from app.drivers.types import (
     OltHealth,
     OltInventory,
     OnuLiveDetail,
+    OnuReport,
     OnuStatusSample,
     OpticalSample,
     PonPortInfo,
@@ -92,6 +93,21 @@ class OltDriver(ABC):
         """Baca live satu ONU untuk halaman Detail ONU (PRD 3.4.6): optical, jarak,
         versi software/hardware dan running-config read-only.
         """
+
+    @abstractmethod
+    async def fetch_onu_status_report(self, slot: int, port: int, onu_id: int) -> OnuReport:
+        """Laporan read-only 9 blok untuk tombol `Status` di Detail ONU."""
+
+    @abstractmethod
+    async def fetch_onu_running_config(self, slot: int, port: int, onu_id: int) -> OnuReport:
+        """Running-config ONU 3 blok (registrasi + interface + pon-onu-mng), read-only.
+
+        Isi bisa memuat kredensial pelanggan: pemanggil wajib sudah memeriksa role.
+        """
+
+    @abstractmethod
+    async def fetch_onu_software_report(self, slot: int, port: int, onu_id: int) -> OnuReport:
+        """Info hardware/software + kemampuan ONU untuk tombol `Info SW`, read-only."""
 
     @abstractmethod
     async def set_onu_vlan(self, slot: int, port: int, onu_id: int, old_vlan: int | None,

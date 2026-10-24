@@ -41,6 +41,9 @@ JobType = Enum(
     "set_onu_vlan",
     "replace_onu",
     "restore_factory",
+    "read_onu_status",
+    "read_onu_running_config",
+    "read_onu_software",
     name="job_type",
 )
 JobStatus = Enum("pending", "running", "success", "failed", "cancelled", name="job_status")

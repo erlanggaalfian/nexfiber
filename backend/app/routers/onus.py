@@ -14,6 +14,7 @@ from app.schemas.onu import (
     BulkActionBody,
     BulkActionItem,
     BulkActionResult,
+    DiagnosticBody,
     OnuDetail,
     OnuInfoBody,
     OnuLog,
@@ -185,6 +186,24 @@ async def restore_factory(serial: str, db: AsyncSession = Depends(get_db),
     """Destruktif: ONU kembali ke setelan pabrik. Role manager + konfirmasi di UI."""
     return JobAccepted(job_id=await onu_service.enqueue_onu_job(
         db, serial, "restore_factory", user))
+
+@router.post("/{serial}/diagnostics", **ACCEPTED)
+async def diagnostics(serial: str, body: DiagnosticBody, response: Response,
+                      db: AsyncSession = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    """Tombol Status / Show running-config / Info SW di Detail ONU — read-only ke OLT.
+
+    Satu endpoint, `view` menentukan laporan mana yang dibaca. Hasil tidak ikut di
+    response ini (hanya `job_id`); teks output ada di `job.result.output` lewat
+    `GET /api/jobs/{id}` atau SSE job.
+
+    `view=running` menampilkan config UTUH tanpa penyamaran dan dibatasi role
+    superadmin/admin dalam scope OLT-nya (dicek di service, bukan hanya di UI).
+    no-store supaya jejaknya tidak tertinggal di cache browser/proxy.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    job_id = await onu_service.enqueue_diagnostic(db, serial, body.view, user)
+    return JobAccepted(job_id=job_id)
 
 @router.get("/{serial}/signal", response_model=list[SignalPoint])
 async def signal(serial: str, range: Literal["24h", "7d", "30d"] = "24h",

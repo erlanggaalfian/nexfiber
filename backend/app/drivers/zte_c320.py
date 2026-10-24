@@ -16,6 +16,7 @@ fetch_inventory + optical (Rx ONU/OLT) sekarang TERVERIFIKASI terhadap OLT SBI
 
 import re
 
+from app.drivers import onu_report
 from app.drivers.base import OltDriver
 from app.drivers.errors import ZTE_ERROR_PATTERNS, is_error_output
 from app.drivers.transport.snmp import SnmpTransport
@@ -31,6 +32,7 @@ from app.drivers.types import (
     OltHealth,
     OltInventory,
     OnuLiveDetail,
+    OnuReport,
     OnuSnapshot,
     OnuStatusSample,
     OpticalSample,
@@ -616,10 +618,93 @@ class ZteC320Driver(OltDriver):
         detail.raw_command = " ; ".join(commands)
         return detail
 
+    # --- Diagnostik Detail ONU: tombol Status / Running config / Info SW -------------
+    # Semua READ-ONLY. Satu sesi CLI per laporan (PRD 4.3). Perakitan teks di
+    # drivers/onu_report.py (satu formatter, tidak ada versi kedua di frontend).
+
+    async def fetch_onu_status_report(self, slot: int, port: int, onu_id: int) -> OnuReport:
+        """9 blok tombol `Status`, urutan seperti kontrak output.
+
+        Command ip-host / interface eth / `show mac gpon onu` dipakai (bukan wan-info /
+        eth-status / `show mac gpon-onu_…` seperti aplikasi referensi) karena bentuk
+        referensi terdaftar DITOLAK di NEXFIBER-CLI-REFERENCE §"Ditolak".
+        `remote-onu catv|vlan|voip` belum tercatat di CLI-REFERENCE: kalau perangkat
+        menolak, pesan errornya ditampilkan apa adanya, tidak diganti data contoh.
+        """
+        iface = f"gpon-onu_1/{slot}/{port}:{onu_id}"
+        commands = [
+            f"show pon power attenuation {iface}",
+            f"show gpon remote-onu catv {iface}",
+            f"show gpon onu detail-info {iface}",
+            f"show gpon remote-onu ip-host {iface}",
+            f"show gpon remote-onu interface eth {iface}",
+            f"show gpon remote-onu vlan {iface}",
+            f"show gpon remote-onu voip {iface}",
+            f"show mac gpon onu {iface}",
+        ]
+        async with self._open_cli() as cli:
+            outputs = [await cli.send_command(command) for command in commands]
+        attenuation, catv, detail_info, ip_host, eth, vlan, voip, macs = outputs
+        # Rx OLT dari SNMP lewat jalur optical yang sudah ada — bukan walk OID kedua.
+        samples = await self.fetch_optical(slot, port)
+        olt_rx = next((s.olt_rx_power_dbm for s in samples if s.onu_id == onu_id), None)
+        return OnuReport(
+            view="status",
+            output=onu_report.status_report(
+                attenuation=attenuation, catv=catv, detail_info=detail_info,
+                ip_host=ip_host, eth=eth, vlan=vlan, voip=voip, macs=macs,
+                olt_rx_dbm=olt_rx,
+            ),
+            raw_command=" ; ".join(commands),
+        )
+
+    async def fetch_onu_running_config(self, slot: int, port: int, onu_id: int) -> OnuReport:
+        """3 blok tombol `Show running-config`, dipisah `!`.
+
+        Output UTUH tanpa penyamaran (keputusan eksplisit user). Pemanggil wajib sudah
+        memastikan role berwenang; isi blok tidak boleh ditulis ke log/DB.
+        """
+        pon = f"1/{slot}/{port}"
+        iface = f"gpon-onu_{pon}:{onu_id}"
+        commands = [
+            f"show running-config interface gpon-olt_{pon}",
+            f"show running-config interface {iface}",
+            f"show onu running config {iface}",
+        ]
+        async with self._open_cli() as cli:
+            olt_cfg = await cli.send_command(commands[0])
+            onu_cfg = await cli.send_command(commands[1])
+            mng_cfg = await cli.send_command(commands[2])
+        return OnuReport(
+            view="running",
+            output=onu_report.running_config_report(
+                olt_iface_config=olt_cfg, onu_iface_config=onu_cfg,
+                onu_mng_config=mng_cfg, pon=pon, onu_id=onu_id,
+            ),
+            raw_command=" ; ".join(commands),
+        )
+
+    async def fetch_onu_software_report(self, slot: int, port: int, onu_id: int) -> OnuReport:
+        """2 blok tombol `Info SW` + baris Region 1/2 (tidak tersedia via CLI, ditulis
+        apa adanya sebagai "tidak dilaporkan perangkat", bukan angka tebakan).
+        """
+        iface = f"gpon-onu_1/{slot}/{port}:{onu_id}"
+        commands = [
+            f"show gpon remote-onu equip {iface}",
+            f"show gpon remote-onu capability {iface}",
+        ]
+        async with self._open_cli() as cli:
+            equip = await cli.send_command(commands[0])
+            capability = await cli.send_command(commands[1])
+        return OnuReport(
+            view="software",
+            output=onu_report.software_report(equip=equip, capability=capability),
+            raw_command=" ; ".join(commands),
+        )
+
     async def set_onu_vlan(self, slot: int, port: int, onu_id: int, old_vlan: int | None,
                            new_vlan: int) -> DriverResult:
         """NEXFIBER-CLI-REFERENCE "Ubah — VLAN ONU" (status: 🔧 produksi).
-
         # UNVERIFIED: uji di ONU test — urutannya dari driver produksi lain, belum pernah
         # dijalankan dari Nexfiber. JANGAN dieksekusi ke OLT produksi oleh agent manapun.
         """

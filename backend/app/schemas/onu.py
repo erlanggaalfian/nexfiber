@@ -173,6 +173,14 @@ class ReplaceOnuBody(BaseModel):
     serial_number: str = Field(min_length=4, max_length=32)
     onu_type: str | None = Field(None, max_length=50)
 
+class DiagnosticBody(BaseModel):
+    """Tombol diagnostik Detail ONU. Satu endpoint, tiga view read-only.
+
+    `running` memuat kredensial pelanggan → dibatasi role manager di service.
+    """
+
+    view: Literal["status", "running", "software"]
+
 BULK_ACTIONS = ("reboot_onu", "resync_onu", "set_state", "apply_speed_profile",
                 "set_onu_vlan", "delete_onu")
 

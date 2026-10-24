@@ -119,6 +119,19 @@ class OnuLiveDetail:
 
 
 @dataclass
+class OnuReport:
+    """Satu panel output diagnostik ONU (tombol Status / Running config / Info SW).
+
+    `output` = teks final siap tampil (blok + judul), dirakit di backend supaya tidak ada
+    formatter kedua di frontend. `view` = nama tombolnya.
+    """
+
+    view: str  # "status" | "running" | "software"
+    output: str
+    raw_command: str = ""
+
+
+@dataclass
 class UnconfiguredOnu:
     slot: int
     port: int
