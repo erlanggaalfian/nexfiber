@@ -39,6 +39,13 @@ class UserOut(BaseModel):
     created_at: datetime
 
 
+class OltAccessIds(BaseModel):
+    """Checklist OLT per user di User Management (tabel olt_access, arah balik
+    `OltUpdate.access_user_ids`): daftar dikirim utuh = ganti seluruh daftar."""
+
+    olt_ids: list[int] = []
+
+
 class TempPassword(BaseModel):
     """Shown once, right after reset; never stored or logged in plain text."""
 

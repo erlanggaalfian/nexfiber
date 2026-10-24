@@ -7,7 +7,7 @@ import { Navigate } from "react-router";
 import * as z from "zod";
 import { Empty, ErrorState, PageTitle, Skeleton, fmtDateTime } from "../../components/data";
 import { Button } from "../../components/ui/button";
-import { api, qs, type Role } from "../../lib/api";
+import { api, qs, type Olt, type Role } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 
 export type UserRow = {
@@ -65,17 +65,42 @@ function UserDrawer({ edit, onClose }: { edit: UserRow | null; onClose: () => vo
       admin_id: edit?.admin_id ? String(edit.admin_id) : "",
     },
   });
+  // Checklist OLT = tabel olt_access, satu-satunya tempat akses OLT diatur (Superadmin
+  // saja, PRD 3.7). Role "user" tidak punya baris sendiri: aksesnya ikut Admin induknya.
+  const olts = useQuery({
+    queryKey: ["olts"],
+    queryFn: () => api<Olt[]>("/api/olts"),
+    enabled: isSuper,
+  });
+  const access = useQuery({
+    queryKey: ["users", "olt-access", edit?.id],
+    queryFn: () => api<{ olt_ids: number[] }>(`/api/users/${edit?.id}/olt-access`),
+    enabled: isSuper && !!edit,
+  });
+  const [picked, setPicked] = useState<number[] | null>(null);
+  const oltIds = picked ?? access.data?.olt_ids ?? [];
+  const toggleOlt = (id: number) =>
+    setPicked(oltIds.includes(id) ? oltIds.filter((x) => x !== id) : [...oltIds, id]);
+
   const save = useMutation({
-    mutationFn: (f: Form) => {
+    mutationFn: async (f: Form) => {
       const body: Record<string, unknown> = { full_name: f.full_name, role: f.role };
       if (f.password) body.password = f.password;
       if (isSuper && f.role === "user") body.admin_id = Number(f.admin_id) || null;
       if (!isSuper) delete body.role;
-      if (edit) return api<UserRow>(`/api/users/${edit.id}`, { method: "PATCH", json: body });
-      return api<UserRow>("/api/users", {
-        method: "POST",
-        json: { ...body, username: f.username, password: f.password, role: f.role },
-      });
+      const saved = edit
+        ? await api<UserRow>(`/api/users/${edit.id}`, { method: "PATCH", json: body })
+        : await api<UserRow>("/api/users", {
+            method: "POST",
+            json: { ...body, username: f.username, password: f.password, role: f.role },
+          });
+      if (isSuper && f.role !== "user" && picked) {
+        await api<{ olt_ids: number[] }>(`/api/users/${saved.id}/olt-access`, {
+          method: "PUT",
+          json: { olt_ids: picked },
+        });
+      }
+      return saved;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["users"] });
@@ -125,6 +150,35 @@ function UserDrawer({ edit, onClose }: { edit: UserRow | null; onClose: () => vo
                       <option key={a.id} value={a.id}>{a.username}</option>
                     ))}
                   </select>
+                </Field>
+              )}
+              {isSuper && role !== "user" && (
+                <Field label="OLT yang dikelola">
+                  {olts.isPending || access.isPending ? (
+                    <p className="text-muted">Memuat OLT ...</p>
+                  ) : (olts.data ?? []).length === 0 ? (
+                    <p className="text-muted">Belum ada OLT.</p>
+                  ) : (
+                    <div className="max-h-56 overflow-y-auto rounded-sm border p-1">
+                      {(olts.data ?? []).map((o) => (
+                        <label
+                          key={o.id}
+                          className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-sunken"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={oltIds.includes(o.id)}
+                            onChange={() => toggleOlt(o.id)}
+                          />
+                          <span className="truncate">{o.name}</span>
+                          <span className="ml-auto font-mono text-xs text-muted">{o.host}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <span className="mt-1 block text-xs text-muted">
+                    OLT milik user ini tetap bisa dikelola walau tidak dicentang.
+                  </span>
                 </Field>
               )}
               {save.isError && <p className="text-down" role="alert">{save.error.message}</p>}

@@ -85,6 +85,30 @@ async def _set_access(db: AsyncSession, olt: Olt, user_ids: list[int], user: Use
     await olt_repo.set_access(db, olt.id, wanted)
     return wanted
 
+async def set_user_access(db: AsyncSession, user_id: int, olt_ids: list[int],
+                          actor: User) -> list[int]:
+    """Arah balik `_set_access`: satu user, daftar OLT yang dikelolanya (User Management).
+
+    Aturan persis sama — hanya Superadmin boleh mengatur akses OLT, penerima harus
+    Admin/Superadmin aktif, dan OLT yang sudah dimiliki sendiri tidak perlu baris akses.
+    """
+    if actor.role != SUPERADMIN:
+        raise ValidationAppError("Hanya Superadmin bisa mengatur akses bersama OLT")
+    target = await _manager(db, user_id)
+    wanted = []
+    for olt_id in dict.fromkeys(olt_ids):
+        olt = await olt_repo.get_active(db, olt_id, None)
+        if olt is None:
+            raise NotFoundError(f"OLT {olt_id} not found")
+        if olt.owner_id != target.id:
+            wanted.append(olt.id)
+    await olt_repo.set_user_access(db, target.id, wanted)
+    await log_activity(db, action="olt.set_user_access", entity_type="user",
+                       entity_id=str(target.id), success=True, user_id=actor.id,
+                       after={"olt_ids": wanted})
+    await db.commit()
+    return wanted
+
 def _apply(olt: Olt, values: dict) -> None:
     for field, value in values.items():
         if field in SECRET_FIELDS:

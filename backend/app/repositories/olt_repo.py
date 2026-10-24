@@ -105,6 +105,24 @@ async def set_access(db: AsyncSession, olt_id: int, user_ids: list[int]) -> None
     for user_id in dict.fromkeys(user_ids):
         db.add(OltAccess(olt_id=olt_id, user_id=user_id))
 
+async def access_olt_ids(db: AsyncSession, user_id: int) -> list[int]:
+    """Arah balik `access_user_ids`: OLT mana saja yang dibagikan ke satu user.
+
+    Dipakai checklist OLT di User Management; tabel dan aturannya sama persis
+    (`olt_access`), cuma sisi query-nya dibalik.
+    """
+    stmt = (select(OltAccess.olt_id)
+            .join(Olt, Olt.id == OltAccess.olt_id)
+            .where(OltAccess.user_id == user_id, Olt.deleted_at.is_(None))
+            .order_by(OltAccess.olt_id))
+    return list((await db.execute(stmt)).scalars().all())
+
+async def set_user_access(db: AsyncSession, user_id: int, olt_ids: list[int]) -> None:
+    """Daftar utuh per user (pasangan `set_access` yang per OLT)."""
+    await db.execute(delete(OltAccess).where(OltAccess.user_id == user_id))
+    for olt_id in dict.fromkeys(olt_ids):
+        db.add(OltAccess(olt_id=olt_id, user_id=user_id))
+
 async def owner_name(db: AsyncSession, olt: Olt) -> str:
     return await db.scalar(select(User.full_name).where(User.id == olt.owner_id)) or "—"
 

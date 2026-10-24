@@ -6,11 +6,10 @@ import { useForm } from "react-hook-form";
 import { Link, Navigate } from "react-router";
 import * as z from "zod";
 import { PageTitle, StatusBadge, fmtDateTime } from "../../components/data";
-import { Drawer, Field, MultiFilter, TableCard, cell, filterInput, input } from "../../components/crud";
+import { Drawer, Field, TableCard, cell, filterInput, input } from "../../components/crud";
 import { Button } from "../../components/ui/button";
 import { api, qs, type Olt, type OltRow } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
-import type { UserRow } from "./UserManagement";
 
 const schema = z.object({
   name: z.string().min(1).max(100),
@@ -25,7 +24,6 @@ const schema = z.object({
   snmp_community_rw: z.string().max(128),
   pon_port_count: z.string().regex(/^\d+$/, "Angka"),
   location: z.string().max(255),
-  owner_id: z.string(),
 });
 type Form = z.infer<typeof schema>;
 
@@ -43,32 +41,15 @@ const defaults = (edit: OltRow | null): Form => ({
   snmp_community_rw: "",
   pon_port_count: String(edit?.pon_port_count ?? 16),
   location: edit?.location ?? "",
-  owner_id: edit ? String(edit.owner_id) : "",
 });
 
 function OltDrawer({ edit, onClose }: { edit: OltRow | null; onClose: () => void }) {
   const { me } = useAuth();
   const qc = useQueryClient();
-  const isSuper = me.role === "superadmin";
-  const owners = useQuery({
-    queryKey: ["users", "owners"],
-    queryFn: () => api<UserRow[]>("/api/users"),
-    enabled: isSuper,
-    select: (rows) => rows.filter((u) => u.role !== "user" && u.is_active),
-  });
   const { register, handleSubmit, getValues, watch, formState } = useForm<Form>({
     resolver: zodResolver(schema),
     defaultValues: defaults(edit),
   });
-  // Akses bersama: Admin/Superadmin lain yang ikut boleh mengelola OLT ini (tabel olt_access).
-  // Hanya Superadmin yang boleh mengaturnya, sama seperti memindah pemilik (PRD 3.7).
-  const [access, setAccess] = useState<string[]>(
-    (edit?.access_user_ids ?? []).map(String),
-  );
-  const ownerId = watch("owner_id");
-  const accessOptions = (owners.data ?? [])
-    .filter((u) => String(u.id) !== ownerId)
-    .map((u) => ({ value: String(u.id), label: u.full_name }));
 
   const body = (f: Form) => {
     const out: Record<string, unknown> = {
@@ -79,12 +60,6 @@ function OltDrawer({ edit, onClose }: { edit: OltRow | null; onClose: () => void
     // Rahasia hanya dikirim bila diisi; kosong saat edit = kredensial lama dipertahankan.
     for (const k of ["cli_password", "snmp_community", "snmp_community_rw"] as const) {
       if (f[k]) out[k] = f[k];
-    }
-    if (isSuper && f.owner_id) out.owner_id = Number(f.owner_id);
-    if (isSuper) {
-      out.access_user_ids = access
-        .filter((id) => id !== f.owner_id)
-        .map(Number);
     }
     return out;
   };
@@ -161,36 +136,11 @@ function OltDrawer({ edit, onClose }: { edit: OltRow | null; onClose: () => void
       <Field label={edit ? "Community RW (kosong = tetap)" : "Community RW"}>
         <input className={input} type="password" autoComplete="new-password" {...register("snmp_community_rw")} />
       </Field>
-      {isSuper && (
-        <>
-          <Field label="Pemilik utama">
-            <select className={input} required {...register("owner_id")}>
-              <option value="">Pilih pemilik</option>
-              {(owners.data ?? []).map((u) => (
-                <option key={u.id} value={u.id}>{u.full_name}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Akses bersama (Admin/Superadmin lain)">
-            <div className="flex flex-wrap items-center gap-2">
-              <MultiFilter
-                label="Pilih pengguna"
-                options={accessOptions}
-                value={access.filter((id) => id !== ownerId)}
-                onChange={setAccess}
-              />
-              <span className="text-muted">
-                {access.filter((id) => id !== ownerId).length === 0
-                  ? "Hanya pemilik utama"
-                  : accessOptions
-                      .filter((o) => access.includes(o.value))
-                      .map((o) => o.label)
-                      .join(", ")}
-              </span>
-            </div>
-          </Field>
-        </>
-      )}
+      {/* Pemilik utama hanya ditampilkan. Akses OLT per user diatur Superadmin di
+          Settings > User Management (checklist OLT), satu tempat untuk olt_access. */}
+      <Field label="Pemilik utama">
+        <p className="text-muted">{edit ? edit.owner_name : me.full_name}</p>
+      </Field>
       <div className="flex items-center gap-2">
         <Button onClick={() => test.mutate()} disabled={test.isPending || !watch("snmp_community")}>
           {test.isPending ? "Mengecek ..." : "Cek koneksi"}
@@ -280,7 +230,7 @@ export function OltManagement() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["olts"] }),
   });
   const columns = ["Nama OLT", "Alamat IP", "Tipe",
-    ...(isSuper ? ["Pemilik", "Akses bersama"] : []),
+    ...(isSuper ? ["Pemilik"] : []),
     "Status koneksi", "ONU", "Sinkron terakhir", "Aksi"];
 
   // Peran User tidak punya halaman ini (PRD 3.7); backend juga menolak 403.
@@ -315,11 +265,6 @@ export function OltManagement() {
             <td className={`${cell} font-mono`}>{o.host}</td>
             <td className={cell}>{o.model}</td>
             {isSuper && <td className={cell}>{o.owner_name}</td>}
-            {isSuper && (
-              <td className={cell}>
-                {o.access_user_ids.length ? `+${o.access_user_ids.length}` : "—"}
-              </td>
-            )}
             <td className={cell}>
               <StatusBadge status={o.status} />
               {o.last_error && <span className="ml-2 text-xs text-muted">{o.last_error}</span>}

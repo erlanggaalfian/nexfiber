@@ -890,7 +890,7 @@ Tiga peran tetap:
 | Logs | semua | OLT + user miliknya | OLT dalam cakupan |
 
 Aturan wajib:
-1. Satu OLT punya tepat satu **pemilik utama** (`olts.owner_id`, Admin/Superadmin) yang dipakai sebagai default kepemilikan/penanggung jawab. Selain itu OLT bisa **dibagikan** ke Admin/Superadmin lain lewat tabel `olt_access` (olt_id, user_id): penerima akses melihat & mengelola OLT itu sama seperti pemilik utama. Hanya Superadmin yang boleh mengatur daftar akses bersama (sejalan dengan "Pindah pemilik OLT"). Satu User terikat ke tepat satu Admin.
+1. Satu OLT punya tepat satu **pemilik utama** (`olts.owner_id`, Admin/Superadmin) yang dipakai sebagai default kepemilikan/penanggung jawab. Selain itu OLT bisa **dibagikan** ke Admin/Superadmin lain lewat tabel `olt_access` (olt_id, user_id): penerima akses melihat & mengelola OLT itu sama seperti pemilik utama. Hanya Superadmin yang boleh mengatur daftar akses bersama (sejalan dengan "Pindah pemilik OLT"), dan tempat mengaturnya adalah **Settings > User Management**: drawer user punya checklist "OLT yang dikelola". Di OLT Management pemilik utama hanya ditampilkan (read-only). Satu User terikat ke tepat satu Admin.
 2. **Pembatasan dicek di backend pada setiap endpoint** (REST, SSE, export CSV, job). Menyembunyikan menu hanya kenyamanan, bukan keamanan. Implementasi: satu dependency FastAPI `scope_olt_ids(user)` yang dipakai setiap query ONU/OLT/log.
 3. Akses ke OLT/ONU di luar cakupan dibalas **404**, bukan 403, supaya keberadaan data Admin lain tidak bocor.
 4. Pemindahan pemilik OLT tercatat di Logs (dari siapa, ke siapa, oleh siapa). ONU, splitter, dan profile ikut OLT-nya.
