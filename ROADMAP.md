@@ -91,13 +91,24 @@ Form Otorisasi tahu dropdown mana manggil endpoint apa.
   Zone/ONU Types/Splitter dari Fase B3, VLAN dari Fase B4).
 - Depend: Fase B3 (dropdown), B4 (VLAN dropdown).
 
-**C2. Configured + Detail ONU** (`/configured`, `/onu/:id`)
+**C2. Configured + Detail ONU** (`/configured`, `/onu/:id`) — SELESAI
 - Backend: list ONU terkonfigurasi (filter per bucket sinyal Good/Fair/Weak/
   Critical, §3.4.2), endpoint detail ONU (optical, config, reboot — reboot
   ditandai `# UNVERIFIED` dan tidak dieksekusi ke device nyata oleh agent).
 - Frontend: tabel Configured (bulk actions, filter signal, CSV export),
   halaman Detail ONU (tab General/Optical/Config sesuai wireframe DESIGN §12).
 - Depend: tidak depend ke B, bisa mulai bareng C1.
+- Hasil: bucket sinyal satu definisi di `app/core/signal.py` (dicek test agar
+  identik dengan `rxBucket()` di `data.tsx`); filter Configured dikerjakan di
+  SQL (`bucket_filter`), bukan di Python. `GET /api/onus/export.csv` mengikuti
+  filter aktif. Aksi baru semuanya job: `refresh_onu_detail`, `resync_onu`,
+  `set_onu_vlan`, `replace_onu`, `restore_factory` (+ `POST /api/onus/bulk`,
+  satu job per ONU). Tab Detail ONU: Status/Running config/Info software/
+  Speed & traffic/Mode/Ethernet; WiFi dan TR-069 tetap Phase 2.
+- UNVERIFIED (butuh ONU test, belum pernah dijalankan ke perangkat nyata):
+  `fetch_onu_detail` (parser `detail-info`/`attenuation`/`equip`),
+  `set_onu_vlan`, `restore_factory`. Tab Ethernet sengaja kosong sampai ada
+  transkrip CLI port Ethernet yang nyata.
 
 **C3. Detail OLT** (`/olt/:id`)
 - Backend: endpoint detail OLT (health: cpu/ram/suhu/uptime/cards — kolom
