@@ -94,6 +94,8 @@ def parse_device_description(description: str | None) -> DeviceMetadata:
         splitter = re.sub(r"^ODP\s+", "", splitter, flags=re.I)
         # Referensi kadang menempelkan koordinat ke nama ODP; buang jejaknya.
         splitter = re.sub(r"\s*lat\s+-?\d+\.?\d*\s+long\s+-?\d+\.?\d*.*$", "", splitter, flags=re.I)
+        # Description OLT dipotong di batas panjang: `_odb_X_auth` / `_aut` = sisa token authd.
+        splitter = re.sub(r"_(?:au(?:t(?:h(?:d)?)?)?)$", "", splitter, flags=re.I)
         splitter = _clean(splitter)
     meta.splitter = splitter
     meta.authorized_on = _parse_authd(desc)

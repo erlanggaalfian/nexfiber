@@ -127,3 +127,14 @@ async def test_master_data_crud_and_scope() -> None:
             await db.execute(text("DELETE FROM users WHERE username LIKE :p"),
                              {"p": f"md_{tag}_%"})
             await db.commit()
+
+
+def test_splitter_name_variants_share_identity():
+    from app.services.master_data_service import split_odp_name, splitter_key
+    k = splitter_key("WNG-01B0301-Barat PDAM Wonogiri", 1)
+    assert k == splitter_key("WNG-01B0301-Barat_PDAM_Wonogiri", 2) == splitter_key("wng-01b0301-barat pdam wonogiri")
+    assert split_odp_name("WNG-01B0404-") == ("WNG-01B0404", "")
+    assert split_odp_name("WNG-01B0307- Barat Mie Ayam") == ("WNG-01B0307", "Barat Mie Ayam")
+    assert split_odp_name("WNG-01B0307-_Barat_Mie")[1] == "Barat Mie"
+    assert split_odp_name("Gudang Pusat") == (None, "Gudang Pusat")
+    assert splitter_key("Gudang_Pusat", 3) == splitter_key("gudang pusat", 3) != splitter_key("gudang pusat", 4)

@@ -147,3 +147,9 @@ def test_vlan_unknown_to_master_is_still_reported_as_real():
 def test_no_service_port_means_empty_list_not_invented_vlan():
     assert service_vlan_ids("interface gpon-onu_1/6/1:1\n  name Siapa\n") == []
     assert service_vlan_ids("") == []
+
+
+def test_splitter_trailing_truncated_authd_dibuang():
+    for tail in ("_auth", "_aut", "_authd", "_authd_2025"):
+        m = parse_device_description("zone_A_descr_x_odb_WNG-01B0702-Depan_Pasar_Krisak" + tail)
+        assert m.splitter == "WNG-01B0702-Depan_Pasar_Krisak", tail

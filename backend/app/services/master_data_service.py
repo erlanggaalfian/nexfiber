@@ -5,6 +5,8 @@ Scope rules, enforced per endpoint via the service:
   * onu_types: global catalog, written by Superadmin only, read by everyone.
 """
 
+import re
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -311,28 +313,77 @@ async def get_or_create_zone(db: AsyncSession, owner_id: int, name: str,
     return zone
 
 
+# Kode ODP operator: `WNG-01B0301` (3 huruf area, 2 digit, 1 huruf, 3-4 digit). Kode ini
+# identitas ODP yang stabil; teks sesudahnya cuma label yang ditulis tak konsisten di
+# perangkat (spasi vs `_`, huruf besar/kecil, terpotong batas panjang description OLT).
+_ODP_CODE_RE = re.compile(r"^\s*([A-Za-z]{2,5}-\d{2}[A-Za-z]\d{3,5})(?![A-Za-z0-9])[\s_\-]*(.*)$", re.S)
+
+
+def split_odp_name(name: str) -> tuple[str | None, str]:
+    """`WNG-01B0301-Barat_PDAM` -> (`WNG-01B0301`, `Barat PDAM`). Tanpa kode -> (None, nama)."""
+    m = _ODP_CODE_RE.match(name or "")
+    if not m:
+        return None, " ".join((name or "").replace("_", " ").split())
+    label = " ".join(m.group(2).replace("_", " ").split()).strip(" -")
+    # sisa token `_authd_` yang terpotong batas panjang description OLT
+    label = re.sub(r"\s(?:au|aut|auth|authd)$", "", label, flags=re.I)
+    return m.group(1).upper(), label
+
+
+def splitter_key(name: str, zone_id: int | None = None) -> tuple:
+    """Kunci identitas ODP: kode bila ada (zone diabaikan), kalau tidak nama+zone."""
+    code, label = split_odp_name(name)
+    return ("code", code) if code else ("name", normalize_master_name(label), zone_id)
+
+
+def _same_odp_label(a: str, b: str) -> bool:
+    a, b = a.lower(), b.lower()
+    return a == b or a.startswith(b) or b.startswith(a)  # terpotong = awalan dari yang utuh
+
+
 async def get_or_create_splitter(db: AsyncSession, name: str, *, zone_id: int | None,
                                  olt_id: int | None, create: bool = True) -> Splitter | None:
-    """Splitter/ODP bernama ini di zone yang sama; dibuat sebagai tipe `odp` bila perlu.
+    """Splitter/ODP bernama ini; dibuat sebagai tipe `odp` bila perlu.
 
-    Nama ODP di perangkat sudah unik per area (mis. `WNG-01B0213`), jadi kuncinya
-    (zone_id, nama ter-normalisasi). `ratio`/`capacity` TIDAK ditebak — perangkat tidak
-    melaporkannya, operator mengisi nanti di Settings > Splitter.
+    Bila nama memuat kode ODP (`WNG-01B0301-...`) kuncinya KODE di OLT yang sama — varian
+    `_` vs spasi, beda huruf besar, atau nama terpotong dianggap ODP yang sama, dan label
+    terpanjang yang dipakai. Tanpa kode: (zone_id, nama ter-normalisasi) seperti dulu.
+    `ratio`/`capacity` TIDAK ditebak — operator mengisi di Settings > Splitter.
     """
     name = name.strip()
     if not name:
         return None
-    key = normalize_master_name(name)
-    stmt = select(Splitter).where(
-        func.lower(func.regexp_replace(Splitter.name, r"[_\s]+", " ", "g")) == key
-    )
-    stmt = stmt.where(Splitter.zone_id == zone_id) if zone_id is not None \
-        else stmt.where(Splitter.zone_id.is_(None))
-    existing = await db.scalar(stmt)
-    if existing is not None or not create:
-        return existing
-    splitter = Splitter(name=" ".join(name.replace("_", " ").split())[:100], type="odp",
-                        zone_id=zone_id, olt_id=olt_id)
+    code, label = split_odp_name(name)
+    clean = " ".join(name.replace("_", " ").split())
+    if code:
+        full = f"{code}-{label}" if label else code
+        # Filter akhir di Python (kode bisa ada di `code` ATAU awalan nama); SQL hanya menyempit.
+        rows = (await db.execute(
+            select(Splitter).where(Splitter.name.ilike(f"{code}%")))).scalars()
+        cands = [c for c in rows
+                 if split_odp_name(c.name)[0] == code
+                 and (olt_id is None or c.olt_id in (olt_id, None))
+                 and _same_odp_label(split_odp_name(c.name)[1], label)]
+        if cands:
+            ex = cands[0]
+            if len(full) > len(ex.name):
+                ex.name = full[:100]
+            if ex.code is None:
+                ex.code = code
+            return ex
+        clean = full
+    else:
+        key = normalize_master_name(name)
+        stmt = select(Splitter).where(
+            func.lower(func.regexp_replace(Splitter.name, r"[_\s]+", " ", "g")) == key)
+        stmt = stmt.where(Splitter.zone_id == zone_id) if zone_id is not None \
+            else stmt.where(Splitter.zone_id.is_(None))
+        existing = await db.scalar(stmt)
+        if existing is not None:
+            return existing
+    if not create:
+        return None
+    splitter = Splitter(name=clean[:100], code=code, type="odp", zone_id=zone_id, olt_id=olt_id)
     db.add(splitter)
     await db.flush()
     return splitter
