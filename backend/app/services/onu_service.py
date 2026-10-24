@@ -205,12 +205,20 @@ async def enqueue_bulk(db: AsyncSession, serials: list[str], job_type: str, user
             if onu.onu_index is None or onu.config_state != "success":
                 raise ConflictError(f"ONU {serial} is not provisioned yet")
             await _validate_job_payload(db, onu, job_type, payload)
+        except AppError as exc:
+            # Gagal validasi = belum ada tulisan apa pun, jadi TIDAK perlu rollback.
+            # Rollback di sini membuat objek ONU di identity map kedaluwarsa dan
+            # iterasi berikutnya meledak (MissingGreenlet).
+            results.append({"serial_number": serial, "job_id": None, "error": exc.message})
+            continue
+        try:
             job = await job_service.enqueue(db, job_type, olt_id=onu.olt_id, onu_id=onu.id,
                                             payload=payload, created_by=user.id)
             await db.commit()
             results.append({"serial_number": serial, "job_id": job.id, "error": None})
         except AppError as exc:
             await db.rollback()
+            db.expunge_all()  # buang objek kedaluwarsa supaya serial berikutnya tetap bisa dibaca
             results.append({"serial_number": serial, "job_id": None, "error": exc.message})
     return results
 

@@ -425,3 +425,62 @@ async def test_resync_reuses_authorize(patched, monkeypatch):
     monkeypatch.setattr(onu_service, "authorize_onu", fake_authorize)
     await onu_service.resync_onu(FakeDb(), FakeJob(), FakeDriver())
     assert called == [True]
+
+
+# --- aksi massal ---------------------------------------------------------------
+
+async def test_enqueue_bulk_continues_after_each_failure(monkeypatch):
+    """Regresi: ONU yang gagal validasi tidak boleh menghentikan sisa daftar.
+
+    Bug nyata yang pernah terjadi: rollback setelah kegagalan validasi membuat objek ONU
+    di identity map kedaluwarsa, sehingga serial berikutnya memicu lazy-load sinkron
+    (sqlalchemy MissingGreenlet) dan seluruh request jadi HTTP 500.
+    """
+    provisioned = Onu(id=1, olt_id=8, pon_port_id=3, serial_number="OK1", onu_index=11,
+                      status="online", config_state="success", admin_state="enabled")
+    not_ready = Onu(id=2, olt_id=8, pon_port_id=3, serial_number="BELUM", onu_index=None,
+                    status="unknown", config_state="configuring", admin_state="enabled")
+    rows = {"OK1": (provisioned, "OLT", 4, 1, None, None, None, None),
+            "BELUM": (not_ready, "OLT", 4, 1, None, None, None, None)}
+    rollbacks = []
+
+    async def fake_get_row(_db, serial, _user):
+        if serial not in rows:
+            from app.core.exceptions import NotFoundError
+            raise NotFoundError(f"ONU {serial} not found")
+        return rows[serial]
+
+    class CountingDb(FakeDb):
+        async def rollback(self):
+            rollbacks.append(True)
+
+    async def fake_enqueue(_db, job_type, **_kw):
+        return FakeJob()
+
+    monkeypatch.setattr(onu_service, "_get_row", fake_get_row)
+    monkeypatch.setattr(onu_service.job_service, "enqueue", fake_enqueue)
+
+    out = await onu_service.enqueue_bulk(
+        CountingDb(), ["OK1", "BELUM", "HILANG", "OK1"], "resync_onu", _user())
+
+    assert [i["serial_number"] for i in out] == ["OK1", "BELUM", "HILANG"]  # duplikat dibuang
+    assert out[0]["job_id"] == 42 and out[0]["error"] is None
+    assert "not provisioned" in out[1]["error"]
+    assert "not found" in out[2]["error"]
+    assert rollbacks == []  # kegagalan validasi tidak memicu rollback
+
+
+def _user():
+    from app.models.user import User
+
+    return User(id=1, username="admin", role="superadmin", full_name="Admin", is_active=True)
+
+
+async def test_enqueue_bulk_rejects_empty_and_oversized():
+    from app.core.exceptions import ValidationAppError
+
+    with pytest.raises(ValidationAppError):
+        await onu_service.enqueue_bulk(FakeDb(), [], "reboot_onu", _user())
+    with pytest.raises(ValidationAppError, match="Maksimal"):
+        await onu_service.enqueue_bulk(
+            FakeDb(), [f"SN{i}" for i in range(onu_service.BULK_MAX + 1)], "reboot_onu", _user())
