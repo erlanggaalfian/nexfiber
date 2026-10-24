@@ -85,7 +85,7 @@ function UserDrawer({ edit, onClose }: { edit: UserRow | null; onClose: () => vo
     <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
-        <Dialog.Content className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[480px] flex-col border-l bg-surface shadow-modal">
+        <Dialog.Content className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[480px] flex-col border-l bg-surface shadow-modal data-[state=closed]:animate-[drawer-out_200ms_ease-in] data-[state=open]:animate-[drawer-in_250ms_ease-out]">
           <Dialog.Title className="border-b px-4 py-3 text-lg font-semibold">
             {edit ? `Edit ${edit.username}` : "Tambah user"}
           </Dialog.Title>
@@ -216,7 +216,7 @@ export function UserManagement() {
         </select>
       </div>
 
-      <section className="rounded-md border bg-surface">
+      <section className="entrance rounded-md border bg-surface">
         {users.isPending ? (
           <Skeleton text="Memuat user ..." rows={4} />
         ) : users.isError ? (
