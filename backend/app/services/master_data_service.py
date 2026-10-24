@@ -5,6 +5,7 @@ Scope rules, enforced per endpoint via the service:
   * onu_types: global catalog, written by Superadmin only, read by everyone.
 """
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
@@ -264,6 +265,58 @@ async def delete_splitter(db: AsyncSession, splitter_id: int, user: User) -> Non
     await log_activity(db, action="splitter.delete", entity_type="splitter",
                        entity_id=str(splitter_id), success=True, user_id=user.id)
     await db.commit()
+
+
+# --- auto-provisioning master data dari isi perangkat ------------------------
+# Dipakai onboarding_sync saat OLT BARU di-onboarding: nama zone/ODP yang sudah tertulis
+# di `description` ONU dipetakan ke baris master. Pencocokan case-insensitive supaya
+# "Ngadirojo" dan "ngadirojo" tidak jadi dua baris.
+# CATATAN IZIN: pembuatan baris master baru di sini otomatis — user belum menjawab izin
+# eksplisit, jadi pemanggil WAJIB membatasinya ke OLT yang baru onboarding (lihat
+# onboarding_sync.sync_onu_metadata) dan `create` bisa dimatikan lewat argumen.
+
+
+async def get_or_create_zone(db: AsyncSession, owner_id: int, name: str,
+                             *, create: bool = True) -> Zone | None:
+    """Zone milik `owner_id` dengan nama ini; dibuat kalau belum ada dan create=True.
+
+    Idempoten: dipanggil dua kali dengan nama sama tidak pernah membuat baris kedua.
+    """
+    name = name.strip()
+    if not name:
+        return None
+    existing = await db.scalar(
+        select(Zone).where(Zone.owner_id == owner_id, func.lower(Zone.name) == name.lower())
+    )
+    if existing is not None or not create:
+        return existing
+    zone = Zone(owner_id=owner_id, name=name[:100])
+    db.add(zone)
+    await db.flush()
+    return zone
+
+
+async def get_or_create_splitter(db: AsyncSession, name: str, *, zone_id: int | None,
+                                 olt_id: int | None, create: bool = True) -> Splitter | None:
+    """Splitter/ODP bernama ini di zone yang sama; dibuat sebagai tipe `odp` bila perlu.
+
+    Nama ODP di perangkat sudah unik per area (mis. `WNG-01B0213`), jadi kuncinya
+    (zone_id, lower(name)). `ratio`/`capacity` TIDAK ditebak — perangkat tidak
+    melaporkannya, operator mengisi nanti di Settings > Splitter.
+    """
+    name = name.strip()
+    if not name:
+        return None
+    stmt = select(Splitter).where(func.lower(Splitter.name) == name.lower())
+    stmt = stmt.where(Splitter.zone_id == zone_id) if zone_id is not None \
+        else stmt.where(Splitter.zone_id.is_(None))
+    existing = await db.scalar(stmt)
+    if existing is not None or not create:
+        return existing
+    splitter = Splitter(name=name[:100], type="odp", zone_id=zone_id, olt_id=olt_id)
+    db.add(splitter)
+    await db.flush()
+    return splitter
 
 
 # --- onu presets -------------------------------------------------------------

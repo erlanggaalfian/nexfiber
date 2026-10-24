@@ -8,6 +8,7 @@ from app.drivers.types import (
     ModifyRequest,
     OltHealth,
     OltInventory,
+    OltProvisioning,
     OnuLiveDetail,
     OnuReport,
     OnuStatusSample,
@@ -77,6 +78,12 @@ class OltDriver(ABC):
 
     @abstractmethod
     async def fetch_optical(self, slot: int | None, port: int | None) -> list[OpticalSample]: ...
+
+    @abstractmethod
+    async def fetch_provisioning(self) -> OltProvisioning:
+        """Profil kecepatan terpakai + VLAN service-port + jarak SETIAP ONU, satu kali baca
+        untuk seluruh OLT (SNMP-first; jangan per-PON/per-ONU). Dipakai onboarding_sync.
+        """
 
     @abstractmethod
     async def backup_config(self) -> str: ...

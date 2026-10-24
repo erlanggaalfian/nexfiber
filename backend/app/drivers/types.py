@@ -219,6 +219,31 @@ class TrafficProfile:
 
 
 @dataclass
+class OnuProvisioning:
+    """Provisioning satu ONU yang dibaca lewat SNMP (bukan CLI): profil kecepatan per arah,
+    VLAN layanan, dan jarak. Nama profil dikembalikan APA ADANYA seperti di perangkat.
+    """
+
+    slot: int
+    port: int
+    onu_id: int
+    upload_profile: str | None = None
+    download_profile: str | None = None
+    vlan_ids: list[int] = field(default_factory=list)
+    distance_m: int | None = None
+
+
+@dataclass
+class OltProvisioning:
+    """Satu kali baca SNMP untuk seluruh OLT: katalog profil perangkat + provisioning
+    tiap ONU. Dipakai rantai onboarding supaya tidak ada walk per-PON berulang.
+    """
+
+    profiles: list["TrafficProfile"]
+    onus: list[OnuProvisioning]
+
+
+@dataclass
 class OpticalSample:
     slot: int
     port: int

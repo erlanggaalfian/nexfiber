@@ -30,6 +30,24 @@ from app.services.onu_service import ensure_writes_allowed
 # Suffix nama profile di device per arah (dipakai push_to_olt + sync_from_olt).
 DEVICE_SUFFIX = {"download": "_DN", "upload": "_UP"}
 
+# Suffix yang DIPAKAI PERANGKAT NYATA dan harus dilepas saat menamai baris master, supaya
+# "SMARTOLT-HFA_Lite-UP" + "SMARTOLT-HFA_Lite-DOWN" jadi satu nama profil "SMARTOLT-HFA_Lite"
+# di dua arah. Terbaca di OLT WNG (C320, 2026-10-25): arah upload berakhiran `-UP`/`_UP`,
+# download `-DOWN`/`_DN`. Profil tanpa suffix (mis. `SMARTOLT-VOIPMNG-10M`, dipakai di dua
+# arah sekaligus) dipakai apa adanya — nama tidak dikarang.
+DEVICE_NAME_SUFFIXES = {
+    "upload": ("-UP", "_UP"),
+    "download": ("-DOWN", "_DOWN", "-DN", "_DN"),
+}
+
+
+def strip_device_suffix(device_name: str, direction: str) -> str:
+    """`SMARTOLT-HFA_Lite-UP` + upload -> `SMARTOLT-HFA_Lite`. Tanpa suffix: apa adanya."""
+    for suffix in DEVICE_NAME_SUFFIXES[direction]:
+        if device_name.upper().endswith(suffix):
+            return device_name[: -len(suffix)]
+    return device_name
+
 
 def _row(profile: SpeedProfile, olt_name: str | None, vlan: Vlan | None,
          onu_count: int) -> SpeedProfileRow:
@@ -108,6 +126,43 @@ async def update_profile(db: AsyncSession, profile_id: int, body: SpeedProfileUp
                        olt_id=profile.olt_id, after=values)
     await db.commit()
     return await list_one(db, profile_id, user)
+
+
+async def get_or_create_from_device(db: AsyncSession, olt_id: int, device_name: str,
+                                    direction: str, kbps: int | None) -> SpeedProfile | None:
+    """Baris `speed_profiles` untuk profil yang SUDAH ADA di perangkat.
+
+    Kunci = (olt_id, lower(device_profile_id)): nama device-nya yang unik, bukan nama
+    tampilan. Idempoten; `speed_kbps` hanya diisi sekali supaya nilai yang diubah operator
+    tidak ditimpa tiap sinkron. kbps None = perangkat tidak melaporkannya -> tidak dibuat
+    (kolom `speed_kbps` NOT NULL, dan angkanya tidak boleh dikarang).
+    """
+    device_name = device_name.strip()
+    if not device_name or direction not in DEVICE_NAME_SUFFIXES:
+        return None
+    # `sync_speed_profiles` (jalur "Baca dari OLT") menyimpan device_profile_id dengan
+    # DEVICE_SUFFIX ditambahkan, jadi profil `SMARTOLT-100M-DOWN` di perangkat tersimpan
+    # sebagai `SMARTOLT-100M-DOWN_DN`. Cocokkan KEDUA bentuk, kalau tidak baris master
+    # yang sama akan terduplikat tiap sinkron.
+    candidates = {device_name.lower(), (device_name + DEVICE_SUFFIX[direction]).lower()}
+    existing = await db.scalar(
+        select(SpeedProfile).where(
+            SpeedProfile.olt_id == olt_id,
+            SpeedProfile.direction == direction,
+            func.lower(SpeedProfile.device_profile_id).in_(candidates),
+        )
+    )
+    if existing is not None:
+        return existing
+    if kbps is None:
+        return None
+    profile = SpeedProfile(
+        name=strip_device_suffix(device_name, direction)[:100], direction=direction,
+        speed_kbps=kbps, olt_id=olt_id, device_profile_id=device_name[:50],
+    )
+    db.add(profile)
+    await db.flush()
+    return profile
 
 
 async def list_one(db: AsyncSession, profile_id: int, user: User) -> SpeedProfileRow:
