@@ -682,10 +682,11 @@ def _parse_software_version(output: str) -> str | None:
     return None
 
 # --- Detail ONU: parser keluaran CLI ------------------------------------------------
-# UNVERIFIED: perintahnya ✅ terverifikasi di NEXFIBER-CLI-REFERENCE.md, tapi tidak ada
-# transkrip keluaran `detail-info` / `attenuation` / `equip` di repo ini. Parser di bawah
-# mencari "Label : value" apa adanya dan melewati baris yang tidak cocok — ganti dengan
-# parsing berdasarkan transkrip nyata dari ONU test sebelum dipercaya penuh.
+# UNVERIFIED: perintahnya ✅ terverifikasi di NEXFIBER-CLI-REFERENCE.md, tapi `detail-info`
+# dan `attenuation` masih belum ada transkrip nyata di repo ini (equip SUDAH, lihat
+# tests/fixtures/cli/zte_show_gpon_remote_onu_equip.txt, OLT SBI 2026-10-24). Parser di
+# bawah mencari "Label : value" apa adanya dan melewati baris yang tidak cocok — ganti
+# dengan parsing berdasarkan transkrip nyata dari ONU test sebelum dipercaya penuh.
 
 def _kv(line: str) -> tuple[str, str] | None:
     """"Phase state        : working" -> ("phase state", "working")."""
@@ -800,7 +801,13 @@ def _parse_attenuation(output: str, rx: float | None, tx: float | None,
 
 def _parse_equip(output: str,
                  hardware: str | None) -> tuple[str | None, str | None, str | None]:
-    """`show gpon remote-onu equip`: versi SW aktif/standby + versi HW (tab Info software)."""
+    """`show gpon remote-onu equip`: versi SW aktif + versi HW.
+
+    Transkrip nyata OLT SBI (C300, 2026-10-24) tidak punya label "software version"/
+    "standby version" sama sekali — field yang ada: "Version" (firmware aktif ONU) dan
+    "Model"/"Equipment ID" (tipe hardware). OLT ini tidak melaporkan versi standby lewat
+    command ini, jadi standby selalu None.
+    """
     active = standby = None
     for line in output.splitlines():
         pair = _kv(line)
@@ -811,8 +818,10 @@ def _parse_equip(output: str,
             standby = value[:50]
         elif ("active" in label or "running" in label) and "version" in label:
             active = value[:50]
-        elif label in ("software version", "sw version") and active is None:
+        elif label in ("software version", "sw version", "version") and active is None:
             active = value[:50]
         elif "hardware version" in label or label == "hw version":
             hardware = hardware or value[:50]
+        elif label == "model" and hardware is None:
+            hardware = value[:50]
     return active, standby, hardware

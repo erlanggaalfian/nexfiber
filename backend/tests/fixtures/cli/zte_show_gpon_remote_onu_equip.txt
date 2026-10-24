@@ -1,0 +1,23 @@
+show gpon remote-onu equip gpon-onu_1/6/1:1
+Vendor ID:                 TF2G 
+Version:                   V7.1 
+SN:                        TF2Gc1015961 
+Admin status:              unlock 
+Battery monitor:           false 
+Security mode:             aes 
+Product code:              0 
+Total priority queue num:  120 
+Total traffic schedule num:15 
+Traffic management option: priority-rate-controlled 
+Operate status:            enable 
+Equipment ID:              TF210G 
+OMCC version:              a0 
+Security capability:       aes
+Model:                     TF210G
+Survival time:             N/A
+Total GEM port num:        256
+System uptime:             0
+Region code:               N/A
+Product SN:                N/A
+Chip info:                 0
+OLT_C300_SBI_01#

@@ -1,12 +1,14 @@
 """Unit test Fase C2: bucket sinyal (backend == frontend), filter SQL bucket, export CSV,
 dan aksi Detail ONU lewat driver palsu.
 
-TIDAK ADA satu pun test di sini yang menyentuh OLT/ONU nyata: driver diganti objek palsu
-dan semua keluaran CLI berasal dari teks fixture di file ini.
+TIDAK ADA satu pun test di sini yang menyentuh OLT/ONU nyata: driver diganti objek palsu.
+Keluaran CLI berasal dari teks fixture di file ini, kecuali satu test yang membaca
+transkrip nyata (read-only) dari OLT SBI di tests/fixtures/cli/.
 """
 
 import csv
 import io
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -215,6 +217,16 @@ def test_parse_attenuation_falls_back_to_nm_format():
 def test_parse_equip_versions():
     active, standby, hardware = _parse_equip(EQUIP, None)
     assert (active, standby, hardware) == ("V1.2.3P4", "V1.2.2P9", "V5.0")
+
+
+def test_parse_equip_real_transcript_olt_sbi_c300():
+    # Transkrip CLI nyata `show gpon remote-onu equip` dari OLT SBI (C300, read-only,
+    # 2026-10-24) — tidak ada label "active/standby software version" sama sekali,
+    # cuma "Version" (firmware aktif) dan "Model" (tipe hardware). Standby selalu None.
+    real = (Path(__file__).parent / "fixtures" / "cli"
+            / "zte_show_gpon_remote_onu_equip.txt").read_text()
+    active, standby, hardware = _parse_equip(real, None)
+    assert (active, standby, hardware) == ("V7.1", None, "TF210G")
 
 
 @pytest.mark.parametrize(("text", "want"), [
