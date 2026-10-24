@@ -208,7 +208,7 @@ def test_parse_attenuation_only_fills_missing():
 
 
 def test_parse_attenuation_falls_back_to_nm_format():
-    # Format alternatif (verifikasi live, driver SmartOLT) saat label key:value absen.
+    # Format alternatif (verifikasi live di OLT nyata) saat label key:value absen.
     output = "1490nm Tx: 2.50 Rx: -21.30\n1310nm Rx: -16.80\n"
     rx, tx, olt_rx = _parse_attenuation(output, None, None, None)
     assert (rx, tx, olt_rx) == (-21.30, 2.50, -16.80)
@@ -504,3 +504,63 @@ async def test_enqueue_bulk_rejects_empty_and_oversized():
     with pytest.raises(ValidationAppError, match="Maksimal"):
         await onu_service.enqueue_bulk(
             FakeDb(), [f"SN{i}" for i in range(onu_service.BULK_MAX + 1)], "reboot_onu", _user())
+
+
+# --- edit info pelanggan/lokasi (PATCH /api/onus/{sn}/info) --------------------
+
+async def test_update_info_writes_columns_without_touching_olt(monkeypatch):
+    """Edit data pelanggan = kolom DB saja: tidak ada job, tidak ada perintah ke OLT."""
+    from app.schemas.onu import OnuInfoBody
+
+    onu = _onu()
+    logged: list[dict] = []
+
+    async def fake_get_row(_db, _serial, _user):
+        return (onu, "OLT", 4, 1, None, None, None, None, None, None, None)
+
+    async def fake_log(_db, **kw):
+        logged.append(kw)
+
+    async def no_dupe(*_a, **_kw):
+        return False
+
+    async def fake_get_onu(_db, serial, _user):
+        return serial
+
+    monkeypatch.setattr(onu_service, "_get_row", fake_get_row)
+    monkeypatch.setattr(onu_service, "log_activity", fake_log)
+    monkeypatch.setattr(onu_service.onu_repo, "exists_customer_id", no_dupe)
+    monkeypatch.setattr(onu_service, "get_onu", fake_get_onu)
+
+    body = OnuInfoBody(customer_name="Budi Baru", address="Jl. Mawar 1", splitter_port=3)
+    out = await onu_service.update_info(FakeDb(), "ZTEGC1234567", body, _user())
+
+    assert out == "ZTEGC1234567"
+    assert (onu.customer_name, onu.address, onu.splitter_port) == ("Budi Baru", "Jl. Mawar 1", 3)
+    assert logged[0]["action"] == "onu.update_info"
+
+
+async def test_update_info_rejects_customer_id_already_used(monkeypatch):
+    from app.schemas.onu import OnuInfoBody
+
+    onu = _onu()
+
+    async def fake_get_row(_db, _serial, _user):
+        return (onu, "OLT", 4, 1, None, None, None, None, None, None, None)
+
+    async def dupe(*_a, **_kw):
+        return True
+
+    monkeypatch.setattr(onu_service, "_get_row", fake_get_row)
+    monkeypatch.setattr(onu_service.onu_repo, "exists_customer_id", dupe)
+    with pytest.raises(ConflictError):
+        await onu_service.update_info(
+            FakeDb(), "ZTEGC1234567", OnuInfoBody(customer_id="C-999"), _user())
+
+
+def test_onu_detail_row_maps_preset_and_registrar():
+    """_row() harus menerima kolom join tambahan (preset, user pendaftar) apa adanya."""
+    data = onu_service._row(_onu(), "OLT-TEST", 4, 1, "DN", "UP", 100, "Zona 1", "SPL-01",
+                            "Preset A", "admin")
+    assert data["preset_name"] == "Preset A"
+    assert data["registered_by_name"] == "admin"

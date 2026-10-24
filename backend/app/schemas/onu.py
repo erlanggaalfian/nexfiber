@@ -38,6 +38,15 @@ class OnuRow(BaseModel):
 
 class OnuDetail(OnuRow):
     pon_port_id: int
+    auth_type: str
+    loid: str | None
+    match_state: str | None
+    bias_current_ma: float | None
+    last_sync_at: datetime | None
+    preset_id: int | None
+    preset_name: str | None
+    onu_type_id: int | None
+    registered_by_name: str | None
     description: str | None
     address: str | None
     phone: str | None
@@ -124,6 +133,27 @@ class AuthorizeBody(BaseModel):
 
 class StateBody(BaseModel):
     enabled: bool
+
+class OnuInfoBody(BaseModel):
+    """Edit data pelanggan/lokasi di Detail ONU (PRD 3.4.6 "bisa diedit lewat dialog kecil").
+
+    Hanya kolom database — tidak ada perintah ke OLT, jadi bukan job. Field yang
+    mengubah konfigurasi perangkat (speed, VLAN, SN) tetap lewat endpoint job masing-masing.
+    """
+
+    customer_name: str | None = Field(None, max_length=255)
+    customer_id: str | None = Field(None, max_length=50)
+    name: str | None = Field(None, max_length=100)
+    description: str | None = Field(None, max_length=128)
+    address: str | None = Field(None, max_length=500)
+    phone: str | None = Field(None, max_length=30)
+    contact: str | None = Field(None, max_length=100)
+    external_id: str | None = Field(None, max_length=50)
+    zone_id: int | None = None
+    splitter_id: int | None = None
+    splitter_port: int | None = Field(None, ge=1)
+    latitude: float | None = Field(None, ge=-90, le=90)
+    longitude: float | None = Field(None, ge=-180, le=180)
 
 class SpeedProfileBody(BaseModel):
     """Body endpoint "Ubah speed" (PATCH .../speed-profile) — boleh ganti satu arah saja,

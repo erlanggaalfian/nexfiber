@@ -35,8 +35,8 @@ from app.models.user import User
 from app.models.vlan import Vlan
 from app.repositories import olt_repo, onu_repo
 from app.repositories.activity_log_repo import log_activity
-from app.schemas.onu import AuthorizeBody, OnuDetail, OnuLog, OnuRow, PendingOnu
-from app.services import job_service
+from app.schemas.onu import AuthorizeBody, OnuDetail, OnuInfoBody, OnuLog, OnuRow, PendingOnu
+from app.services import job_service, master_data_service
 
 RX_DEFAULTS = {"warn": -25.0, "crit": -27.0}  # PRD 3.4; overridable via settings.rx_threshold
 SIGNAL_RANGES = {"24h": timedelta(hours=24), "7d": timedelta(days=7), "30d": timedelta(days=30)}
@@ -49,13 +49,15 @@ async def rx_thresholds(db: AsyncSession) -> dict[str, float]:
 
 def _row(onu: Onu, olt_name: str, slot: int, port: int, download_profile_name: str | None,
          upload_profile_name: str | None = None, vlan_number: int | None = None,
-         zone_name: str | None = None, splitter_name: str | None = None) -> dict:
+         zone_name: str | None = None, splitter_name: str | None = None,
+         preset_name: str | None = None, registered_by_name: str | None = None) -> dict:
     data = {c: getattr(onu, c) for c in OnuDetail.model_fields if hasattr(onu, c)}
     data["ip_address"] = str(onu.ip_address) if onu.ip_address else None
     return {**data, "olt_name": olt_name, "slot": slot, "port": port,
             "download_profile_name": download_profile_name,
             "upload_profile_name": upload_profile_name, "vlan_number": vlan_number,
-            "zone_name": zone_name, "splitter_name": splitter_name}
+            "zone_name": zone_name, "splitter_name": splitter_name,
+            "preset_name": preset_name, "registered_by_name": registered_by_name}
 
 async def search_onus(db: AsyncSession, user: User, *, q: str | None, olt_id: int | None,
                       pon_port_id: int | None, state: str | None,
@@ -93,6 +95,29 @@ async def get_onu(db: AsyncSession, serial: str, user: User) -> OnuDetail:
 async def signal_history(db: AsyncSession, serial: str, range_: str, user: User) -> list:
     onu = (await _get_row(db, serial, user))[0]
     return await onu_repo.signal_history(db, onu.id, datetime.now(UTC) - SIGNAL_RANGES[range_])
+
+async def update_info(db: AsyncSession, serial: str, body: OnuInfoBody, user: User) -> OnuDetail:
+    """Simpan data pelanggan/lokasi ONU. Tidak menyentuh OLT (kolom DB saja), jadi tidak
+    lewat job dan tidak terpengaruh ALLOW_WRITE_COMMANDS. Tetap dicatat ke activity_logs.
+    """
+    onu = (await _get_row(db, serial, user))[0]
+    values = body.model_dump(exclude_unset=True)
+    if "customer_id" in values and values["customer_id"] and \
+            values["customer_id"] != onu.customer_id and \
+            await onu_repo.exists_customer_id(db, values["customer_id"]):
+        raise ConflictError(f"Customer ID {values['customer_id']} sudah dipakai ONU lain")
+    # Zone/splitter dicek lewat master_data_service: aturan scope pemilik hanya ditulis di sana.
+    if values.get("zone_id") is not None:
+        await master_data_service.get_zone(db, values["zone_id"], user)
+    if values.get("splitter_id") is not None:
+        await master_data_service.get_splitter(db, values["splitter_id"], user)
+    for field, value in values.items():
+        setattr(onu, field, value)
+    await log_activity(db, action="onu.update_info", entity_type="onu", entity_id=str(onu.id),
+                       success=True, user_id=user.id, olt_id=onu.olt_id, onu_id=onu.id,
+                       after=body.model_dump(exclude_unset=True, mode="json"))
+    await db.commit()
+    return await get_onu(db, onu.serial_number, user)
 
 async def onu_logs(db: AsyncSession, serial: str, limit: int, user: User) -> list[OnuLog]:
     onu = (await _get_row(db, serial, user))[0]

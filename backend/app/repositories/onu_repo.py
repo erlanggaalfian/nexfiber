@@ -11,6 +11,7 @@ from app.core.signal import BUCKETS, bucket_filter, rx_bucket
 from app.models.activity_log import ActivityLog
 from app.models.olt import Olt, PonPort
 from app.models.onu import Onu, OnuSignalHistory
+from app.models.onu_preset import OnuPreset
 from app.models.speed_profile import SpeedProfile
 from app.models.splitter import Splitter
 from app.models.unconfigured_onu import UnconfiguredOnu
@@ -33,7 +34,7 @@ def _onu_rows() -> Select:
     UpProfile = aliased(SpeedProfile)
     return (
         select(Onu, Olt.name, PonPort.slot, PonPort.port, DownProfile.name, UpProfile.name,
-               Vlan.vlan_id, Zone.name, Splitter.name)
+               Vlan.vlan_id, Zone.name, Splitter.name, OnuPreset.name, User.username)
         .join(Olt, Olt.id == Onu.olt_id)
         .join(PonPort, PonPort.id == Onu.pon_port_id)
         .outerjoin(DownProfile, DownProfile.id == Onu.download_speed_profile_id)
@@ -41,6 +42,8 @@ def _onu_rows() -> Select:
         .outerjoin(Vlan, Vlan.id == Onu.vlan_id)
         .outerjoin(Zone, Zone.id == Onu.zone_id)
         .outerjoin(Splitter, Splitter.id == Onu.splitter_id)
+        .outerjoin(OnuPreset, OnuPreset.id == Onu.preset_id)
+        .outerjoin(User, User.id == Onu.registered_by)
         .where(Onu.deleted_at.is_(None))
     )
 

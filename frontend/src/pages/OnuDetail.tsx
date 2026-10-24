@@ -23,7 +23,7 @@ import {
 import { Button } from "../components/ui/button";
 import {
   api, type OnuDetail as Detail, type OnuLog, type SignalPoint,
-  type SpeedProfile, type Vlan,
+  type SpeedProfile, type Splitter, type Vlan, type Zone,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useJob } from "../lib/jobs";
@@ -55,6 +55,21 @@ function fmtUptime(seconds: number | null | undefined) {
   const h = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   return d > 0 ? `${d}h ${h}j` : h > 0 ? `${h}j ${m}m` : `${m}m`;
+}
+
+/** Ringkasan histori Rx: terendah / rata-rata / tertinggi + jumlah kejadian putus.
+ *  Operator butuh ini untuk membedakan sinyal yang memang jelek dari yang naik-turun. */
+function rxStats(points: SignalPoint[]) {
+  const values = points.map((p) => p.rx_power_dbm).filter((v): v is number => v !== null);
+  const downs = points.filter((p) => p.status !== "online").length;
+  if (values.length === 0) return null;
+  return {
+    min: Math.min(...values),
+    max: Math.max(...values),
+    avg: values.reduce((a, b) => a + b, 0) / values.length,
+    downs,
+    count: values.length,
+  };
 }
 
 /** Grafik Rx sederhana: sparkline SVG dari histori, ambang sebagai garis putus.
@@ -90,6 +105,37 @@ function RxChart({ points }: { points: SignalPoint[] }) {
   );
 }
 
+/** Field editable di dialog "Ubah" kartu Pelanggan — hanya kolom database (bukan OLT). */
+type InfoForm = {
+  customer_name: string; customer_id: string; name: string; contact: string; phone: string;
+  address: string; external_id: string; zone_id: string; splitter_id: string;
+  splitter_port: string; latitude: string; longitude: string;
+};
+
+const str = (v: unknown) => (v === null || v === undefined ? "" : String(v));
+
+function infoFrom(d: Detail): InfoForm {
+  return {
+    customer_name: str(d.customer_name), customer_id: str(d.customer_id), name: str(d.name),
+    contact: str(d.contact), phone: str(d.phone), address: str(d.address),
+    external_id: str(d.external_id), zone_id: str(d.zone_id), splitter_id: str(d.splitter_id),
+    splitter_port: str(d.splitter_port), latitude: str(d.latitude), longitude: str(d.longitude),
+  };
+}
+
+/** Teks kosong dikirim sebagai null supaya kolom benar-benar dibersihkan, bukan jadi "". */
+function infoPayload(f: InfoForm) {
+  const text = (v: string) => (v.trim() === "" ? null : v.trim());
+  const num = (v: string) => (v.trim() === "" ? null : Number(v));
+  return {
+    customer_name: text(f.customer_name), customer_id: text(f.customer_id),
+    name: text(f.name), contact: text(f.contact), phone: text(f.phone),
+    address: text(f.address), external_id: text(f.external_id),
+    zone_id: num(f.zone_id), splitter_id: num(f.splitter_id),
+    splitter_port: num(f.splitter_port), latitude: num(f.latitude), longitude: num(f.longitude),
+  };
+}
+
 export function OnuDetail() {
   const { id: serial = "" } = useParams();
   const [params, setParams] = useSearchParams();
@@ -100,8 +146,9 @@ export function OnuDetail() {
   const [jobId, setJobId] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<null | "reboot" | "resync" | "restore-factory" | "delete" | "state">(null);
   const [typed, setTyped] = useState("");
-  const [editing, setEditing] = useState<null | "speed" | "vlan" | "replace">(null);
+  const [editing, setEditing] = useState<null | "speed" | "vlan" | "replace" | "info">(null);
   const [form, setForm] = useState("");
+  const [info, setInfo] = useState<InfoForm | null>(null);
   const [dnForm, setDnForm] = useState("");
   const [upForm, setUpForm] = useState("");
   const [note, setNote] = useState("");
@@ -122,7 +169,23 @@ export function OnuDetail() {
     queryKey: ["speed-profiles"], queryFn: () => api<SpeedProfile[]>("/api/speed-profiles"),
   });
   const vlans = useQuery({ queryKey: ["vlans"], queryFn: () => api<Vlan[]>("/api/vlans") });
+  const zones = useQuery({ queryKey: ["zones"], queryFn: () => api<Zone[]>("/api/zones") });
+  const splitters = useQuery({
+    queryKey: ["splitters", "all"], queryFn: () => api<Splitter[]>("/api/splitters"),
+  });
   const job = useJob(jobId);
+
+  /** Edit data pelanggan/lokasi: kolom database saja, jadi langsung PATCH (bukan job). */
+  const saveInfo = useMutation({
+    mutationFn: (f: InfoForm) =>
+      api<Detail>(`/api/onus/${serial}/info`, { method: "PATCH", json: infoPayload(f) }),
+    onSuccess: () => {
+      setEditing(null);
+      setNote("Data pelanggan disimpan.");
+      qc.invalidateQueries({ queryKey: ["onu", serial] });
+      qc.invalidateQueries({ queryKey: ["onus"] });
+    },
+  });
 
   /** Semua aksi memakai jalur yang sama: POST -> job_id -> tampilkan status job. */
   const act = useMutation({
@@ -144,6 +207,7 @@ export function OnuDetail() {
     return <ErrorState message={onu.error?.message ?? "Gagal memuat ONU"} onRetry={() => onu.refetch()} />;
   }
   const d = onu.data;
+  const stats = rxStats(signal.data ?? []);
   const live = (job.data?.result ?? {}) as Record<string, unknown>;
   const runningConfig = typeof live.running_config === "string" ? live.running_config : "";
 
@@ -156,6 +220,7 @@ export function OnuDetail() {
   const actions: { label: string; run: () => void; danger?: boolean; manager?: boolean }[] = [
     { label: "Reboot", run: () => setConfirm("reboot") },
     { label: "Resync config", run: () => setConfirm("resync") },
+    { label: "Ubah data pelanggan", run: () => { setInfo(infoFrom(d)); setEditing("info"); } },
     { label: "Ubah speed", run: () => {
       setDnForm(String(d.download_speed_profile_id ?? "")); setUpForm(String(d.upload_speed_profile_id ?? ""));
       setEditing("speed");
@@ -236,14 +301,22 @@ export function OnuDetail() {
           {signal.isPending
             ? <Skeleton text="Memuat histori sinyal ..." rows={2} />
             : <RxChart points={signal.data ?? []} />}
+          {stats && (
+            <Row label={`Rx ${range} (min · rata-rata · maks)`}
+                 value={`${stats.min.toFixed(1)} · ${stats.avg.toFixed(1)} · ${stats.max.toFixed(1)} dBm`} />
+          )}
+          {stats && <Row label={`Bacaan tidak online (${range})`} value={`${stats.downs} dari ${stats.count}`} />}
           <Row label="Terakhir online" value={fmtDateTime(d.last_seen_at)} />
           <Row label="Offline terakhir"
                value={d.last_down_at ? `${dash(d.last_down_reason)} · ${fmtDateTime(d.last_down_at)}` : "—"} />
         </Panel>
 
         <div className="flex flex-col gap-3">
-          <Panel title="Pelanggan">
+          <Panel title="Pelanggan"
+            action={<Button size="sm" onClick={() => { setInfo(infoFrom(d)); setEditing("info"); }}>Ubah</Button>}>
+            <Row label="Nama pelanggan" value={dash(d.customer_name)} />
             <Row label="ID pelanggan" value={dash(d.customer_id)} />
+            <Row label="Nama/label ONU" value={dash(d.name)} />
             <Row label="Kontak" value={dash(d.contact ?? d.phone)} />
             <Row label="Alamat" value={dash(d.address)} />
             <Row label="Zone" value={dash(d.zone_name)} />
@@ -261,7 +334,13 @@ export function OnuDetail() {
             <Row label="Tipe ONU" value={dash(d.onu_type)} />
             <Row label="MAC" value={dash(d.mac_address)} />
             <Row label="IP" value={dash(d.ip_address)} />
+            <Row label="Otentikasi" value={d.auth_type === "loid" ? `LOID · ${dash(d.loid)}` : d.auth_type.toUpperCase()} />
+            <Row label="Match state" value={dash(d.match_state)} />
+            <Row label="Bias laser" value={d.bias_current_ma === null ? "—" : `${Number(d.bias_current_ma).toFixed(2)} mA`} />
+            <Row label="Preset otorisasi" value={dash(d.preset_name)} />
             <Row label="Diotorisasi" value={fmtDateTime(d.registered_at)} />
+            <Row label="Diotorisasi oleh" value={dash(d.registered_by_name)} />
+            <Row label="Sinkron terakhir" value={fmtDateTime(d.last_sync_at)} />
           </Panel>
         </div>
       </div>
@@ -351,12 +430,15 @@ export function OnuDetail() {
         </Panel>
       )}
 
-      <Panel title="Log aksi terakhir" className="mt-3">
+      <Panel title="Log aksi terakhir" className="mt-3"
+        action={<Link className="text-fiber hover:underline" to={`/logs?q=${d.serial_number}`}>
+          Buka di Logs
+        </Link>}>
         <TableCard
           query={logs}
           loadingText="Memuat log ..."
           empty="Belum ada log untuk ONU ini."
-          columns={["Waktu", "Pengguna", "Aksi", "Hasil", "Job"]}
+          columns={["Waktu", "Pengguna", "Aksi", "Hasil", "Job", "Command"]}
           row={(l: OnuLog) => (
             <tr key={l.id} className="border-b last:border-0">
               <td className={cell}>{fmtDateTime(l.created_at)}</td>
@@ -366,6 +448,10 @@ export function OnuDetail() {
                 <span className={l.success ? "text-up" : "text-down"}>{l.success ? "Berhasil" : "Gagal"}</span>
               </td>
               <td className={`${cell} font-mono`}>{l.job_id === null ? "—" : `#${l.job_id}`}</td>
+              <td className={`${cell} max-w-[22rem] truncate font-mono text-xs text-muted`}
+                  title={l.raw_command ?? ""}>
+                {dash(l.raw_command)}
+              </td>
             </tr>
           )}
         />
@@ -476,6 +562,71 @@ export function OnuDetail() {
           <p className="text-muted">
             ONU lama dihapus dari OLT lalu SN baru diotorisasi di ONU ID yang sama. Data pelanggan,
             paket, VLAN, dan riwayat sinyal tetap ikut baris ini.
+          </p>
+        </Drawer>
+      )}
+      {editing === "info" && info && (
+        <Drawer title="Ubah data pelanggan" busy={saveInfo.isPending} error={saveInfo.error?.message}
+          onClose={() => setEditing(null)}
+          onSubmit={() => saveInfo.mutate(info)}>
+          <Field label="Nama pelanggan">
+            <input className={input} value={info.customer_name}
+                   onChange={(e) => setInfo({ ...info, customer_name: e.target.value })} />
+          </Field>
+          <Field label="ID pelanggan">
+            <input className={input} value={info.customer_id} autoComplete="off"
+                   onChange={(e) => setInfo({ ...info, customer_id: e.target.value })} />
+          </Field>
+          <Field label="Nama/label ONU">
+            <input className={input} value={info.name}
+                   onChange={(e) => setInfo({ ...info, name: e.target.value })} />
+          </Field>
+          <Field label="Kontak">
+            <input className={input} value={info.contact}
+                   onChange={(e) => setInfo({ ...info, contact: e.target.value })} />
+          </Field>
+          <Field label="Telepon">
+            <input className={input} value={info.phone}
+                   onChange={(e) => setInfo({ ...info, phone: e.target.value })} />
+          </Field>
+          <Field label="Alamat">
+            <input className={input} value={info.address}
+                   onChange={(e) => setInfo({ ...info, address: e.target.value })} />
+          </Field>
+          <Field label="External ID">
+            <input className={input} value={info.external_id}
+                   onChange={(e) => setInfo({ ...info, external_id: e.target.value })} />
+          </Field>
+          <Field label="Zone">
+            <select className={input} value={info.zone_id}
+                    onChange={(e) => setInfo({ ...info, zone_id: e.target.value })}>
+              <option value="">Tanpa zone</option>
+              {(zones.data ?? []).map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Splitter / ODP">
+            <select className={input} value={info.splitter_id}
+                    onChange={(e) => setInfo({ ...info, splitter_id: e.target.value })}>
+              <option value="">Tanpa splitter</option>
+              {(splitters.data ?? []).map((s) => (
+                <option key={s.id} value={s.id}>{s.name}{s.zone_name ? ` · ${s.zone_name}` : ""}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Port splitter">
+            <input className={input} type="number" min={1} value={info.splitter_port}
+                   onChange={(e) => setInfo({ ...info, splitter_port: e.target.value })} />
+          </Field>
+          <Field label="Latitude">
+            <input className={input} value={info.latitude} placeholder="-6.20000"
+                   onChange={(e) => setInfo({ ...info, latitude: e.target.value })} />
+          </Field>
+          <Field label="Longitude">
+            <input className={input} value={info.longitude} placeholder="106.81666"
+                   onChange={(e) => setInfo({ ...info, longitude: e.target.value })} />
+          </Field>
+          <p className="text-muted">
+            Data ini hanya tersimpan di Nexfiber — tidak ada perintah yang dikirim ke OLT.
           </p>
         </Drawer>
       )}

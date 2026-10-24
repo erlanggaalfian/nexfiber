@@ -15,6 +15,7 @@ from app.schemas.onu import (
     BulkActionItem,
     BulkActionResult,
     OnuDetail,
+    OnuInfoBody,
     OnuLog,
     OnuPage,
     OnuStatus,
@@ -147,6 +148,12 @@ async def bulk_action(body: BulkActionBody, db: AsyncSession = Depends(get_db),
 async def get_onu(serial: str, db: AsyncSession = Depends(get_db),
                   user: User = Depends(get_current_user)):
     return await onu_service.get_onu(db, serial, user)
+
+@router.patch("/{serial}/info", response_model=OnuDetail)
+async def update_info(serial: str, body: OnuInfoBody, db: AsyncSession = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    """Edit data pelanggan/lokasi (kolom DB saja, tanpa perintah ke OLT) — PRD 3.4.6."""
+    return await onu_service.update_info(db, serial, body, user)
 
 @router.post("/{serial}/refresh", **ACCEPTED)
 async def refresh_detail(serial: str, db: AsyncSession = Depends(get_db),

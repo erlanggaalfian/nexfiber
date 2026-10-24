@@ -133,6 +133,10 @@ export type OnuRow = {
 export type OnuDetail = OnuRow & {
   pon_port_id: number; description: string | null; address: string | null; phone: string | null;
   contact: string | null; external_id: string | null;
+  auth_type: string; loid: string | null; match_state: string | null;
+  bias_current_ma: number | null; last_sync_at: string | null;
+  preset_id: number | null; preset_name: string | null; onu_type_id: number | null;
+  registered_by_name: string | null;
   tx_power_dbm: number | null; temperature_c: number | null; voltage_v: number | null;
   distance_m: number | null; mac_address: string | null; ip_address: string | null;
   vlan_id: number | null; zone_id: number | null; splitter_id: number | null;
