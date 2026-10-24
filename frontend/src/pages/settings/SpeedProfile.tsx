@@ -1,6 +1,7 @@
 /** Settings -> Speed Profile (PRD 3.4.12). VLAN hanya dibaca untuk dropdown — tidak ada
  *  create/edit VLAN di halaman ini (DECISIONS: UI VLAN penuh nanti di Detail OLT).
- *  Opsi A: satu baris = satu arah (download/upload), bukan paket gabungan.
+ *  Opsi A: satu baris = satu arah. Tab Download/Upload (pola sama dengan Splitter & Zone)
+ *  — dua master data terpisah, bukan satu list dengan kolom arah.
  */
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,7 +20,6 @@ const nullable = (v: string) => (v === "" ? null : v);
 
 const schema = z.object({
   name: z.string().min(1, "Wajib diisi").max(100),
-  direction: z.enum(["download", "upload"]),
   speed_kbps: z.coerce.number().int().min(64).max(10_000_000),
   olt_id: z.string(),
   vlan_db_id: z.string(),
@@ -28,11 +28,11 @@ const schema = z.object({
 type Form = z.input<typeof schema>;
 
 /** Select kosong = NULL di API (olt_id NULL = semua OLT, vlan_db_id NULL = tanpa VLAN). */
-const toPayload = (f: Form) => {
+const toPayload = (f: Form, direction: "download" | "upload") => {
   const v = schema.parse(f);
   return {
     name: v.name,
-    direction: v.direction,
+    direction,
     speed_kbps: v.speed_kbps,
     olt_id: nullable(v.olt_id) && Number(v.olt_id),
     vlan_db_id: nullable(v.vlan_db_id) && Number(v.vlan_db_id),
@@ -40,15 +40,15 @@ const toPayload = (f: Form) => {
   };
 };
 
-function ProfileDrawer({ edit, olts, vlans, onClose }: {
-  edit: SpeedProfileRow | null; olts: Olt[]; vlans: Vlan[]; onClose: () => void;
+function ProfileDrawer({ edit, direction, olts, vlans, onClose }: {
+  edit: SpeedProfileRow | null; direction: "download" | "upload";
+  olts: Olt[]; vlans: Vlan[]; onClose: () => void;
 }) {
   const qc = useQueryClient();
   const { register, handleSubmit, formState } = useForm<Form>({
     resolver: zodResolver(schema),
     defaultValues: {
       name: edit?.name ?? "",
-      direction: edit?.direction ?? "download",
       speed_kbps: edit?.speed_kbps ?? 20000,
       olt_id: edit?.olt_id ? String(edit.olt_id) : ALL,
       vlan_db_id: edit?.vlan_db_id ? String(edit.vlan_db_id) : ALL,
@@ -58,14 +58,14 @@ function ProfileDrawer({ edit, olts, vlans, onClose }: {
   const save = useMutation({
     mutationFn: (f: Form) =>
       edit
-        ? api<SpeedProfileRow>(`/api/speed-profiles/${edit.id}`, { method: "PATCH", json: toPayload(f) })
-        : api<SpeedProfileRow>("/api/speed-profiles", { method: "POST", json: toPayload(f) }),
+        ? api<SpeedProfileRow>(`/api/speed-profiles/${edit.id}`, { method: "PATCH", json: toPayload(f, direction) })
+        : api<SpeedProfileRow>("/api/speed-profiles", { method: "POST", json: toPayload(f, direction) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["speed-profiles"] }); onClose(); },
   });
 
   return (
     <Drawer
-      title={edit ? `Edit ${edit.name}` : "Tambah speed profile"}
+      title={edit ? `Edit ${edit.name}` : `Tambah profile ${direction === "download" ? "download" : "upload"}`}
       onClose={onClose}
       onSubmit={handleSubmit((f) => save.mutate(f))}
       busy={save.isPending}
@@ -74,18 +74,9 @@ function ProfileDrawer({ edit, olts, vlans, onClose }: {
       <Field label="Nama profile" error={formState.errors.name?.message}>
         <input className={input} autoFocus autoComplete="off" {...register("name")} />
       </Field>
-      <div className="grid grid-cols-2 gap-2">
-        <Field label="Arah" error={formState.errors.direction?.message}>
-          {/* direction tidak bisa diubah setelah dibuat (backend tolak field ini di PATCH) */}
-          <select className={input} disabled={!!edit} {...register("direction")}>
-            <option value="download">Download</option>
-            <option value="upload">Upload</option>
-          </select>
-        </Field>
-        <Field label="Speed (kbps)" error={formState.errors.speed_kbps?.message}>
-          <input className={input} type="number" min={64} {...register("speed_kbps")} />
-        </Field>
-      </div>
+      <Field label="Speed (kbps)" error={formState.errors.speed_kbps?.message}>
+        <input className={input} type="number" min={64} {...register("speed_kbps")} />
+      </Field>
       <Field label="OLT">
         <select className={input} {...register("olt_id")}>
           <option value={ALL}>Semua OLT</option>
@@ -109,6 +100,7 @@ export function SpeedProfile() {
   const { me } = useAuth();
   const qc = useQueryClient();
   const canWrite = me.role !== "user";
+  const [direction, setDirection] = useState<"download" | "upload">("download");
   const [oltId, setOltId] = useState(ALL);
   const [q, setQ] = useState("");
   const [drawer, setDrawer] = useState<{ edit: SpeedProfileRow | null } | null>(null);
@@ -143,13 +135,31 @@ export function SpeedProfile() {
   });
 
   const needle = q.toLowerCase();
-  const rows = (profiles.data ?? []).filter((p) => !needle || p.name.toLowerCase().includes(needle));
+  const rows = (profiles.data ?? [])
+    .filter((p) => p.direction === direction)
+    .filter((p) => !needle || p.name.toLowerCase().includes(needle));
+
+  const tabClass = (t: string) =>
+    `h-8 px-3 text-sm ${direction === t ? "border-b-2 border-fiber font-medium" : "text-muted"}`;
 
   return (
     <>
       <PageTitle title="Speed Profile">
-        {canWrite && <Button variant="fiber" onClick={() => setDrawer({ edit: null })}>Tambah profile</Button>}
+        {canWrite && (
+          <Button variant="fiber" onClick={() => setDrawer({ edit: null })}>
+            Tambah profile {direction === "download" ? "download" : "upload"}
+          </Button>
+        )}
       </PageTitle>
+
+      <div className="mb-3 flex gap-1 border-b">
+        <button type="button" className={tabClass("download")} onClick={() => setDirection("download")}>
+          Download
+        </button>
+        <button type="button" className={tabClass("upload")} onClick={() => setDirection("upload")}>
+          Upload
+        </button>
+      </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <select value={oltId} onChange={(e) => { setOltId(e.target.value); setNote(""); }}
@@ -170,12 +180,11 @@ export function SpeedProfile() {
       <TableCard
         query={{ ...profiles, data: rows }}
         loadingText="Memuat speed profile ..."
-        empty="Belum ada speed profile."
-        columns={["Nama", "Arah", "Speed", "OLT", "VLAN", "ONU", "Status", "Aksi"]}
+        empty={`Belum ada speed profile ${direction === "download" ? "download" : "upload"}.`}
+        columns={["Nama", "Speed", "OLT", "VLAN", "ONU", "Status", "Aksi"]}
         row={(p: SpeedProfileRow) => (
           <tr key={p.id} className="border-b last:border-0">
             <td className={cell}>{p.name}</td>
-            <td className={cell}>{p.direction === "download" ? "Download" : "Upload"}</td>
             <td className={`${cell} font-mono`}>{mbps(p.speed_kbps)}</td>
             <td className={cell}>{p.olt_name ?? "Semua OLT"}</td>
             <td className={`${cell} font-mono`}>{p.vlan_id ?? "—"}</td>
@@ -201,7 +210,7 @@ export function SpeedProfile() {
       />
 
       {drawer && (
-        <ProfileDrawer edit={drawer.edit} olts={olts.data ?? []} vlans={vlans.data ?? []}
+        <ProfileDrawer edit={drawer.edit} direction={direction} olts={olts.data ?? []} vlans={vlans.data ?? []}
                        onClose={() => setDrawer(null)} />
       )}
       {del && (
