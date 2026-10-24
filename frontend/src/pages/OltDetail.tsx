@@ -22,6 +22,7 @@ import { Button } from "../components/ui/button";
 import {
   api, qs, type OltDetail as Detail, type OltInterface, type OnuRow, type Page, type Vlan,
 } from "../lib/api";
+import { OltSyncProgress } from "../components/OltSyncProgress";
 import { useAuth } from "../lib/auth";
 
 const TABS = ["Monitoring", "VLANs", "Interfaces", "Konfigurasi", "Daftar ONU"] as const;
@@ -578,6 +579,8 @@ export function OltDetail() {
           <span className="font-mono font-semibold">{nf.format(online)}</span>
           <span className="text-muted"> / {nf.format(d.onu_count)} ONU online</span>
         </span>
+        {/* Progres sinkron otomatis; satu baris penuh di mobile maupun desktop. */}
+        <OltSyncProgress oltId={oltId} showIdle />
       </div>
 
       <div className="mb-3 flex gap-1 overflow-x-auto border-b" role="tablist">

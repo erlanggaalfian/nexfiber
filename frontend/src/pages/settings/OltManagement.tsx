@@ -1,12 +1,13 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dialog } from "radix-ui";
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { useForm } from "react-hook-form";
 import { Link, Navigate } from "react-router";
 import * as z from "zod";
 import { PageTitle, StatusBadge, fmtDateTime } from "../../components/data";
 import { Drawer, Field, TableCard, cell, filterInput, input } from "../../components/crud";
+import { OltSyncProgressRow } from "../../components/OltSyncProgress";
 import { Button, buttonClass } from "../../components/ui/button";
 import { api, qs, type Olt, type OltRow } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
@@ -258,7 +259,8 @@ export function OltManagement() {
         empty="Belum ada OLT."
         loadingText="Memuat OLT ..."
         row={(o: OltRow) => (
-          <tr key={o.id} className="border-b last:border-0">
+          <Fragment key={o.id}>
+          <tr className="border-b last:border-0">
             <td className={cell}>
               <Link to={`/olt/${o.id}`} className="text-fiber hover:underline">{o.name}</Link>
             </td>
@@ -282,6 +284,9 @@ export function OltManagement() {
               </div>
             </td>
           </tr>
+          {/* Progres sinkron otomatis: baris ini hilang sendiri kalau tidak ada yang jalan. */}
+          <OltSyncProgressRow oltId={o.id} colSpan={columns.length} />
+          </Fragment>
         )}
       />
 
