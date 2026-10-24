@@ -1,11 +1,13 @@
 """Pure queries for olts / pon_ports (PRD repository convention: no business rules)."""
 
-from sqlalchemy import func, select
+from sqlalchemy import String, cast, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.rbac import Scope, scoped
 from app.models.olt import Olt, PonPort
 from app.models.onu import Onu
+from app.models.user import User
 
 
 async def get_active(db: AsyncSession, olt_id: int, scope: Scope) -> Olt | None:
@@ -15,6 +17,48 @@ async def get_active(db: AsyncSession, olt_id: int, scope: Scope) -> Olt | None:
 async def list_active(db: AsyncSession, scope: Scope) -> list[Olt]:
     stmt = scoped(select(Olt).where(Olt.deleted_at.is_(None)).order_by(Olt.name), Olt.id, scope)
     return list((await db.execute(stmt)).scalars().all())
+
+def _olt_onu_count():
+    return (
+        select(func.count(Onu.id))
+        .join(PonPort, Onu.pon_port_id == PonPort.id)
+        .where(PonPort.olt_id == Olt.id, Onu.deleted_at.is_(None))
+        .scalar_subquery()
+    )
+
+async def list_rows(db: AsyncSession, scope: Scope, search: str | None = None):
+    """Rows for the OLT Management table (PRD 3.4.8): OLT + owner name + ONU count."""
+    owner = aliased(User)
+    stmt = (
+        select(Olt, owner.full_name, _olt_onu_count())
+        .join(owner, Olt.owner_id == owner.id)
+        .where(Olt.deleted_at.is_(None))
+        .order_by(Olt.name)
+    )
+    if search:
+        like = f"%{search.strip()}%"
+        stmt = stmt.where(
+            or_(Olt.name.ilike(like), cast(Olt.host, String).ilike(like), Olt.model.ilike(like))
+        )
+    return [tuple(row) for row in await db.execute(scoped(stmt, Olt.id, scope))]
+
+async def count_onus(db: AsyncSession, olt_id: int) -> int:
+    stmt = (
+        select(func.count(Onu.id))
+        .join(PonPort, Onu.pon_port_id == PonPort.id)
+        .where(PonPort.olt_id == olt_id, Onu.deleted_at.is_(None))
+    )
+    return await db.scalar(stmt) or 0
+
+async def soft_delete_onus(db: AsyncSession, olt_id: int, when) -> int:
+    """ONU ikut soft-delete bersama OLT-nya; perangkat tidak disentuh (PRD 3.4.8)."""
+    pon_ids = select(PonPort.id).where(PonPort.olt_id == olt_id)
+    result = await db.execute(
+        update(Onu)
+        .where(Onu.pon_port_id.in_(pon_ids), Onu.deleted_at.is_(None))
+        .values(deleted_at=when)
+    )
+    return result.rowcount or 0
 
 def _onu_count():
     return (

@@ -1,18 +1,29 @@
-"""OLT CRUD + OLT-level jobs. Any contact with the OLT goes through the job queue (PRD 4.2)."""
+"""OLT CRUD + OLT-level jobs. Any contact with the OLT goes through the job queue (PRD 4.2),
+except the pre-save connection check, which has no saved credentials to hand the worker.
+"""
 
 from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
+from app.core.exceptions import AppError, ConflictError, NotFoundError, ValidationAppError
 from app.core.rbac import MANAGERS, SUPERADMIN, scope_olt_ids
 from app.core.security import encrypt_secret
+from app.drivers.transport.snmp import SnmpTransport
 from app.models.olt import Olt
 from app.models.user import User
 from app.repositories import olt_repo
 from app.repositories.activity_log_repo import log_activity
-from app.schemas.olt import OltCreate, OltUpdate, PonPortOut
+from app.schemas.olt import (
+    OltCreate,
+    OltOut,
+    OltRow,
+    OltTestRequest,
+    OltTestResult,
+    OltUpdate,
+    PonPortOut,
+)
 from app.services import job_service
 
 SECRET_FIELDS = {
@@ -21,6 +32,9 @@ SECRET_FIELDS = {
     "snmp_community": "snmp_community_enc",
     "snmp_community_rw": "snmp_community_rw_enc",
 }
+
+# sysDescr (NEXFIBER-SNMP-OID.md, verified on every vendor): cheapest proof SNMP answers.
+OID_SYS_DESCR = "1.3.6.1.2.1.1.1"
 
 async def get_olt(db: AsyncSession, olt_id: int, user: User) -> Olt:
     olt = await olt_repo.get_active(db, olt_id, scope_olt_ids(user))
@@ -31,10 +45,19 @@ async def get_olt(db: AsyncSession, olt_id: int, user: User) -> Olt:
 async def list_olts(db: AsyncSession, user: User) -> list[Olt]:
     return await olt_repo.list_active(db, scope_olt_ids(user))
 
-async def _owner_id(db: AsyncSession, body: OltCreate, user: User) -> int:
-    if user.role != SUPERADMIN or body.owner_id is None:
+async def list_rows(db: AsyncSession, user: User, search: str | None = None) -> list[OltRow]:
+    rows = await olt_repo.list_rows(db, scope_olt_ids(user), search)
+    return [
+        OltRow(**OltOut.model_validate(olt).model_dump(), owner_name=owner_name,
+               onu_count=onu_count)
+        for olt, owner_name, onu_count in rows
+    ]
+
+async def _owner_id(db: AsyncSession, owner_id: int | None, user: User) -> int:
+    """Superadmin picks the owner; anyone else owns what it touches (PRD 3.7)."""
+    if user.role != SUPERADMIN or owner_id is None:
         return user.id
-    owner = await db.get(User, body.owner_id)
+    owner = await db.get(User, owner_id)
     if owner is None or owner.deleted_at is not None or owner.role not in MANAGERS:
         raise ValidationAppError("Pemilik OLT harus Admin atau Superadmin aktif")
     return owner.id
@@ -61,7 +84,7 @@ async def _commit(db: AsyncSession, olt: Olt) -> Olt:
     return olt
 
 async def create_olt(db: AsyncSession, body: OltCreate, user: User) -> Olt:
-    olt = Olt(owner_id=await _owner_id(db, body, user))
+    olt = Olt(owner_id=await _owner_id(db, body.owner_id, user))
     _apply(olt, body.model_dump(exclude={"owner_id"}))
     db.add(olt)
     await _flush(db)
@@ -71,21 +94,55 @@ async def create_olt(db: AsyncSession, body: OltCreate, user: User) -> Olt:
 
 async def update_olt(db: AsyncSession, olt_id: int, body: OltUpdate, user: User) -> Olt:
     olt = await get_olt(db, olt_id, user)
-    _apply(olt, body.model_dump(exclude_unset=True))
+    values = body.model_dump(exclude_unset=True)
+    if "owner_id" in values:
+        values["owner_id"] = await _owner_id(db, values["owner_id"], user)
+    # Empty secret = field left blank in the form = keep the stored credential (PRD 3.4.8).
+    values = {k: v for k, v in values.items() if not (k in SECRET_FIELDS and not v)}
+    _apply(olt, values)
     await _flush(db)
     await log_activity(db, action="olt.update", entity_type="olt", entity_id=str(olt.id),
                        success=True, user_id=user.id, olt_id=olt.id,
-                       after=body.model_dump(exclude_unset=True, exclude=set(SECRET_FIELDS),
-                                             mode="json"))
+                       after=OltUpdate(**values).model_dump(
+                           exclude_unset=True, exclude=set(SECRET_FIELDS), mode="json"))
     return await _commit(db, olt)
 
-async def delete_olt(db: AsyncSession, olt_id: int, user: User) -> None:
+async def delete_olt(db: AsyncSession, olt_id: int, user: User, confirm_name: str | None) -> None:
+    """Blocked while ONUs exist unless the OLT name is typed back (PRD 3.4.8)."""
     olt = await get_olt(db, olt_id, user)
-    olt.deleted_at = datetime.now(UTC)
+    onu_count = await olt_repo.count_onus(db, olt_id)
+    if onu_count and confirm_name != olt.name:
+        raise ConflictError(f"OLT masih punya {onu_count} ONU; ketik nama OLT untuk konfirmasi")
+    now = datetime.now(UTC)
+    olt.deleted_at = now
     olt.is_active = False
+    deleted = await olt_repo.soft_delete_onus(db, olt_id, now)
     await log_activity(db, action="olt.delete", entity_type="olt", entity_id=str(olt.id),
-                       success=True, user_id=user.id, olt_id=olt.id)
+                       success=True, user_id=user.id, olt_id=olt.id,
+                       after={"onus_soft_deleted": deleted})
     await db.commit()
+
+async def test_connection(db: AsyncSession, body: OltTestRequest, user: User) -> OltTestResult:
+    """SNMP sysDescr get against the values in the form; no row needed, nothing written."""
+    snmp = SnmpTransport(str(body.host), body.snmp_community, body.snmp_port)
+    try:
+        rows = await snmp.bulkwalk(OID_SYS_DESCR)
+    except AppError as exc:
+        message = exc.message
+    except Exception as exc:  # pysnmp surfaces socket/engine errors as plain exceptions
+        message = f"SNMP gagal: {exc}"
+    else:
+        descr = str(rows[0][1]) if rows else ""
+        await log_activity(db, action="olt.test_connection", entity_type="olt", success=True,
+                           user_id=user.id, raw_command=f"snmpget {OID_SYS_DESCR}",
+                           raw_output=descr[:500])
+        await db.commit()
+        return OltTestResult(success=True, message=descr[:200] or "SNMP menjawab")
+    await log_activity(db, action="olt.test_connection", entity_type="olt", success=False,
+                       user_id=user.id, raw_command=f"snmpget {OID_SYS_DESCR}",
+                       raw_output=message[:500])
+    await db.commit()
+    return OltTestResult(success=False, message=message[:200])
 
 async def enqueue_olt_job(db: AsyncSession, olt_id: int, job_type: str, user: User) -> int:
     await get_olt(db, olt_id, user)
