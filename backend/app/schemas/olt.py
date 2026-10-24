@@ -21,6 +21,8 @@ class OltCreate(BaseModel):
     max_onu_per_port: int = Field(128, ge=1, le=256)
     location: str | None = Field(None, max_length=255)
     owner_id: int | None = None  # Superadmin only; Admin always owns what it creates (PRD 3.7)
+    # Admin/Superadmin lain yang ikut diberi akses penuh ke OLT ini (tabel olt_access).
+    access_user_ids: list[int] | None = None
 
 class OltUpdate(BaseModel):
     """Omitted fields stay unchanged; secrets are only overwritten when sent non-empty
@@ -41,6 +43,7 @@ class OltUpdate(BaseModel):
     location: str | None = Field(None, max_length=255)
     is_active: bool | None = None
     owner_id: int | None = None  # Superadmin only: pindah pemilik OLT (PRD 3.7 aturan 4)
+    access_user_ids: list[int] | None = None  # kirim daftar utuh = ganti seluruh daftar akses
 
 class OltTestRequest(BaseModel):
     """Cek koneksi sebelum simpan (PRD 3.4.8). Tanpa id: pakai nilai di form."""
@@ -82,6 +85,7 @@ class OltRow(OltOut):
     query/skema dipakai dua halaman, jangan buat baris OLT kedua yang terpisah."""
 
     owner_name: str
+    access_user_ids: list[int] = []
     onu_count: int
     onu_online: int
     cpu_pct: float | None = None
@@ -118,6 +122,7 @@ class OltDetail(OltOut):
     """
 
     owner_name: str
+    access_user_ids: list[int] = []
     onu_count: int
     onu_by_status: dict[str, int]
     cpu_pct: float | None

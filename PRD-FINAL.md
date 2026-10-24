@@ -869,7 +869,7 @@ Tiga peran tetap:
 - **Admin** — menambah OLT (otomatis jadi pemiliknya), mengelola OLT miliknya (setting, kredensial, VLAN, speed profile, hapus), membuat User di bawahnya, mengelola zone/splitter/preset miliknya.
 - **User** — semua kerja operasional di OLT milik Admin induknya: Dashboard, Unconfigured + otorisasi, Configured, Detail ONU (reboot, ubah speed/VLAN/mode, replace, nonaktifkan), lihat Detail OLT (Monitoring + Daftar ONU), Logs. **Tidak bisa** menambah OLT, mengubah setting OLT, mengelola user, hapus permanen ONU, atau restore factory.
 
-**Cakupan OLT**: Superadmin = semua OLT · Admin = OLT dengan `owner_id` = dirinya · User = OLT dengan `owner_id` = `admin_id`-nya.
+**Cakupan OLT**: Superadmin = semua OLT · Admin = OLT dengan `owner_id` = dirinya **atau** yang dibagikan ke dirinya lewat `olt_access` · User = OLT dalam cakupan `admin_id`-nya (ikut OLT yang dibagikan ke Admin induknya).
 
 | Menu / aksi | Superadmin | Admin | User |
 |---|---|---|---|
@@ -890,7 +890,7 @@ Tiga peran tetap:
 | Logs | semua | OLT + user miliknya | OLT dalam cakupan |
 
 Aturan wajib:
-1. Satu OLT punya tepat satu pemilik (Admin). Satu User terikat ke tepat satu Admin. Superadmin bisa memiliki OLT juga.
+1. Satu OLT punya tepat satu **pemilik utama** (`olts.owner_id`, Admin/Superadmin) yang dipakai sebagai default kepemilikan/penanggung jawab. Selain itu OLT bisa **dibagikan** ke Admin/Superadmin lain lewat tabel `olt_access` (olt_id, user_id): penerima akses melihat & mengelola OLT itu sama seperti pemilik utama. Hanya Superadmin yang boleh mengatur daftar akses bersama (sejalan dengan "Pindah pemilik OLT"). Satu User terikat ke tepat satu Admin.
 2. **Pembatasan dicek di backend pada setiap endpoint** (REST, SSE, export CSV, job). Menyembunyikan menu hanya kenyamanan, bukan keamanan. Implementasi: satu dependency FastAPI `scope_olt_ids(user)` yang dipakai setiap query ONU/OLT/log.
 3. Akses ke OLT/ONU di luar cakupan dibalas **404**, bukan 403, supaya keberadaan data Admin lain tidak bocor.
 4. Pemindahan pemilik OLT tercatat di Logs (dari siapa, ke siapa, oleh siapa). ONU, splitter, dan profile ikut OLT-nya.

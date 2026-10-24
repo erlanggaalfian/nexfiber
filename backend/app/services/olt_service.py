@@ -49,21 +49,41 @@ async def list_olts(db: AsyncSession, user: User) -> list[Olt]:
 
 async def list_rows(db: AsyncSession, user: User, search: str | None = None) -> list[OltRow]:
     rows = await olt_repo.list_rows(db, scope_olt_ids(user), search)
+    access = await olt_repo.access_map(db, [olt.id for olt, *_ in rows])
     return [
         OltRow(**OltOut.model_validate(olt).model_dump(), owner_name=owner_name,
+               access_user_ids=access.get(olt.id, []),
                onu_count=onu_count, onu_online=onu_online,
                cpu_pct=olt.cpu_pct, ram_pct=olt.ram_pct, temperature_c=olt.temperature_c)
         for olt, owner_name, onu_count, onu_online in rows
     ]
 
+async def _manager(db: AsyncSession, user_id: int) -> User:
+    """Hanya Admin/Superadmin aktif boleh memiliki atau diberi akses ke OLT (PRD 3.7)."""
+    manager = await db.get(User, user_id)
+    if manager is None or manager.deleted_at is not None or manager.role not in MANAGERS:
+        raise ValidationAppError("Pemilik/penerima akses OLT harus Admin atau Superadmin aktif")
+    return manager
+
 async def _owner_id(db: AsyncSession, owner_id: int | None, user: User) -> int:
     """Superadmin picks the owner; anyone else owns what it touches (PRD 3.7)."""
     if user.role != SUPERADMIN or owner_id is None:
         return user.id
-    owner = await db.get(User, owner_id)
-    if owner is None or owner.deleted_at is not None or owner.role not in MANAGERS:
-        raise ValidationAppError("Pemilik OLT harus Admin atau Superadmin aktif")
-    return owner.id
+    return (await _manager(db, owner_id)).id
+
+async def _set_access(db: AsyncSession, olt: Olt, user_ids: list[int], user: User) -> list[int]:
+    """Daftar akses tambahan dikirim utuh. Pemilik utama tidak perlu baris sendiri.
+
+    Hanya Superadmin yang boleh membagi OLT, sealasan dengan pindah pemilik (PRD 3.7
+    aturan “Pindah pemilik OLT: Superadmin”); Admin tidak bisa memperluas akses sendiri.
+    """
+    if user.role != SUPERADMIN:
+        raise ValidationAppError("Hanya Superadmin bisa mengatur akses bersama OLT")
+    wanted = [uid for uid in dict.fromkeys(user_ids) if uid != olt.owner_id]
+    for uid in wanted:
+        await _manager(db, uid)
+    await olt_repo.set_access(db, olt.id, wanted)
+    return wanted
 
 def _apply(olt: Olt, values: dict) -> None:
     for field, value in values.items():
@@ -88,8 +108,11 @@ async def _commit(db: AsyncSession, olt: Olt) -> Olt:
 
 async def create_olt(db: AsyncSession, body: OltCreate, user: User) -> Olt:
     olt = Olt(owner_id=await _owner_id(db, body.owner_id, user))
-    _apply(olt, body.model_dump(exclude={"owner_id"}))
+    _apply(olt, body.model_dump(exclude={"owner_id", "access_user_ids"}))
     db.add(olt)
+    await _flush(db)
+    if body.access_user_ids:
+        await _set_access(db, olt, body.access_user_ids, user)
     await _flush(db)
     await log_activity(db, action="olt.create", entity_type="olt", entity_id=str(olt.id),
                        success=True, user_id=user.id, olt_id=olt.id)
@@ -100,10 +123,14 @@ async def update_olt(db: AsyncSession, olt_id: int, body: OltUpdate, user: User)
     values = body.model_dump(exclude_unset=True)
     if "owner_id" in values:
         values["owner_id"] = await _owner_id(db, values["owner_id"], user)
+    access = values.pop("access_user_ids", None)
     # Empty secret = field left blank in the form = keep the stored credential (PRD 3.4.8).
     values = {k: v for k, v in values.items() if not (k in SECRET_FIELDS and not v)}
     _apply(olt, values)
     await _flush(db)
+    if access is not None:
+        values["access_user_ids"] = await _set_access(db, olt, access, user)
+        await _flush(db)
     await log_activity(db, action="olt.update", entity_type="olt", entity_id=str(olt.id),
                        success=True, user_id=user.id, olt_id=olt.id,
                        after=OltUpdate(**values).model_dump(
@@ -176,6 +203,7 @@ async def get_detail(db: AsyncSession, olt_id: int, user: User) -> OltDetail:
     return OltDetail(
         **OltOut.model_validate(olt).model_dump(),
         owner_name=await olt_repo.owner_name(db, olt),
+        access_user_ids=await olt_repo.access_user_ids(db, olt_id),
         onu_count=sum(by_status.values()),
         onu_by_status=by_status,
         cpu_pct=olt.cpu_pct,

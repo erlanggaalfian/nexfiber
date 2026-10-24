@@ -110,7 +110,7 @@ export type OltCard = {
 
 /** GET /api/olts/{id}/detail — seluruh halaman Detail OLT dalam satu panggilan (PRD 3.4.7). */
 export type OltDetail = Olt & {
-  owner_id: number; owner_name: string; onu_count: number;
+  owner_id: number; owner_name: string; access_user_ids: number[]; onu_count: number;
   onu_by_status: Record<string, number>;
   cpu_pct: number | null; ram_pct: number | null; temperature_c: number | null;
   uptime_seconds: number | null; software_version: string | null;
@@ -204,7 +204,8 @@ export type LogRow = {
 export type LogPage = { items: LogRow[]; total: number; page: number; size: number };
 
 export type OltRow = Olt & {
-  owner_id: number; owner_name: string; onu_count: number; onu_online: number;
+  owner_id: number; owner_name: string; access_user_ids: number[];
+  onu_count: number; onu_online: number;
   cpu_pct: number | null; ram_pct: number | null; temperature_c: number | null;
 };
 

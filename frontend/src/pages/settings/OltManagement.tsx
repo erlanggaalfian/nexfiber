@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { Link, Navigate } from "react-router";
 import * as z from "zod";
 import { PageTitle, StatusBadge, fmtDateTime } from "../../components/data";
-import { Drawer, Field, TableCard, cell, filterInput, input } from "../../components/crud";
+import { Drawer, Field, MultiFilter, TableCard, cell, filterInput, input } from "../../components/crud";
 import { Button } from "../../components/ui/button";
 import { api, qs, type Olt, type OltRow } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
@@ -60,6 +60,15 @@ function OltDrawer({ edit, onClose }: { edit: OltRow | null; onClose: () => void
     resolver: zodResolver(schema),
     defaultValues: defaults(edit),
   });
+  // Akses bersama: Admin/Superadmin lain yang ikut boleh mengelola OLT ini (tabel olt_access).
+  // Hanya Superadmin yang boleh mengaturnya, sama seperti memindah pemilik (PRD 3.7).
+  const [access, setAccess] = useState<string[]>(
+    (edit?.access_user_ids ?? []).map(String),
+  );
+  const ownerId = watch("owner_id");
+  const accessOptions = (owners.data ?? [])
+    .filter((u) => String(u.id) !== ownerId)
+    .map((u) => ({ value: String(u.id), label: u.full_name }));
 
   const body = (f: Form) => {
     const out: Record<string, unknown> = {
@@ -72,6 +81,11 @@ function OltDrawer({ edit, onClose }: { edit: OltRow | null; onClose: () => void
       if (f[k]) out[k] = f[k];
     }
     if (isSuper && f.owner_id) out.owner_id = Number(f.owner_id);
+    if (isSuper) {
+      out.access_user_ids = access
+        .filter((id) => id !== f.owner_id)
+        .map(Number);
+    }
     return out;
   };
 
@@ -148,14 +162,34 @@ function OltDrawer({ edit, onClose }: { edit: OltRow | null; onClose: () => void
         <input className={input} type="password" autoComplete="new-password" {...register("snmp_community_rw")} />
       </Field>
       {isSuper && (
-        <Field label="Pemilik">
-          <select className={input} required {...register("owner_id")}>
-            <option value="">Pilih pemilik</option>
-            {(owners.data ?? []).map((u) => (
-              <option key={u.id} value={u.id}>{u.full_name}</option>
-            ))}
-          </select>
-        </Field>
+        <>
+          <Field label="Pemilik utama">
+            <select className={input} required {...register("owner_id")}>
+              <option value="">Pilih pemilik</option>
+              {(owners.data ?? []).map((u) => (
+                <option key={u.id} value={u.id}>{u.full_name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Akses bersama (Admin/Superadmin lain)">
+            <div className="flex flex-wrap items-center gap-2">
+              <MultiFilter
+                label="Pilih pengguna"
+                options={accessOptions}
+                value={access.filter((id) => id !== ownerId)}
+                onChange={setAccess}
+              />
+              <span className="text-muted">
+                {access.filter((id) => id !== ownerId).length === 0
+                  ? "Hanya pemilik utama"
+                  : accessOptions
+                      .filter((o) => access.includes(o.value))
+                      .map((o) => o.label)
+                      .join(", ")}
+              </span>
+            </div>
+          </Field>
+        </>
       )}
       <div className="flex items-center gap-2">
         <Button onClick={() => test.mutate()} disabled={test.isPending || !watch("snmp_community")}>
@@ -245,7 +279,8 @@ export function OltManagement() {
     mutationFn: (olt: OltRow) => api<{ job_id: number }>(`/api/olts/${olt.id}/test`, { method: "POST" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["olts"] }),
   });
-  const columns = ["Nama OLT", "Alamat IP", "Tipe", ...(isSuper ? ["Pemilik"] : []),
+  const columns = ["Nama OLT", "Alamat IP", "Tipe",
+    ...(isSuper ? ["Pemilik", "Akses bersama"] : []),
     "Status koneksi", "ONU", "Sinkron terakhir", "Aksi"];
 
   // Peran User tidak punya halaman ini (PRD 3.7); backend juga menolak 403.
@@ -280,6 +315,11 @@ export function OltManagement() {
             <td className={`${cell} font-mono`}>{o.host}</td>
             <td className={cell}>{o.model}</td>
             {isSuper && <td className={cell}>{o.owner_name}</td>}
+            {isSuper && (
+              <td className={cell}>
+                {o.access_user_ids.length ? `+${o.access_user_ids.length}` : "—"}
+              </td>
+            )}
             <td className={cell}>
               <StatusBadge status={o.status} />
               {o.last_error && <span className="ml-2 text-xs text-muted">{o.last_error}</span>}

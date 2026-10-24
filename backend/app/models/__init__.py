@@ -1,6 +1,6 @@
 from app.models.activity_log import ActivityLog
 from app.models.job import Job
-from app.models.olt import Olt, OltConfigBackup, PonPort
+from app.models.olt import Olt, OltAccess, OltConfigBackup, PonPort
 from app.models.onu import Onu, OnuSignalHistory
 from app.models.onu_preset import OnuPreset
 from app.models.onu_type import OnuType
@@ -16,6 +16,7 @@ __all__ = [
     "ActivityLog",
     "Job",
     "Olt",
+    "OltAccess",
     "OltConfigBackup",
     "PonPort",
     "Onu",

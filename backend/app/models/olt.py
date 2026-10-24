@@ -66,6 +66,21 @@ class Olt(TimestampMixin, Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class OltAccess(Base):
+    """Akses tambahan ke satu OLT untuk Admin/Superadmin lain (PRD 3.7 aturan 1 diperluas:
+    `olts.owner_id` tetap pemilik utama, baris di sini hanya menambah yang boleh melihat/
+    mengelola). Tabel junction murni: tanpa id/timestamp, PK gabungan."""
+
+    __tablename__ = "olt_access"
+
+    olt_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("olts.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+
+
 class PonPort(TimestampMixin, Base):
     __tablename__ = "pon_ports"
     __table_args__ = (UniqueConstraint("olt_id", "slot", "port", name="uq_ponport_olt_slot_port"),)

@@ -1,11 +1,11 @@
 """Pure queries for olts / pon_ports (PRD repository convention: no business rules)."""
 
-from sqlalchemy import String, cast, func, or_, select, update
+from sqlalchemy import String, cast, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.rbac import Scope, scoped
-from app.models.olt import Olt, PonPort
+from app.models.olt import Olt, OltAccess, PonPort
 from app.models.onu import Onu
 from app.models.user import User
 
@@ -83,6 +83,27 @@ async def list_pon_ports(db: AsyncSession, olt_id: int) -> list[tuple[PonPort, i
         .order_by(PonPort.slot, PonPort.port)
     )
     return [(pon, count) for pon, count in await db.execute(stmt)]
+
+async def access_user_ids(db: AsyncSession, olt_id: int) -> list[int]:
+    """Admin/Superadmin dengan akses tambahan ke satu OLT (bukan pemilik utama)."""
+    stmt = select(OltAccess.user_id).where(OltAccess.olt_id == olt_id).order_by(OltAccess.user_id)
+    return list((await db.execute(stmt)).scalars().all())
+
+async def access_map(db: AsyncSession, olt_ids: list[int]) -> dict[int, list[int]]:
+    """Satu query untuk banyak OLT (dipakai baris OLT Management, hindari N+1)."""
+    if not olt_ids:
+        return {}
+    stmt = (select(OltAccess.olt_id, OltAccess.user_id)
+            .where(OltAccess.olt_id.in_(olt_ids)).order_by(OltAccess.user_id))
+    out: dict[int, list[int]] = {}
+    for olt_id, user_id in await db.execute(stmt):
+        out.setdefault(olt_id, []).append(user_id)
+    return out
+
+async def set_access(db: AsyncSession, olt_id: int, user_ids: list[int]) -> None:
+    await db.execute(delete(OltAccess).where(OltAccess.olt_id == olt_id))
+    for user_id in dict.fromkeys(user_ids):
+        db.add(OltAccess(olt_id=olt_id, user_id=user_id))
 
 async def owner_name(db: AsyncSession, olt: Olt) -> str:
     return await db.scalar(select(User.full_name).where(User.id == olt.owner_id)) or "—"
