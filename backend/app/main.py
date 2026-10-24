@@ -17,7 +17,7 @@ from app.models.job import Job
 from app.models.setting import Setting
 from app.models.user import User
 from app.repositories import olt_repo
-from app.routers import auth, jobs, master_data, olts, onus
+from app.routers import auth, jobs, master_data, olts, onu_types, onus, splitters, users, zones
 
 WORKER_ALIVE = timedelta(minutes=2)
 
@@ -58,7 +58,7 @@ async def system_status(
     }
 
 
-for module in (auth, olts, onus, jobs, master_data):
+for module in (auth, olts, onus, jobs, master_data, users, zones, onu_types, splitters):
     app.include_router(module.router)
 
 # ponytail: sajikan frontend build dari API sendiri, satu port saja, no nginx/caddy.
