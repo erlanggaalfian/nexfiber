@@ -667,18 +667,18 @@ class ZteC320Driver(OltDriver):
         pon = f"1/{slot}/{port}"
         iface = f"gpon-onu_{pon}:{onu_id}"
         commands = [
-            f"show running-config interface gpon-olt_{pon}",
+            f"show gpon onu detail-info {iface}",
             f"show running-config interface {iface}",
             f"show onu running config {iface}",
         ]
         async with self._open_cli() as cli:
-            olt_cfg = await cli.send_command(commands[0])
+            detail = await cli.send_command(commands[0])
             onu_cfg = await cli.send_command(commands[1])
             mng_cfg = await cli.send_command(commands[2])
         return OnuReport(
             view="running",
             output=onu_report.running_config_report(
-                olt_iface_config=olt_cfg, onu_iface_config=onu_cfg,
+                detail_info=detail, onu_iface_config=onu_cfg,
                 onu_mng_config=mng_cfg, pon=pon, onu_id=onu_id,
             ),
             raw_command=" ; ".join(commands),

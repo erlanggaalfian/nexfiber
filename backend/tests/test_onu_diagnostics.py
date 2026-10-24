@@ -202,7 +202,7 @@ def test_running_config_report_has_three_blocks_separated_by_bang():
 
 
 def test_running_config_registration_block_filters_only_this_onu():
-    block = onu_report.registration_block(OLT_IFACE_CONFIG, "1/4/1", 11)
+    block = onu_report.registration_block(DETAIL_INFO, "1/4/1", 11)
     assert "onu 11 type F660 sn TESTSN000011" in block
     assert "TESTSN000010" not in block and "TESTSN000012" not in block
 
@@ -220,7 +220,7 @@ def test_running_config_is_unmasked_by_explicit_decision():
 
 def test_running_config_missing_block_marked_not_reported():
     output = onu_report.running_config_report(
-        olt_iface_config="", onu_iface_config=ONU_IFACE_CONFIG, onu_mng_config="",
+        detail_info="", onu_iface_config=ONU_IFACE_CONFIG, onu_mng_config="",
         pon="1/4/1", onu_id=11,
     )
     assert output.count(onu_report.NOT_REPORTED) == 2
@@ -262,7 +262,7 @@ def _status_output(olt_rx_dbm=None) -> str:
 
 def _running_output() -> str:
     return onu_report.running_config_report(
-        olt_iface_config=OLT_IFACE_CONFIG, onu_iface_config=ONU_IFACE_CONFIG,
+        detail_info=DETAIL_INFO, onu_iface_config=ONU_IFACE_CONFIG,
         onu_mng_config=ONU_MNG_CONFIG, pon="1/4/1", onu_id=11,
     )
 
@@ -335,7 +335,7 @@ async def test_driver_status_report_uses_allowed_commands_in_one_session():
 async def test_driver_running_config_report_reads_three_blocks():
     pon, iface = "1/4/1", "gpon-onu_1/4/1:11"
     replies = {
-        f"show running-config interface gpon-olt_{pon}": OLT_IFACE_CONFIG,
+        f"show gpon onu detail-info {iface}": DETAIL_INFO,
         f"show running-config interface {iface}": ONU_IFACE_CONFIG,
         f"show onu running config {iface}": ONU_MNG_CONFIG,
     }

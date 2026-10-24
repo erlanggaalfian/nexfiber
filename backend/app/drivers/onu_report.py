@@ -129,17 +129,17 @@ def status_report(*, attenuation: str, catv: str, detail_info: str, ip_host: str
 
 # --- Running config (3 blok) -------------------------------------------------------
 
-def registration_block(olt_iface_config: str, pon: str, onu_id: int) -> str:
-    """Blok 1: baris `onu <id> type <T> sn <SN>` dari config interface gpon-olt_<pon>.
+def registration_block(detail_info: str, pon: str, onu_id: int) -> str:
+    """Blok 1: `onu <id> type <T> sn <SN>` dari `show gpon onu detail-info` ONU itu saja.
 
-    Filter baris dikerjakan DI SINI, bukan dengan `| include` di perangkat: pipe butuh
-    bentuk command yang belum terverifikasi dan membuat output sulit diparse.
+    Nilainya dibaca dari perangkat (Type & Serial number), bukan dump config satu PON.
     """
-    wanted = re.compile(rf"^\s*onu\s+{onu_id}\s+(?:type|sn)\b", re.I)
-    lines = [ln.strip() for ln in clean_output(olt_iface_config).split("\n") if wanted.match(ln)]
-    if not lines:
+    txt = clean_output(detail_info)
+    typ = re.search(r"^\s*Type:\s*(\S+)", txt, re.M)
+    sn = re.search(r"^\s*Serial number:\s*(\S+)", txt, re.M)
+    if not (typ and sn):
         return NOT_REPORTED
-    return "\n".join([f"interface gpon-olt_{pon}", *(f" {ln}" for ln in lines)])
+    return f"interface gpon-olt_{pon}\n onu {onu_id} type {typ.group(1)} sn {sn.group(1)}"
 
 
 def _strip_config_tail(raw: str) -> str:
@@ -151,7 +151,7 @@ def _strip_config_tail(raw: str) -> str:
     return text
 
 
-def running_config_report(*, olt_iface_config: str, onu_iface_config: str,
+def running_config_report(*, detail_info: str, onu_iface_config: str,
                           onu_mng_config: str, pon: str, onu_id: int) -> str:
     """Tiga blok dipisah `!`, urutan: registrasi → interface ONU → pon-onu-mng.
 
@@ -159,7 +159,7 @@ def running_config_report(*, olt_iface_config: str, onu_iface_config: str,
     memastikan role berwenang; isi blok ini tidak boleh masuk log/fixture/dokumen.
     """
     blocks = []
-    for text in (registration_block(olt_iface_config, pon, onu_id),
+    for text in (registration_block(detail_info, pon, onu_id),
                  _strip_config_tail(onu_iface_config) or NOT_REPORTED,
                  _strip_config_tail(onu_mng_config) or NOT_REPORTED):
         blocks.append(text if text.strip() else NOT_REPORTED)
