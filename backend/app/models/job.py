@@ -56,6 +56,16 @@ class Job(TimestampMixin, Base):
     __table_args__ = (
         Index("ix_jobs_claim", "status", "run_after", "priority"),
         Index("ix_jobs_onu_created", "onu_id", "created_at"),
+        # Anti-numpuk per ONU: satu job tipe sama per ONU yang masih pending/running.
+        # Pengganti cek aplikasi (exists_active_for_onu) yang bisa dilewati balapan dua
+        # proses: index inilah yang memutuskan siapa menang.
+        Index(
+            "uq_jobs_active_per_onu",
+            "job_type",
+            "onu_id",
+            unique=True,
+            postgresql_where=text("status IN ('pending','running') AND onu_id IS NOT NULL"),
+        ),
         Index(
             "uq_jobs_sync_pending_per_olt",
             "job_type",

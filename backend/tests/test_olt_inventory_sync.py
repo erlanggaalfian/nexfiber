@@ -12,6 +12,7 @@ nyata (serial disanitasi). Tiga bug yang ditutup di sini:
 """
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from app.drivers.types import OltInventory, OnuSnapshot
 from app.drivers.zte_c320 import (
@@ -130,7 +131,12 @@ class _Result:
 
 
 class _Db:
-    """Session minimal: PON port 6/1 sudah ada, 6/2 belum (uji skipped_unknown_port)."""
+    """Session minimal: PON port 6/1 sudah ada, 6/2 belum (uji skipped_unknown_port).
+
+    `_adopt_inventory` membuat baris ONU baru lewat `INSERT ... ON CONFLICT DO NOTHING`
+    (aman kalau dua proses sync menulis bersamaan), jadi fake ini mencatat nilai INSERT
+    sebagai objek supaya tes tetap bisa memeriksa isi barisnya seperti dulu.
+    """
 
     def __init__(self, pon_rows=((6, 1, 9),)):
         self.pon_rows = pon_rows
@@ -142,6 +148,9 @@ class _Db:
         text = str(stmt)
         if "pon_ports" in text and text.strip().lower().startswith("select"):
             return iter(self.pon_rows)
+        if "INSERT INTO onus" in text:
+            params = stmt.compile().params
+            self.added.append(SimpleNamespace(**params))
         return _Result()
 
     def add(self, obj):

@@ -59,19 +59,52 @@ async def mark_failed(db: AsyncSession, job: Job, error_message: str, error_code
         job.locked_by = None
     await db.commit()
 
+async def requeue_unpenalized(db: AsyncSession, job: Job, delay: timedelta, reason: str) -> None:
+    """Kembalikan job ke pending TANPA menghitung percobaan gagal.
+
+    Dipakai saat job sehat tapi belum boleh jalan (OLT-nya sedang dipakai sesi CLI lain).
+    Bukan kegagalan, jadi `attempts` dikurangi lagi supaya retry/backoff tidak terpakai
+    dan job tidak pernah habis percobaan hanya karena menunggu antrean OLT.
+    """
+    job.status = "pending"
+    job.attempts = max(0, job.attempts - 1)
+    job.run_after = datetime.now(UTC) + delay
+    job.locked_at = None
+    job.locked_by = None
+    job.started_at = None
+    job.error_message = reason[:1000]
+    await db.commit()
+
 async def release_stale_locks(db: AsyncSession, older_than: timedelta) -> int:
     """Safety net for jobs whose worker died mid-run (PRD 4.5.A "timeout job gantung"):
     requeue anything still 'running' with a locked_at older than the given threshold.
+
+    Job yang sudah habis percobaan TIDAK dikembalikan ke pending — kalau worker-nya mati
+    berulang, job seperti itu akan berputar selamanya (claim -> mati -> requeue). Yang
+    habis percobaan ditutup sebagai failed supaya antrean bersih dan terlihat di UI.
     """
     cutoff = datetime.now(UTC) - older_than
-    stmt = (
+    now = datetime.now(UTC)
+    exhausted = (
         update(Job)
-        .where(Job.status == "running", Job.locked_at < cutoff)
-        .values(status="pending", locked_at=None, locked_by=None)
+        .where(Job.status == "running", Job.locked_at < cutoff,
+               Job.attempts >= Job.max_attempts)
+        .values(status="failed", finished_at=now, locked_at=None, locked_by=None,
+                error_code="WorkerDied",
+                error_message="Worker mati saat job berjalan dan percobaan sudah habis")
     )
-    result = await db.execute(stmt)
+    requeued = (
+        update(Job)
+        .where(Job.status == "running", Job.locked_at < cutoff,
+               Job.attempts < Job.max_attempts)
+        .values(status="pending", locked_at=None, locked_by=None, started_at=None,
+                error_code="WorkerDied",
+                error_message="Worker mati saat job berjalan; dijadwalkan ulang")
+    )
+    dead = (await db.execute(exhausted)).rowcount or 0
+    result = (await db.execute(requeued)).rowcount or 0
     await db.commit()
-    return result.rowcount or 0
+    return result + dead
 
 async def exists_active_for_onu(db: AsyncSession, onu_id: int, job_type: str) -> bool:
     """Debounce tombol mahal: ada job tipe sama untuk ONU ini yang masih jalan?

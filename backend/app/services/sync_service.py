@@ -63,7 +63,8 @@ async def sync_onu_status(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict
     await _upsert_pon_ports(db, olt.id, missing, now)
     onus = await _onus_by_position(db, olt.id)
     changed, still_online = 0, []
-    for sample in samples:
+    # Urut posisi: dua proses menulis baris dalam urutan sama -> tidak ada deadlock.
+    for sample in sorted(samples, key=lambda s: (s.slot, s.port, s.onu_id)):
         onu = onus.get((sample.slot, sample.port, sample.onu_id))
         if onu is None:
             continue
@@ -91,7 +92,8 @@ async def sync_onu_optical(db: AsyncSession, olt: Olt, driver: OltDriver) -> dic
     now = datetime.now(UTC)
     onus = await _onus_by_position(db, olt.id)
     updated = 0
-    for sample in await driver.fetch_optical(None, None):
+    for sample in sorted(await driver.fetch_optical(None, None),
+                         key=lambda s: (s.slot, s.port, s.onu_id)):
         onu = onus.get((sample.slot, sample.port, sample.onu_id))
         if onu is None:
             continue
@@ -135,6 +137,12 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
     DIBIARKAN NULL — relasinya harus dibuat operator lewat Detail ONU > Pelanggan > Ubah,
     bukan ditebak dari teks.
 
+    Aman untuk dua proses menulis bersamaan: baris ONU baru dibuat dengan
+    `INSERT ... ON CONFLICT DO NOTHING` pada unique (olt_id, serial_number) — kalau proses
+    lain sudah membuatnya, kita lewati (siklus berikutnya yang meng-update), tidak ada
+    baris ganda dan tidak ada job yang gagal karena IntegrityError. Urutan iterasi
+    diurutkan serial supaya dua proses mengunci baris dalam urutan sama (anti-deadlock).
+
     Hanya INSERT/UPDATE: tidak ada delete ONU/VLAN supaya data pelanggan aman kalau suatu
     saat perangkat membalas sebagian.
     """
@@ -146,7 +154,7 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
     )).scalars()}
     added = updated = skipped = 0
     with_name = with_descr = 0
-    for snap in inv.onus:
+    for snap in sorted(inv.onus, key=lambda s: s.serial_number):
         if snap.name:
             with_name += 1
         if snap.description:
@@ -157,7 +165,7 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
             continue
         onu = existing.get(snap.serial_number)
         if onu is None:
-            db.add(Onu(
+            stmt = insert(Onu).values(
                 olt_id=olt.id, pon_port_id=pon_port_id, onu_index=snap.onu_id,
                 serial_number=snap.serial_number, auth_type="sn", onu_type=snap.onu_type,
                 name=_clip(snap.name, 100), description=_clip(snap.description, 128),
@@ -165,8 +173,11 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
                 admin_state=snap.admin_state or "enabled",
                 last_seen_at=now if snap.status == "online" else None,
                 last_sync_at=now, registered_at=now,
-            ))
-            added += 1
+            )
+            # Dua index partial yang bisa bentrok: serial per OLT dan posisi (pon, onu_index).
+            # DO NOTHING pada keduanya -> pemenang menulis, yang kalah diam.
+            res = await db.execute(stmt.on_conflict_do_nothing())
+            added += res.rowcount or 0
             continue
         onu.pon_port_id, onu.onu_index = pon_port_id, snap.onu_id
         onu.status, onu.last_sync_at = snap.status, now
@@ -227,7 +238,7 @@ async def sync_unconfigured(db: AsyncSession, olt: Olt, driver: OltDriver) -> di
     await _upsert_pon_ports(db, olt.id, ports, now)
     pon_ports = await _pon_ports_by_position(db, olt.id)
     seen, skipped = [], 0
-    for item in found:
+    for item in sorted(found, key=lambda i: i.serial_number):
         pon_port_id = pon_ports.get((item.slot, item.port))
         if pon_port_id is None:
             skipped += 1  # PON port not registered in DB yet

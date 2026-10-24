@@ -1,18 +1,19 @@
-"""Worker loop (PRD 4.5.A): claim job -> execute -> write result. One process; each job runs
-as its own task so a slow/unreachable OLT never blocks another OLT's jobs, while a per-OLT
-asyncio.Lock keeps one CLI session per OLT (PRD 4.3).
+"""Worker loop (PRD 4.5.A): claim job -> execute -> write result. Beberapa job jalan
+bersamaan (batas dari NEXFIBER_WORKER_CONCURRENCY) sehingga OLT berbeda tidak saling
+menunggu, sedangkan SATU OLT tetap satu sesi CLI pada satu waktu — dijaga advisory lock
+Postgres per olt_id (PRD 4.3), jadi aman walau worker/proses-nya lebih dari satu.
 """
 
 import asyncio
 import logging
+import os
 import signal
 import socket
-from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.dialects.postgresql import insert
 
-from app.core.db import SessionLocal
+from app.core.db import SessionLocal, olt_cli_lock
 from app.core.exceptions import CommandRejectedError, ForbiddenError, NotFoundError
 from app.drivers.factory import build_driver
 from app.models.job import Job
@@ -36,10 +37,23 @@ PERMANENT_ERRORS = (
     CommandRejectedError, ForbiddenError, NotFoundError, NotImplementedPhase2, KeyError,
 )
 
-_olt_locks: defaultdict[int | None, asyncio.Lock] = defaultdict(asyncio.Lock)
-# Caps concurrent DB sessions below the engine pool (10+5) so the scheduler/API path keeps
-# headroom. Taken after the OLT lock, so jobs queued behind a busy OLT hold no connection.
-_slots = asyncio.Semaphore(8)
+# Job yang HANYA pakai SNMP (lihat driver: fetch_onu_status/fetch_optical tidak membuka
+# CLI). Job ini tidak perlu kunci CLI, jadi status/optical satu OLT boleh jalan bersamaan
+# dengan job CLI OLT lain tanpa ikut mengantre.
+SNMP_ONLY_JOBS = frozenset({"sync_onu_status", "sync_onu_optical"})
+# OLT sedang dipakai sesi CLI lain: bukan error, cuma antre. Coba lagi sebentar lagi.
+CLI_BUSY_RETRY = timedelta(seconds=5)
+
+def _concurrency() -> int:
+    """Berapa job paralel per proses worker. Dibatasi di bawah pool koneksi DB (10+5)
+    supaya API/scheduler selalu kebagian koneksi."""
+    try:
+        value = int(os.environ.get("NEXFIBER_WORKER_CONCURRENCY", "8"))
+    except ValueError:
+        value = 8
+    return max(1, min(value, 12))
+
+_slots = asyncio.Semaphore(_concurrency())
 
 async def claim_one() -> tuple[int, int | None] | None:
     async with SessionLocal() as db:
@@ -49,17 +63,34 @@ async def claim_one() -> tuple[int, int | None] | None:
 
 async def run_job(job_id: int, olt_id: int | None) -> None:
     """Whole body guarded: one bad job/OLT marks that job failed, never kills the worker."""
-    async with _olt_locks[olt_id], _slots, SessionLocal() as db:
+    async with _slots, SessionLocal() as db:
         job = await db.get(Job, job_id)
         try:
             olt = await db.get(Olt, olt_id) if olt_id else None
             if olt is None:
                 raise NotFoundError(f"Job {job_id} has no valid olt_id")
-            result = await HANDLERS[job.job_type](db, job, olt, build_driver(olt))
-            await job_repo.mark_success(db, job, result)
+            if job.job_type in SNMP_ONLY_JOBS:
+                await _execute(db, job, olt)
+                return
+            # Kunci lintas proses: satu OLT = satu sesi CLI, OLT lain tidak terpengaruh.
+            # try_ (tanpa menunggu) supaya tidak ada deadlock dan slot tidak tertahan;
+            # job dikembalikan ke antrean tanpa dihitung gagal.
+            async with olt_cli_lock(olt.id) as acquired:
+                if not acquired:
+                    log.info("OLT %s sedang dipakai sesi CLI lain; job %s diantre ulang",
+                             olt.id, job_id)
+                    await job_repo.requeue_unpenalized(
+                        db, job, CLI_BUSY_RETRY, "Menunggu sesi CLI OLT yang sedang dipakai"
+                    )
+                    return
+                await _execute(db, job, olt)
         except Exception as exc:
             log.warning("job %s (%s) failed: %s", job_id, job.job_type, exc)
             await _fail(db, job_id, exc)
+
+async def _execute(db, job: Job, olt: Olt) -> None:
+    result = await HANDLERS[job.job_type](db, job, olt, build_driver(olt))
+    await job_repo.mark_success(db, job, result)
 
 async def _fail(db, job_id: int, exc: Exception) -> None:
     await db.rollback()

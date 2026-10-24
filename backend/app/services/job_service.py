@@ -33,8 +33,10 @@ async def enqueue(
 
     For sync_* job types the partial unique index (uq_jobs_sync_pending_per_olt) is the only
     anti-pileup check (PRD 4.4: "scheduler tidak membuat job baru bila job sejenis ... masih
-    pending/running") â€” we don't duplicate that check here, we just surface the resulting
-    unique violation as a ConflictError so the scheduler can skip it quietly.
+    pending/running") — we don't duplicate that check here, we just surface the resulting
+    unique violation as a ConflictError so the scheduler can skip it quietly. Index kedua
+    (uq_jobs_active_per_onu) melakukan hal sama untuk job per ONU, jadi dua proses yang
+    menekan tombol sama bersamaan tetap menghasilkan tepat satu job.
     """
     job = Job(
         job_type=job_type,
@@ -49,7 +51,9 @@ async def enqueue(
     try:
         await db.flush()
     except IntegrityError as exc:
-        raise ConflictError(f"A {job_type} job for this OLT is already pending/running") from exc
+        raise ConflictError(
+            f"Job {job_type} untuk target ini masih pending/running"
+        ) from exc
     return job
 
 async def get_job(db: AsyncSession, job_id: int, scope: Scope) -> Job:
