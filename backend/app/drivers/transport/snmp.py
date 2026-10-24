@@ -44,16 +44,21 @@ class SnmpTransport:
                 raise DriverError(f"SNMP walk {base_oid} failed: {reason}")
             if not var_binds:
                 break
-            # pysnmp 6.x bulkCmd: var_binds adalah list-per-OID-diminta, tiap elemen
-            # sendiri sebuah list berisi 1 tuple (oid, value) -- BUKAN (oid, value)
-            # langsung di var_binds[0] seperti pysnmp versi lama. Ketemu real lewat
-            # OLT SBI, 2026-10-24: unpack lama meledak "not enough values to unpack".
-            table = var_binds[0]
-            if not table:
+            # pysnmp 6.x bulkCmd: var_binds = list baris, tiap baris list berisi 1 tuple
+            # (oid, value). Pakai SEMUA baris balasan (25 per round-trip), bukan hanya baris
+            # pertama -- tabel besar (WNG, 32 PON) jadi ratusan kali lebih cepat.
+            last = None
+            done = False
+            for row in var_binds:
+                if not row:
+                    continue
+                oid, value = row[0]
+                if not str(oid).startswith(base_oid):
+                    done = True
+                    break
+                results.append((str(oid), value))
+                last = oid
+            if done or last is None:
                 break
-            oid, value = table[0]
-            if not str(oid).startswith(base_oid):
-                break
-            results.append((str(oid), value))
-            obj = ObjectType(ObjectIdentity(oid))
+            obj = ObjectType(ObjectIdentity(last))
         return results
