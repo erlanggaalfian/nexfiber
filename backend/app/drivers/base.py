@@ -7,8 +7,8 @@ from app.drivers.types import (
     InterfaceStatus,
     ModifyRequest,
     OltHealth,
+    OltInventory,
     OnuLiveDetail,
-    OnuSnapshot,
     OnuStatusSample,
     OpticalSample,
     PonPortInfo,
@@ -69,7 +69,7 @@ class OltDriver(ABC):
     async def reboot(self, slot: int, port: int, onu_id: int) -> DriverResult: ...
 
     @abstractmethod
-    async def fetch_inventory(self) -> list[OnuSnapshot]: ...
+    async def fetch_inventory(self) -> OltInventory: ...
 
     @abstractmethod
     async def fetch_onu_status(self) -> list[OnuStatusSample]: ...

@@ -8,8 +8,10 @@ session, 2026-10-24) -- confirmed and corrected multiple parser bugs found this 
 rows with missing RealType, processor column order, version-running multi-row format).
 CLI transport also fixed: netmiko device_type="generic_termserver" never logs in to ZXA10
 (stuck at Username:/Password: prompt forever) -- switched to "zte_zxros"/"zte_zxros_telnet".
-Still mark delete/set_state/reboot/fetch_inventory CLI syntax as UNVERIFIED
+Still mark delete/set_state/reboot CLI syntax as UNVERIFIED
 until confirmed against a live device (only read-only commands were run against SBI).
+fetch_inventory + optical (Rx ONU/OLT) sekarang TERVERIFIKASI terhadap OLT SBI
+(read-only 2026-10-24) — lihat tests/test_olt_inventory_sync.py.
 """
 
 import re
@@ -27,6 +29,7 @@ from app.drivers.types import (
     ModifyRequest,
     OltCard,
     OltHealth,
+    OltInventory,
     OnuLiveDetail,
     OnuSnapshot,
     OnuStatusSample,
@@ -53,10 +56,8 @@ UPLINK_PORT_RE = re.compile(r"^(x?gei)_(\d+)/(\d+)/(\d+)$", re.I)
 PORT_SPEEDS = ("10", "100", "1000", "10000")
 DUPLEXES = ("full", "half")
 
-# Optical power OIDs (ZTE enterprise MIB). UNVERIFIED like list_unconfigured/delete/
-# set_state/reboot/fetch_inventory above — community-sourced (public GitHub monitoring
-# script, not official ZTE MIB docs or a real transcript); confirm against a live SNMP
-# walk before trusting the values in production.
+# Optical power OIDs (ZTE enterprise MIB). TERVERIFIKASI di OLT SBI (read-only
+# 2026-10-24) dengan silang CLI `show pon power onu-rx|olt-rx gpon-olt_1/6/1`:
 #   - ONU Rx (downstream power at the ONU): table indexed by <pon_ifindex>.<onu_index>.1;
 #     raw is signed 16-bit, dBm = (raw - 65536 if raw >= 32768 else raw) * 0.002 - 30.0.
 #     This decode repeats identically in 3 independent branches of the source script.
@@ -68,20 +69,45 @@ DUPLEXES = ("full", "half")
 OID_ONU_RX_POWER = "1.3.6.1.4.1.3902.1082.500.20.2.2.2.1.10"
 OID_OLT_RX_POWER = "1.3.6.1.4.1.3902.1082.500.1.2.4.2.1.2"
 
-# ONU phase-state + PON ifindex layout. UNVERIFIED (community-sourced, not official ZTE MIB);
-# correct here once a real snmpwalk from the OLT is available — nothing else hardcodes these.
+# ONU phase-state + PON ifindex layout.
 #   - phase-state table indexed by <pon_ifindex>.<onu_index>.
 #   - pon_ifindex = BASE + slot * SLOT_MUL + port * PORT_MUL (gpon-olt_1/1/1 -> 268501248).
-#   - unmapped values (logging, syncMib, authFailed) are transitional -> "unknown".
+#   - nilai enum: NEXFIBER-SNMP-OID.md "Nilai phase state ZTE" (0 logging, 1 los,
+#     2 syncMib, 3 working, 4 dyingGasp, 5 authFailed, 6 offline). BUG NYATA (OLT SBI
+#     C300, read-only, 2026-10-24): peta lama {2:los,4:online,5:dying_gasp,7:offline}
+#     bergeser satu nilai, jadi SEMUA ONU working (SNMP=3) dibaca "unknown" dan ONU
+#     DyingGasp (SNMP=4) dibaca "online". Dibuktikan silang dengan
+#     `show gpon onu state gpon-olt_1/6/1`: 1/6/1:7 DyingGasp = SNMP 4, sisanya
+#     working = SNMP 3.
+#   - logging/syncMib/authFailed transisional -> "unknown".
 OID_ONU_PHASE_STATE = "1.3.6.1.4.1.3902.1012.3.28.2.1.4"
 PON_IFINDEX_BASE = 268435456
 PON_IFINDEX_SLOT_MUL = 65536
 PON_IFINDEX_PORT_MUL = 256
-PHASE_STATE_TO_STATUS = {2: "los", 4: "online", 5: "dying_gasp", 7: "offline"}
+PHASE_STATE_TO_STATUS = {1: "los", 3: "online", 4: "dying_gasp", 6: "offline"}
+
+# `show gpon onu state` kolom "Phase State" (teks) -> enum onus.status. Dipakai
+# fetch_inventory; peta teks dan peta SNMP di atas harus setuju (sama-sama device nyata).
+PHASE_TEXT_TO_STATUS = {
+    "working": "online",
+    "dyinggasp": "dying_gasp",
+    "los": "los",
+    "offline": "offline",
+    "logging": "unknown",
+    "syncmib": "unknown",
+    "authfailed": "unknown",
+}
 
 def decode_pon_ifindex(ifindex: int) -> tuple[int, int]:
     rest = ifindex - PON_IFINDEX_BASE
     return rest // PON_IFINDEX_SLOT_MUL, (rest % PON_IFINDEX_SLOT_MUL) // PON_IFINDEX_PORT_MUL
+
+def encode_pon_ifindex(slot: int, port: int) -> int:
+    """Kebalikan decode_pon_ifindex. Dipakai saat ifDescr SNMP kosong (C300 produksi):
+    ifindex dihitung, bukan dibaca. Terverifikasi di OLT SBI — PON 1/6/1 -> 268828928 dan
+    1/6/2 -> 268829184 sama dengan index yang dibalas walk phase-state.
+    """
+    return PON_IFINDEX_BASE + slot * PON_IFINDEX_SLOT_MUL + port * PON_IFINDEX_PORT_MUL
 
 def phase_state_to_status(value: object) -> str:
     try:
@@ -101,14 +127,31 @@ def _decode_onu_rx_dbm(value: object) -> float | None:
     return round(raw * 0.002 - 30.0, 2)
 
 def _decode_olt_rx_dbm(value: object) -> float | None:
+    """Tabel 1082.500 melaporkan dBm * 1000 (nilai NEGATIF apa adanya).
+
+    BUG NYATA (OLT SBI, read-only 2026-10-24): rumus lama `(10000 - raw//10)/100`
+    mengubah raw -23768 menjadi +337.68 lalu ditolak batas -60..10 -> olt_rx SELALU NULL.
+    Silang CLI `show pon power olt-rx gpon-olt_1/6/1`: 1/6/1:1 = -23.768 dBm, raw = -23768.
+    """
     try:
         raw = int(value)
     except (TypeError, ValueError):
         return None
     if raw == 2147483647:
         return None
-    dbm = round((10000 - raw // 10) / 100, 2)
+    dbm = round(raw / 1000, 2)
     return dbm if -60 <= dbm <= 10 else None
+
+def decode_optical_ifindex(ifindex: int) -> tuple[int, int]:
+    """Skema index KEDUA (NEXFIBER-SNMP-OID "Index ZTE" nomor 2), dipakai tabel
+    1082.500.*: ifIndex = (1<<28)|(rack<<24)|(shelf<<16)|(slot<<8)|port.
+
+    BUG NYATA (OLT SBI, read-only 2026-10-24): fetch_optical memakai
+    decode_pon_ifindex (skema 1012.3.28) pada index tabel 1082.500 sehingga PON 6/1
+    terbaca slot=257/port=6 -> tidak ada ONU yang cocok, rx_power_dbm tetap NULL
+    untuk semua 39 ONU. ifindex nyata 285279745 = PON 1/6/1.
+    """
+    return (ifindex >> 8) & 0xFF, ifindex & 0xFF
 
 class ZteC320Driver(OltDriver):
     vendor = "zte"
@@ -388,19 +431,34 @@ class ZteC320Driver(OltDriver):
             output = await cli.send_command(command)
         return self._result(command, output)
 
-    async def fetch_inventory(self) -> list[OnuSnapshot]:
-        # UNVERIFIED: public syntax.
-        command = "show gpon onu state"
+    async def fetch_inventory(self) -> OltInventory:
+        """ONU terdaftar + VLAN perangkat dalam SATU sesi CLI (read-only).
+
+        Terverifikasi di OLT SBI (C300, read-only, 2026-10-24):
+        - `show gpon onu state` TANPA argumen memang jalan dan mengembalikan seluruh PON
+          (39 baris) — ini sumber posisi + phase state.
+        - `show gpon onu baseinfo` tanpa argumen DITOLAK (`%Error 20203: Incomplete
+          command`), jadi SN/tipe harus diambil per PON yang benar-benar punya ONU.
+        - `show vlan summary` memberi daftar VLAN id perangkat.
+        """
         async with self._open_cli() as cli:
-            output = await cli.send_command(command)
-        snapshots: list[OnuSnapshot] = []
-        for line in output.splitlines():
-            parts = line.split()
-            if len(parts) >= 3 and parts[0].startswith("gpon-onu_"):
-                slot, port, onu_id = _parse_onu_iface(parts[0])
-                snapshots.append(OnuSnapshot(slot=slot, port=port, onu_id=onu_id,
-                                              serial_number=parts[1], status=parts[2].lower()))
-        return snapshots
+            state_out = await cli.send_command("show gpon onu state")
+            vlan_out = await cli.send_command("show vlan summary")
+            states = _parse_onu_state(state_out)
+            baseinfo: dict[tuple[int, int, int], tuple[str | None, str | None]] = {}
+            for slot, port in sorted({(s.slot, s.port) for s in states}):
+                out = await cli.send_command(
+                    f"show gpon onu baseinfo gpon-olt_1/{slot}/{port}"
+                )
+                baseinfo.update(_parse_onu_baseinfo(out))
+        onus = []
+        for snap in states:
+            serial, onu_type = baseinfo.get((snap.slot, snap.port, snap.onu_id), (None, None))
+            if not serial:
+                continue  # tanpa SN tidak bisa jadi baris onus (kunci uq_onu_olt_serial)
+            snap.serial_number, snap.onu_type = serial, onu_type
+            onus.append(snap)
+        return OltInventory(onus=onus, vlan_ids=_parse_vlan_summary(vlan_out))
 
     async def fetch_onu_status(self) -> list[OnuStatusSample]:
         samples: list[OnuStatusSample] = []
@@ -434,7 +492,7 @@ class ZteC320Driver(OltDriver):
             if len(suffix) != 3:  # expected "<pon_ifindex>.<onu_index>.1"
                 continue
             pon_ifindex, onu_index = int(suffix[0]), int(suffix[1])
-            row_slot, row_port = decode_pon_ifindex(pon_ifindex)
+            row_slot, row_port = decode_optical_ifindex(pon_ifindex)
             if slot is not None and port is not None and (row_slot, row_port) != (slot, port):
                 continue
             samples.append(OpticalSample(
@@ -495,7 +553,17 @@ class ZteC320Driver(OltDriver):
                 continue
             slot, port = _parse_slot_port(descr)
             ports.append(PonPortInfo(slot=slot, port=port, ifindex=int(oid.rsplit(".", 1)[1])))
-        return ports
+        if ports:
+            return ports
+        # BUG NYATA (OLT SBI C300, read-only 2026-10-24): seluruh ifDescr kosong, jadi
+        # tak satu pun PON terbaca lewat SNMP dan pon_ports tidak pernah terisi. Fallback
+        # CLI: posisi PON dari `show gpon onu state`, ifindex dihitung (encode_pon_ifindex).
+        async with self._open_cli() as cli:
+            state_out = await cli.send_command("show gpon onu state")
+        return [
+            PonPortInfo(slot=slot, port=port, ifindex=encode_pon_ifindex(slot, port))
+            for slot, port in sorted({(s.slot, s.port) for s in _parse_onu_state(state_out)})
+        ]
 
     async def list_onu_ids(self, slot: int, port: int) -> list[int]:
         # "onu <id> type <t> sn <sn>" lines match the real running-config transcripts;
@@ -678,6 +746,61 @@ def _parse_unconfigured(output: str) -> list[UnconfiguredOnu]:
             onus.append(UnconfiguredOnu(slot=slot, port=port, serial_number=m.group(2),
                                          onu_type=m.group(3)))
     return onus
+
+# Baris `show gpon onu state`: "1/6/1:7     enable       disable      DyingGasp    1(GPON)"
+# (transkrip nyata OLT SBI C300, read-only 2026-10-24).
+_ONU_STATE_ROW_RE = re.compile(
+    r"^\s*(\d+)/(\d+)/(\d+):(\d+)\s+(\S+)\s+\S+\s+(\S+)", re.M
+)
+# Baris `show gpon onu baseinfo gpon-olt_<pon>`:
+# "gpon-onu_1/6/1:2    HG8145V5    sn      SN:HWTC2FB2BAB2         ready"
+_ONU_BASEINFO_ROW_RE = re.compile(
+    r"^\s*gpon-onu_(\d+)/(\d+)/(\d+):(\d+)\s+(\S+)\s+\S+\s+SN:(\S+)", re.M
+)
+
+def _parse_onu_state(output: str) -> list[OnuSnapshot]:
+    """`show gpon onu state` (semua PON atau satu PON) -> posisi + status + admin state.
+    serial_number diisi belakangan dari baseinfo; command ini tidak memuat SN.
+    """
+    snapshots: list[OnuSnapshot] = []
+    for m in _ONU_STATE_ROW_RE.finditer(output):
+        _rack, slot, port, onu_id, admin, phase = m.groups()
+        snapshots.append(OnuSnapshot(
+            slot=int(slot), port=int(port), onu_id=int(onu_id), serial_number="",
+            status=PHASE_TEXT_TO_STATUS.get(phase.lower(), "unknown"),
+            admin_state="enabled" if admin.lower() == "enable" else "disabled",
+        ))
+    return snapshots
+
+def _parse_onu_baseinfo(output: str) -> dict[tuple[int, int, int], tuple[str, str | None]]:
+    """`show gpon onu baseinfo gpon-olt_<pon>` -> {(slot, port, onu_id): (SN, tipe)}."""
+    rows: dict[tuple[int, int, int], tuple[str, str | None]] = {}
+    for m in _ONU_BASEINFO_ROW_RE.finditer(output):
+        _rack, slot, port, onu_id, onu_type, serial = m.groups()
+        rows[(int(slot), int(port), int(onu_id))] = (serial, onu_type)
+    return rows
+
+def _parse_vlan_summary(output: str) -> list[int]:
+    """`show vlan summary`: "All created vlan num: 6" lalu baris id "1,15,19,68,100,3045".
+    Rentang "10-12" juga diterima (format ZXROS yang sama saat id berurutan).
+    """
+    vlans: set[int] = set()
+    for line in output.splitlines():
+        line = line.strip()
+        if not line or ":" in line or line.startswith("%") or line.endswith("#"):
+            continue
+        if not re.fullmatch(r"[\d,\s-]+", line):
+            continue
+        for token in line.replace(" ", "").split(","):
+            if not token:
+                continue
+            if "-" in token:
+                lo, _, hi = token.partition("-")
+                if lo.isdigit() and hi.isdigit():
+                    vlans.update(range(int(lo), int(hi) + 1))
+            elif token.isdigit():
+                vlans.add(int(token))
+    return sorted(v for v in vlans if 1 <= v <= 4094)
 
 def _parse_onu_ids(output: str) -> list[int]:
     ids: list[int] = []

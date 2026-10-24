@@ -92,6 +92,12 @@ Trafik dan jarak: `index = 0x480000 | ((port-1) << 12) | onu_id`.
 ## Catatan
 
 - `Unconfigured ONU SN` (`1012.3.13.3.1.2`) tidak tersedia. `sync_unconfigured` tetap memakai CLI.
+- Tabel optical `1082.500.*` memakai index skema 2 dan melaporkan **dBm x 1000 bertanda**
+  (raw `-23768` = `-23.768` dBm). Jangan pakai `decode_pon_ifindex` (skema 1) untuk tabel ini:
+  index nyata `285279745` = PON 1/6/1, kalau salah skema terbaca slot 257 dan Rx jadi NULL.
+  Terverifikasi di OLT SBI 2026-10-24 (silang `show pon power onu-rx|olt-rx`).
+- Kalau seluruh `ifDescr` kosong (C300 produksi), ifIndex PON dihitung
+  (`encode_pon_ifindex`), bukan dibaca dari SNMP.
 - CPU/RAM ZTE dibaca per kartu dengan index `.1.1.<slot>`. Main control bertipe `SCXN`.
 - Rx/Tx dilihat dari sisi OLT: Rx = upload pelanggan, Tx = download pelanggan.
 - Port SNMP bisa bukan 161. Selalu baca port dari config OLT.

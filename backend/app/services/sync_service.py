@@ -14,6 +14,7 @@ from app.drivers.base import OltDriver
 from app.models.olt import Olt, OltConfigBackup, PonPort
 from app.models.onu import Onu, OnuSignalHistory
 from app.models.unconfigured_onu import UnconfiguredOnu
+from app.models.vlan import Vlan
 
 
 async def _onus_by_position(db: AsyncSession, olt_id: int) -> dict[tuple[int, int, int], Onu]:
@@ -105,11 +106,66 @@ async def sync_onu_optical(db: AsyncSession, olt: Olt, driver: OltDriver) -> dic
     _mark_olt_ok(olt, now)
     return {"updated": updated}
 
-async def sync_olt_metrics(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict:
-    """Optical ONU + kesehatan OLT dalam SATU job per OLT (DECISIONS "Job & scheduling":
-    gabung ke job optical, jangan bikin sync_olt_health terpisah) — satu siklus koneksi ke
-    OLT tiap 15 menit, bukan dua.
+async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: datetime) -> dict:
+    """Adopsi isi NYATA OLT ke DB dari pembacaan read-only (PRD 3.1 poin 7: ONU existing
+    masuk lewat discovery, metadata pelanggan diisi manual kemudian).
+
+    BUG NYATA (OLT SBI, 2026-10-24): `fetch_inventory()` punya handler/driver tapi TIDAK
+    PERNAH dipanggil job apa pun, jadi 39 ONU terdaftar dan 6 VLAN di perangkat tidak
+    pernah masuk DB; Detail OLT selalu "Belum ada ...". sync_onu_status hanya meng-update
+    baris yang sudah ada, tidak pernah membuat.
+
+    Hanya INSERT/UPDATE: tidak ada delete ONU/VLAN supaya data pelanggan aman kalau suatu
+    saat perangkat membalas sebagian.
     """
+    inv = await driver.fetch_inventory()
+    await _upsert_pon_ports(db, olt.id, {(s.slot, s.port): None for s in inv.onus}, now)
+    pon_ports = await _pon_ports_by_position(db, olt.id)
+    existing = {onu.serial_number: onu for onu in (await db.execute(
+        select(Onu).where(Onu.olt_id == olt.id, Onu.deleted_at.is_(None))
+    )).scalars()}
+    added = updated = skipped = 0
+    for snap in inv.onus:
+        pon_port_id = pon_ports.get((snap.slot, snap.port))
+        if pon_port_id is None:
+            skipped += 1
+            continue
+        onu = existing.get(snap.serial_number)
+        if onu is None:
+            db.add(Onu(
+                olt_id=olt.id, pon_port_id=pon_port_id, onu_index=snap.onu_id,
+                serial_number=snap.serial_number, auth_type="sn", onu_type=snap.onu_type,
+                status=snap.status, config_state="success",
+                admin_state=snap.admin_state or "enabled",
+                last_seen_at=now if snap.status == "online" else None,
+                last_sync_at=now, registered_at=now,
+            ))
+            added += 1
+            continue
+        onu.pon_port_id, onu.onu_index = pon_port_id, snap.onu_id
+        onu.status, onu.last_sync_at = snap.status, now
+        onu.onu_type = onu.onu_type or snap.onu_type
+        if snap.admin_state:
+            onu.admin_state = snap.admin_state
+        if snap.status == "online":
+            onu.last_seen_at = now
+        updated += 1
+    vlans_added = 0
+    for vid in inv.vlan_ids:
+        stmt = insert(Vlan).values(olt_id=olt.id, vlan_id=vid, name=f"VLAN{vid}")
+        # on_conflict_do_nothing: nama/tipe yang sudah diisi operator tidak ditimpa.
+        res = await db.execute(stmt.on_conflict_do_nothing(constraint="uq_vlan_olt_vlanid"))
+        vlans_added += res.rowcount or 0
+    return {"onus_added": added, "onus_updated": updated,
+            "onus_skipped_unknown_port": skipped, "vlans_added": vlans_added,
+            "vlans_on_device": len(inv.vlan_ids)}
+
+async def sync_olt_metrics(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict:
+    """Optical ONU + kesehatan OLT + adopsi inventory dalam SATU job per OLT
+    (DECISIONS "Job & scheduling": gabung ke job optical, jangan bikin job terpisah) —
+    satu siklus koneksi ke OLT tiap 15 menit.
+    """
+    inventory = await _adopt_inventory(db, olt, driver, datetime.now(UTC))
     optical = await sync_onu_optical(db, olt, driver)
     now = datetime.now(UTC)
     health = await driver.fetch_health()
@@ -126,7 +182,8 @@ async def sync_olt_metrics(db: AsyncSession, olt: Olt, driver: OltDriver) -> dic
         db, olt.id, {(p.slot, p.port): p.ifindex for p in await driver.list_pon_ports()}, now
     )
     _mark_olt_ok(olt, now)
-    return {**optical, "cards": len(health.cards), "uplink_ports": health.uplink_ports}
+    return {**optical, **inventory,
+            "cards": len(health.cards), "uplink_ports": health.uplink_ports}
 
 async def sync_unconfigured(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict:
     """UPSERT what the scan saw, then drop rows it didn't. Only reached when the scan

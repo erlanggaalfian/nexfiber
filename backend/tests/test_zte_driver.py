@@ -1,7 +1,6 @@
-"""Parser/registry unit tests for the ZTE driver. See zte_c320.py module docstring:
-list_unconfigured/delete/set_state/reboot/fetch_inventory command syntax is UNVERIFIED
-(no real device transcript available) — these tests cover only what's confirmed against
-real transcripts (backup_config passthrough) plus pure-function parsing helpers.
+"""Parser/registry unit tests for the ZTE driver. list_unconfigured/fetch_inventory kini
+diverifikasi terhadap transkrip nyata OLT SBI (lihat test_olt_inventory_sync.py);
+delete/set_state/reboot CLI syntax masih UNVERIFIED.
 """
 
 from pathlib import Path
@@ -29,6 +28,9 @@ from app.drivers.zte_c320 import (
 )
 
 IFX_1_3_6 = 268435456 + 3 * 65536 + 6 * 256  # gpon-olt_1/3/6 under the UNVERIFIED layout
+# Skema index KEDUA (tabel optical 1082.500): nilai nyata OLT SBI untuk PON 1/6/1 & 1/6/2.
+OPT_IFX_1_6_1 = 285279745
+OPT_IFX_1_6_2 = 285279746
 IFX_1_4_3 = 268435456 + 4 * 65536 + 3 * 256
 
 def _driver() -> ZteC320Driver:
@@ -65,11 +67,13 @@ def test_parse_unconfigured_matches_real_gpon_onu_prefix():
     ]
 
 def test_phase_state_to_status():
-    assert phase_state_to_status(4) == "online"
-    assert phase_state_to_status(2) == "los"
-    assert phase_state_to_status(5) == "dying_gasp"
-    assert phase_state_to_status(7) == "offline"
-    for transitional in (1, 3, 6, 99, None, "x"):
+    # Nilai nyata (NEXFIBER-SNMP-OID + silang `show gpon onu state` OLT SBI):
+    # 3 working, 4 dyingGasp, 1 los, 6 offline. Lihat test_olt_inventory_sync.py.
+    assert phase_state_to_status(3) == "online"
+    assert phase_state_to_status(1) == "los"
+    assert phase_state_to_status(4) == "dying_gasp"
+    assert phase_state_to_status(6) == "offline"
+    for transitional in (0, 2, 5, 99, None, "x"):
         assert phase_state_to_status(transitional) == "unknown"
 
 async def test_fetch_onu_status_decodes_every_pon(monkeypatch):
@@ -78,9 +82,9 @@ async def test_fetch_onu_status_decodes_every_pon(monkeypatch):
     async def fake_bulkwalk(base_oid):
         assert base_oid == OID_ONU_PHASE_STATE
         return [
-            (f"{OID_ONU_PHASE_STATE}.{IFX_1_3_6}.59", 4),
-            (f"{OID_ONU_PHASE_STATE}.{IFX_1_4_3}.46", 2),
-            (f"{OID_ONU_PHASE_STATE}.{IFX_1_3_6}", 4),  # malformed suffix, skipped
+            (f"{OID_ONU_PHASE_STATE}.{IFX_1_3_6}.59", 3),
+            (f"{OID_ONU_PHASE_STATE}.{IFX_1_4_3}.46", 1),
+            (f"{OID_ONU_PHASE_STATE}.{IFX_1_3_6}", 3),  # malformed suffix, skipped
         ]
 
     monkeypatch.setattr(driver._snmp, "bulkwalk", fake_bulkwalk)
@@ -138,11 +142,12 @@ def test_decode_onu_rx_dbm_handles_signed_16bit_and_sentinel():
     assert _decode_onu_rx_dbm(15000) == pytest.approx(0.0)  # (15000*0.002)-30 = 0
     assert _decode_onu_rx_dbm("not-a-number") is None
 
-def test_decode_olt_rx_dbm_rejects_out_of_range():
+def test_decode_olt_rx_dbm_reads_millidbm():
+    # Nilai nyata OLT SBI: raw -23768 = -23.768 dBm (silang `show pon power olt-rx`).
     assert _decode_olt_rx_dbm(2147483647) is None
-    # source's own worked example (28492) fails its own -60..10 dBm sanity range check
-    assert _decode_olt_rx_dbm(28492) is None
-    assert _decode_olt_rx_dbm(120080) == pytest.approx(-20.08)  # (10000 - 12008) / 100
+    assert _decode_olt_rx_dbm(-23768) == pytest.approx(-23.77)
+    assert _decode_olt_rx_dbm(-23115) == pytest.approx(-23.11)  # pembulatan 2 desimal
+    assert _decode_olt_rx_dbm(120080) is None  # di luar -60..10 dBm
 
 @pytest.mark.asyncio
 async def test_fetch_optical_decodes_and_joins_olt_rx(monkeypatch):
@@ -153,19 +158,19 @@ async def test_fetch_optical_decodes_and_joins_olt_rx(monkeypatch):
 
     async def fake_bulkwalk(base_oid):
         if base_oid == OID_ONU_RX_POWER:
-            return [(f"{OID_ONU_RX_POWER}.{IFX_1_3_6}.1.1", 15000),
-                    (f"{OID_ONU_RX_POWER}.{IFX_1_4_3}.1.1", 15000)]  # other PON, filtered
+            return [(f"{OID_ONU_RX_POWER}.{OPT_IFX_1_6_1}.1.1", 5470),
+                    (f"{OID_ONU_RX_POWER}.{OPT_IFX_1_6_2}.1.1", 5470)]  # PON lain, difilter
         if base_oid == OID_OLT_RX_POWER:
-            return [(f"{OID_OLT_RX_POWER}.{IFX_1_3_6}.1", 120080)]
+            return [(f"{OID_OLT_RX_POWER}.{OPT_IFX_1_6_1}.1", -23768)]
         raise AssertionError(f"unexpected OID {base_oid}")
 
     monkeypatch.setattr(driver._snmp, "bulkwalk", fake_bulkwalk)
-    samples = await driver.fetch_optical(slot=3, port=6)
+    samples = await driver.fetch_optical(slot=6, port=1)
     assert len(samples) == 1
     sample = samples[0]
-    assert (sample.slot, sample.port, sample.onu_id) == (3, 6, 1)
-    assert sample.rx_power_dbm == pytest.approx(0.0)
-    assert sample.olt_rx_power_dbm == pytest.approx(-20.08)
+    assert (sample.slot, sample.port, sample.onu_id) == (6, 1, 1)
+    assert sample.rx_power_dbm == pytest.approx(-19.06)
+    assert sample.olt_rx_power_dbm == pytest.approx(-23.77)
 
 
 def test_parse_onu_ids_from_real_transcript():

@@ -1,0 +1,7 @@
+show gpon onu baseinfo gpon-olt_1/6/1
+OnuIndex            Type        Mode    AuthInfo                State
+-------------------------------------------------------------------------------
+gpon-onu_1/6/1:1    ALL-ONT     sn      SN:TESTSN00000001       ready
+gpon-onu_1/6/1:2    HG8145V5    sn      SN:TESTSN00000002       ready
+gpon-onu_1/6/1:7    ALL-ONT     sn      SN:TESTSN00000007       ready
+OLT_C300_SBI_01#

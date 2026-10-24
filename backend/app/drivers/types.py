@@ -165,6 +165,18 @@ class OnuSnapshot:
     serial_number: str
     status: str
     description: str | None = None
+    onu_type: str | None = None
+    admin_state: str | None = None  # "enabled" | "disabled" (nilai enum onus.admin_state)
+
+
+@dataclass
+class OltInventory:
+    """Isi nyata OLT yang dibaca read-only dalam satu sesi CLI: ONU yang sudah
+    terdaftar (configured) + VLAN yang ada di perangkat.
+    """
+
+    onus: list[OnuSnapshot]
+    vlan_ids: list[int]
 
 @dataclass
 class OnuStatusSample:

@@ -47,7 +47,8 @@ command di atas (port yang tidak ada menjawab `%Error 20202`).
 | Data | Perintah | Status |
 |---|---|---|
 | Status semua ONU | `show gpon onu state gpon-olt_<pon>` | ✅ terverifikasi |
-| Tipe dan SN ONU | `show gpon onu baseinfo gpon-olt_<pon>` | ✅ terverifikasi |
+| Status ONU SELURUH PON | `show gpon onu state` (tanpa argumen) | ✅ terverifikasi |
+| Tipe dan SN ONU | `show gpon onu baseinfo gpon-olt_<pon>` | ✅ terverifikasi (wajib per PON; tanpa argumen ditolak `%Error 20203`) |
 | ONU belum terdaftar per PON | `show gpon onu uncfg gpon-olt_<pon>` | ✅ valid, kosong |
 | ONU belum terdaftar semua PON | `show gpon onu uncfg` | ✅ valid, kosong |
 | Rx semua ONU | `show pon power onu-rx gpon-olt_<pon>` | ✅ terverifikasi |

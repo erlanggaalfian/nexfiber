@@ -1,0 +1,182 @@
+"""Regresi bug "inventory OLT selalu kosong" (OLT SBI, C300 nyata, 2026-10-24).
+
+Semua fixture di tests/fixtures/cli/zte_show_* adalah transkrip read-only dari perangkat
+nyata (serial disanitasi). Tiga bug yang ditutup di sini:
+
+1. `PHASE_STATE_TO_STATUS` bergeser satu nilai -> seluruh ONU working (SNMP 3) dibaca
+   "unknown" dan DyingGasp (4) dibaca "online".
+2. `fetch_inventory()` memakai sintaks karangan (`show gpon onu state` dianggap memuat
+   SN) dan tidak pernah mengembalikan VLAN.
+3. `sync_olt_metrics` tidak pernah memanggil `fetch_inventory()`, jadi tidak ada baris
+   ONU/VLAN yang pernah dibuat dari discovery.
+"""
+
+from pathlib import Path
+
+from app.drivers.types import OltInventory, OnuSnapshot
+from app.drivers.zte_c320 import (
+    _parse_onu_baseinfo,
+    _parse_onu_state,
+    _parse_vlan_summary,
+    decode_optical_ifindex,
+    decode_pon_ifindex,
+    encode_pon_ifindex,
+    phase_state_to_status,
+)
+from app.services import sync_service
+from app.worker import handlers
+
+FIXTURES = Path(__file__).parent / "fixtures" / "cli"
+
+
+def _fixture(name: str) -> str:
+    return (FIXTURES / name).read_text()
+
+
+def test_phase_state_matches_device_transcript():
+    """SNMP walk OLT SBI: 1/6/1:7 DyingGasp = 4, sisanya working = 3 (NEXFIBER-SNMP-OID)."""
+    assert phase_state_to_status(3) == "online"
+    assert phase_state_to_status(4) == "dying_gasp"
+    assert phase_state_to_status(1) == "los"
+    assert phase_state_to_status(6) == "offline"
+    for transitional in (0, 2, 5):
+        assert phase_state_to_status(transitional) == "unknown"
+
+
+def test_phase_text_and_snmp_agree():
+    states = _parse_onu_state(_fixture("zte_show_gpon_onu_state.txt"))
+    by_pos = {(s.slot, s.port, s.onu_id): s.status for s in states}
+    assert by_pos[(6, 1, 7)] == phase_state_to_status(4) == "dying_gasp"
+    assert by_pos[(6, 1, 1)] == phase_state_to_status(3) == "online"
+
+
+def test_parse_onu_state_reads_all_pons():
+    states = _parse_onu_state(_fixture("zte_show_gpon_onu_state.txt"))
+    assert len(states) == 5  # baris header/footer tidak ikut
+    assert {(s.slot, s.port) for s in states} == {(6, 1), (6, 2)}
+    assert all(s.admin_state == "enabled" for s in states)
+
+
+def test_parse_onu_baseinfo_gives_serials():
+    rows = _parse_onu_baseinfo(_fixture("zte_show_gpon_onu_baseinfo.txt"))
+    assert rows[(6, 1, 2)] == ("TESTSN00000002", "HG8145V5")
+    assert len(rows) == 3
+
+
+def test_parse_vlan_summary():
+    assert _parse_vlan_summary(_fixture("zte_show_vlan_summary.txt")) == [
+        1, 15, 19, 68, 100, 3045
+    ]
+    assert _parse_vlan_summary("    10-12,20 \n") == [10, 11, 12, 20]
+    # uncfg-style error / prompt bukan VLAN
+    assert _parse_vlan_summary("%Code 62310-GPONSRV : No related information\nOLT#") == []
+
+
+def test_encode_pon_ifindex_roundtrip():
+    # ifDescr C300 kosong -> ifindex PON harus dihitung.
+    assert encode_pon_ifindex(6, 1) == 268828928
+    assert encode_pon_ifindex(6, 2) == 268829184
+
+
+def test_decode_optical_ifindex_uses_second_index_scheme():
+    """Index tabel 1082.500 (nilai nyata OLT SBI) bukan skema 1012.3.28.
+
+    Dibuktikan silang: ONU-RX index 285279745 harus PON 6/1 — dengan decode_pon_ifindex
+    lama hasilnya slot=257 sehingga tidak ada ONU yang cocok dan Rx tetap NULL.
+    """
+    assert decode_optical_ifindex(285279745) == (6, 1)
+    assert decode_optical_ifindex(285279746) == (6, 2)
+    assert decode_pon_ifindex(285279745) != (6, 1)
+
+
+# --- adopsi inventory ke DB -------------------------------------------------
+
+class _Olt:
+    id = 31
+    status = None
+    last_sync_at = None
+    last_error = None
+
+
+class _Result:
+    rowcount = 1
+
+    def scalars(self):
+        return iter(())
+
+    def __iter__(self):
+        return iter(())
+
+
+class _Db:
+    """Session minimal: PON port 6/1 sudah ada, 6/2 belum (uji skipped_unknown_port)."""
+
+    def __init__(self, pon_rows=((6, 1, 9),)):
+        self.pon_rows = pon_rows
+        self.added: list = []
+        self.statements = 0
+
+    async def execute(self, stmt):
+        self.statements += 1
+        text = str(stmt)
+        if "pon_ports" in text and text.strip().lower().startswith("select"):
+            return iter(self.pon_rows)
+        return _Result()
+
+    def add(self, obj):
+        self.added.append(obj)
+
+
+class _InventoryDriver:
+    def __init__(self, inv: OltInventory):
+        self.inv = inv
+        self.calls: list[str] = []
+
+    async def fetch_inventory(self):
+        self.calls.append("fetch_inventory")
+        return self.inv
+
+
+async def test_adopt_inventory_creates_onu_rows_and_vlans():
+    from datetime import UTC, datetime
+
+    inv = OltInventory(
+        onus=[
+            OnuSnapshot(slot=6, port=1, onu_id=1, serial_number="TESTSN00000001",
+                        status="online", onu_type="ALL-ONT", admin_state="enabled"),
+            OnuSnapshot(slot=6, port=1, onu_id=7, serial_number="TESTSN00000007",
+                        status="dying_gasp", onu_type="ALL-ONT", admin_state="enabled"),
+        ],
+        vlan_ids=[1, 100],
+    )
+    db, driver = _Db(), _InventoryDriver(inv)
+    out = await sync_service._adopt_inventory(db, _Olt(), driver, datetime.now(UTC))
+    assert out["onus_added"] == 2
+    assert out["onus_skipped_unknown_port"] == 0
+    assert out["vlans_on_device"] == 2
+    serials = sorted(o.serial_number for o in db.added)
+    assert serials == ["TESTSN00000001", "TESTSN00000007"]
+    assert {o.status for o in db.added} == {"online", "dying_gasp"}
+    assert all(o.config_state == "success" and o.onu_index in (1, 7) for o in db.added)
+
+
+async def test_adopt_inventory_skips_unknown_pon_port():
+    from datetime import UTC, datetime
+
+    inv = OltInventory(
+        onus=[OnuSnapshot(slot=6, port=2, onu_id=1, serial_number="TESTSN00000099",
+                          status="online")],
+        vlan_ids=[],
+    )
+    db = _Db(pon_rows=())  # tidak ada PON terdaftar
+    out = await sync_service._adopt_inventory(db, _Olt(), _InventoryDriver(inv),
+                                              datetime.now(UTC))
+    assert out["onus_added"] == 0 and out["onus_skipped_unknown_port"] == 1
+    assert db.added == []
+
+
+def test_metrics_job_is_the_single_inventory_entrypoint():
+    """Tidak ada job type baru: adopsi masuk sync_olt_metrics (DECISIONS job & scheduling)."""
+    assert "sync_olt_metrics" in handlers.HANDLERS
+    assert "sync_inventory" not in handlers.HANDLERS
+    assert "_adopt_inventory" in sync_service.sync_olt_metrics.__code__.co_names

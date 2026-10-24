@@ -7,7 +7,7 @@ Semua lewat driver/transport palsu — TIDAK pernah menyentuh device nyata.
 import pytest
 
 from app.core.exceptions import CommandRejectedError
-from app.drivers.types import DriverResult, OltCard, OltHealth, PonPortInfo
+from app.drivers.types import DriverResult, OltCard, OltHealth, OltInventory, PonPortInfo
 from app.drivers.zte_c320 import (
     ZteC320Driver,
     _merge_card_load,
@@ -186,6 +186,10 @@ class MetricsDriver:
     def __init__(self):
         self.calls: list[str] = []
 
+    async def fetch_inventory(self):
+        self.calls.append("fetch_inventory")
+        return OltInventory(onus=[], vlan_ids=[])
+
     async def fetch_optical(self, _slot, _port):
         self.calls.append("fetch_optical")
         return []
@@ -216,7 +220,12 @@ class MetricsDb:
 
 
 class _EmptyResult:
+    rowcount = 0
+
     def __iter__(self):
+        return iter(())
+
+    def scalars(self):
         return iter(())
 
 
