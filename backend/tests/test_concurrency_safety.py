@@ -75,6 +75,31 @@ async def _cleanup(olt_a: int, olt_b: int, user_id: int) -> None:
         await db.commit()
 
 
+async def _restore(ids: list[int]) -> None:
+    """Job milik tes lain yang kebetulan terklaim dikembalikan ke pending apa adanya."""
+    if not ids:
+        return
+    async with SessionLocal() as db:
+        await db.execute(update(Job).where(Job.id.in_(ids)).values(
+            status="pending", locked_at=None, locked_by=None, started_at=None, attempts=0))
+        await db.commit()
+
+
+async def _claim_mine(name: str, mine: set[int]) -> tuple[int | None, list[int]]:
+    """Klaim sampai dapat job milik tes ini; antrean bersama bisa memuat job tes lain."""
+    foreign: list[int] = []
+    async with SessionLocal() as db:
+        for _ in range(40):
+            job = await job_repo.claim_next(db, name)
+            await db.commit()
+            if job is None:
+                return None, foreign
+            if job.id in mine:
+                return job.id, foreign
+            foreign.append(job.id)
+    return None, foreign
+
+
 async def test_two_workers_never_claim_the_same_job() -> None:
     if not await _db_up():
         pytest.skip("Postgres unreachable")
@@ -93,29 +118,21 @@ async def test_two_workers_never_claim_the_same_job() -> None:
 
         async def worker(name: str) -> list[int]:
             got: list[int] = []
+            foreign: list[int] = []
             async with SessionLocal() as db:
-                for _ in range(12):
+                for _ in range(40):
                     job = await job_repo.claim_next(db, name)
                     await db.commit()
                     if job is None:
                         break
-                    got.append(job.id)
+                    (got if job.id in mine else foreign).append(job.id)
                     await asyncio.sleep(0)  # beri kesempatan worker lain menyela
+            await _restore(foreign)
             return got
 
         a, b = await asyncio.gather(worker("w-a"), worker("w-b"))
         assert set(a) & set(b) == set(), "dua worker mengklaim job yang sama"
-        # Antrean bisa berisi job tes lain; yang dihitung hanya job milik tes ini,
-        # dan job orang lain yang kebetulan terklaim dikembalikan ke pending.
-        foreign = [i for i in a + b if i not in mine]
-        if foreign:
-            async with SessionLocal() as db:
-                await db.execute(update(Job).where(Job.id.in_(foreign)).values(
-                    status="pending", locked_at=None, locked_by=None, started_at=None,
-                    attempts=0))
-                await db.commit()
-        claimed_mine = [i for i in a + b if i in mine]
-        assert sorted(claimed_mine) == sorted(mine)  # semua diklaim, tepat sekali
+        assert sorted(a + b) == sorted(mine)  # semua job tes ini diklaim, tepat sekali
     finally:
         await _cleanup(olt_a, olt_b, user_id)
         await engine.dispose()
@@ -263,10 +280,11 @@ async def test_requeue_unpenalized_does_not_burn_attempts() -> None:
             job_id = job.id
 
         for _ in range(5):  # lima kali kalah antre
+            claimed_id, foreign = await _claim_mine("w", {job_id})
+            await _restore(foreign)
+            assert claimed_id == job_id
             async with SessionLocal() as db:
-                claimed = await job_repo.claim_next(db, "w")
-                await db.commit()
-                assert claimed is not None and claimed.id == job_id
+                claimed = await db.get(Job, job_id)
                 await job_repo.requeue_unpenalized(db, claimed, timedelta(0), "antre")
 
         async with SessionLocal() as db:
