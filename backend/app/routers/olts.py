@@ -12,6 +12,7 @@ from app.schemas.olt import (
     OltDetail,
     OltOut,
     OltRow,
+    OltSyncStatus,
     OltTestRequest,
     OltTestResult,
     OltUpdate,
@@ -65,6 +66,21 @@ async def get_detail(olt_id: int, db: AsyncSession = Depends(get_db),
     scope OLT sudah membatasi baris mana yang terlihat.
     """
     return await olt_service.get_detail(db, olt_id, user)
+
+@router.get("/{olt_id}/sync-status", response_model=OltSyncStatus)
+async def sync_status(olt_id: int, db: AsyncSession = Depends(get_db),
+                     user: User = Depends(get_current_user)):
+    """Progres rantai sinkron otomatis OLT (dipoll frontend saat OLT baru ditambah).
+    Baca-saja; scope OLT membatasi baris mana yang terlihat.
+    """
+    return await olt_service.sync_status(db, olt_id, user)
+
+@router.post("/{olt_id}/sync-all", response_model=OltSyncStatus,
+             status_code=status.HTTP_202_ACCEPTED)
+async def sync_all(olt_id: int, db: AsyncSession = Depends(get_db),
+                   user: User = Depends(admin)):
+    """"Sinkron ulang semua": rantai onboarding yang sama, idempoten."""
+    return await olt_service.sync_all(db, olt_id, user)
 
 @router.get("/{olt_id}/pon-ports", response_model=list[PonPortOut])
 async def list_pon_ports(olt_id: int, db: AsyncSession = Depends(get_db),

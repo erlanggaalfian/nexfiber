@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.core.db import SessionLocal
 from app.core.exceptions import ConflictError
 from app.models.olt import Olt
-from app.services import job_service
+from app.services import job_service, olt_onboarding
 
 log = logging.getLogger("nexfiber.schedules")
 
@@ -43,5 +43,9 @@ def start_scheduler() -> AsyncIOScheduler:
     add("sync_olt_metrics", "interval", minutes=15)
     add("sync_unconfigured", "interval", minutes=1)
     add("backup_olt_config", "cron", hour=2)  # PRD only says "harian"; 02:00 = quiet hours
+    # Rantai onboarding OLT: tahap berikutnya diantre begitu tahap sebelumnya sukses.
+    # 5 detik = progres terasa langsung di UI tanpa membebani DB (query 1 tabel settings).
+    scheduler.add_job(olt_onboarding.advance_active_chains, "interval", seconds=5,
+                      max_instances=1, coalesce=True)
     scheduler.start()
     return scheduler

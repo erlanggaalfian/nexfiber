@@ -160,5 +160,26 @@ class OltDetail(OltOut):
     pon_ports: list[PonPortOut]
     uplink_ports: list[str]
 
+class OltSyncStage(BaseModel):
+    """Satu tahap rantai sinkron otomatis (olt_onboarding.STAGES)."""
+
+    key: str
+    label: str
+    status: str  # pending | running | success | failed | skipped
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error: str | None = None
+    count: int | None = None
+    job_id: int | None = None
+
+class OltSyncStatus(BaseModel):
+    """GET /api/olts/{id}/sync-status: progres rantai sinkron penuh satu OLT."""
+
+    olt_id: int
+    state: str  # pending | running | success | failed
+    trigger: str | None = None
+    updated_at: datetime | None = None
+    stages: list[OltSyncStage]
+
 class JobAccepted(BaseModel):
     job_id: int

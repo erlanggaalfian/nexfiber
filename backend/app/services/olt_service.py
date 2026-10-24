@@ -32,13 +32,14 @@ from app.schemas.olt import (
     OltDetail,
     OltOut,
     OltRow,
+    OltSyncStatus,
     OltTestRequest,
     OltTestResult,
     OltUpdate,
     PonPortOut,
     PortConfigRequest,
 )
-from app.services import job_service
+from app.services import job_service, olt_onboarding
 
 SECRET_FIELDS = {
     "cli_password": "cli_password_enc",
@@ -152,10 +153,13 @@ async def create_olt(db: AsyncSession, body: OltCreate, user: User) -> Olt:
     await _flush(db)
     await log_activity(db, action="olt.create", entity_type="olt", entity_id=str(olt.id),
                        success=True, user_id=user.id, olt_id=olt.id)
+    # Tanpa klik apa pun: rantai sinkron penuh diantre sendiri (olt_onboarding.STAGES).
+    await olt_onboarding.start_chain(db, olt.id, trigger="create", created_by=user.id)
     return await _commit(db, olt)
 
 async def update_olt(db: AsyncSession, olt_id: int, body: OltUpdate, user: User) -> Olt:
     olt = await get_olt(db, olt_id, user)
+    was_active = olt.is_active
     values = body.model_dump(exclude_unset=True)
     if "owner_id" in values:
         values["owner_id"] = await _owner_id(db, values["owner_id"], user)
@@ -171,6 +175,13 @@ async def update_olt(db: AsyncSession, olt_id: int, body: OltUpdate, user: User)
                        success=True, user_id=user.id, olt_id=olt.id,
                        after=OltUpdate(**values).model_dump(
                            exclude_unset=True, exclude=set(SECRET_FIELDS), mode="json"))
+    # Alamat/port/kredensial berubah, atau OLT dinyalakan kembali = data lama tidak bisa
+    # dipercaya; sinkron ulang sendiri dengan rantai yang sama.
+    reconnected = bool(olt_onboarding.RECONNECT_FIELDS & values.keys())
+    if olt.is_active and (reconnected or not was_active):
+        await olt_onboarding.start_chain(
+            db, olt.id, trigger="reconnect" if reconnected else "reactivate",
+            created_by=user.id)
     return await _commit(db, olt)
 
 async def delete_olt(db: AsyncSession, olt_id: int, user: User, confirm_name: str | None) -> None:
@@ -264,6 +275,28 @@ async def enqueue_olt_job(db: AsyncSession, olt_id: int, job_type: str, user: Us
     job = await job_service.enqueue(db, job_type, olt_id=olt_id, created_by=user.id)
     await db.commit()
     return job.id
+
+async def sync_status(db: AsyncSession, olt_id: int, user: User) -> OltSyncStatus:
+    """Progres rantai sinkron otomatis (baca-saja). Sekalian majukan rantai di sini supaya
+    progres tetap bergerak meski worker belum tick — tidak menyentuh perangkat.
+    """
+    olt = await get_olt(db, olt_id, user)
+    record = await olt_onboarding.advance_chain(db, olt_id)
+    await db.commit()
+    return OltSyncStatus(**olt_onboarding.status_payload(olt, record))
+
+async def sync_all(db: AsyncSession, olt_id: int, user: User) -> OltSyncStatus:
+    """Tombol "Sinkron ulang semua": rantai yang sama, idempoten (rantai yang masih
+    jalan dikembalikan apa adanya, tanpa job kedua).
+    """
+    olt = await get_olt(db, olt_id, user)
+    record = await olt_onboarding.start_chain(db, olt_id, trigger="manual",
+                                              created_by=user.id)
+    await log_activity(db, action="olt.sync_all", entity_type="olt", entity_id=str(olt_id),
+                       success=True, user_id=user.id, olt_id=olt_id,
+                       after={"state": record["state"]})
+    await db.commit()
+    return OltSyncStatus(**olt_onboarding.status_payload(olt, record))
 
 async def list_pon_ports(db: AsyncSession, olt_id: int, user: User) -> list[PonPortOut]:
     olt = await get_olt(db, olt_id, user)
