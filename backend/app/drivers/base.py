@@ -8,6 +8,7 @@ from app.drivers.types import (
     OnuStatusSample,
     OpticalSample,
     PonPortInfo,
+    TrafficProfile,
     UnconfiguredOnu,
 )
 
@@ -61,3 +62,18 @@ class OltDriver(ABC):
     @abstractmethod
     async def list_onu_ids(self, slot: int, port: int) -> list[int]:
         """ONU IDs currently configured on one PON, read live (authorize picks a free one)."""
+
+    @abstractmethod
+    async def create_vlan(self, vlan_id: int, description: str | None) -> DriverResult: ...
+
+    @abstractmethod
+    async def delete_vlan(self, vlan_id: int) -> DriverResult: ...
+
+    @abstractmethod
+    async def create_traffic_profiles(
+        self, name: str, download_kbps: int, upload_kbps: int
+    ) -> DriverResult:
+        """Upload (T-CONT) + download (traffic) profile pair that one speed profile maps to."""
+
+    @abstractmethod
+    async def list_traffic_profiles(self) -> list[TrafficProfile]: ...

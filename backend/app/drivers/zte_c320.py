@@ -21,6 +21,7 @@ from app.drivers.types import (
     OnuStatusSample,
     OpticalSample,
     PonPortInfo,
+    TrafficProfile,
     UnconfiguredOnu,
 )
 
@@ -269,6 +270,45 @@ class ZteC320Driver(OltDriver):
         async with self._open_cli() as cli:
             return await cli.send_command("show running-config")
 
+    async def create_vlan(self, vlan_id: int, description: str | None) -> DriverResult:
+        # NEXFIBER-CLI-REFERENCE "Ubah — VLAN dan uplink" (status: produksi). Uplink
+        # tagged/untagged belongs to Detail OLT tab VLANs, not to this create.
+        commands = [f"vlan {vlan_id}"]
+        if description:
+            commands.append(f"description {description}")
+        commands.append("exit")
+        async with self._open_cli() as cli:
+            output = await cli.send_config_set(commands)
+        return self._result(" ; ".join(commands), output)
+
+    async def delete_vlan(self, vlan_id: int) -> DriverResult:
+        commands = [f"no vlan {vlan_id}"]
+        async with self._open_cli() as cli:
+            output = await cli.send_config_set(commands)
+        return self._result(" ; ".join(commands), output)
+
+    async def create_traffic_profiles(
+        self, name: str, download_kbps: int, upload_kbps: int
+    ) -> DriverResult:
+        # NEXFIBER-CLI-REFERENCE "Ubah — Profile kecepatan / Buat profile baru".
+        commands = [
+            "gpon",
+            f"profile tcont {name}_UP type 5 fixed 64 assured 64 maximum {upload_kbps}",
+            f"profile traffic {name}_DN sir {download_kbps} pir {download_kbps}",
+            "exit",
+        ]
+        async with self._open_cli() as cli:
+            output = await cli.send_config_set(commands)
+        return self._result(" ; ".join(commands), output)
+
+    async def list_traffic_profiles(self) -> list[TrafficProfile]:
+        command = "show running-config | include profile tcont"
+        command_dn = "show running-config | include profile traffic"
+        async with self._open_cli() as cli:
+            up = await cli.send_command(command)
+            dn = await cli.send_command(command_dn)
+        return _parse_traffic_profiles(up) + _parse_traffic_profiles(dn)
+
     async def list_pon_ports(self) -> list[PonPortInfo]:
         ports: list[PonPortInfo] = []
         for oid, value in await self._snmp.bulkwalk(OID_IF_DESCR):
@@ -306,3 +346,27 @@ def _parse_onu_iface(iface: str) -> tuple[int, int, int]:
     rack_slot_port, onu_id = iface.split("_", 1)[1].split(":")
     _rack, slot, port = rack_slot_port.split("/")
     return int(slot), int(port), int(onu_id)
+
+def _kbps_after(parts: list[str], keyword: str) -> int | None:
+    # "... maximum 100000" / "... pir 100000"; absent or non-numeric -> unknown, not 0.
+    if keyword not in parts:
+        return None
+    value = parts[parts.index(keyword) + 1 :]
+    return int(value[0]) if value and value[0].isdigit() else None
+
+def _parse_traffic_profiles(output: str) -> list[TrafficProfile]:
+    """Lines of `show running-config | include profile tcont|traffic`:
+
+        profile tcont PAKET20_UP type 5 fixed 64 assured 64 maximum 20000
+        profile traffic PAKET20_DN sir 1000 pir 20000
+    """
+    profiles: list[TrafficProfile] = []
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) < 3 or parts[0] != "profile":
+            continue
+        if parts[1] == "tcont":
+            profiles.append(TrafficProfile(parts[2], "upload", _kbps_after(parts, "maximum")))
+        elif parts[1] == "traffic":
+            profiles.append(TrafficProfile(parts[2], "download", _kbps_after(parts, "pir")))
+    return profiles

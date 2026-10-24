@@ -73,6 +73,15 @@ class PonPortInfo:
 
 
 @dataclass
+class TrafficProfile:
+    """One upload (T-CONT) or download (traffic) profile as the OLT reports it."""
+
+    name: str
+    direction: str  # "upload" | "download"
+    kbps: int | None = None
+
+
+@dataclass
 class OpticalSample:
     slot: int
     port: int

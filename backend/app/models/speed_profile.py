@@ -14,6 +14,9 @@ class SpeedProfile(TimestampMixin, Base):
     olt_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("olts.id"), nullable=True
     )  # NULL = applies to all OLTs
+    vlan_db_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("vlans.id", name="fk_speed_profiles_vlan_db_id"), nullable=True
+    )  # dropdown VLAN existing (read-only di halaman Speed Profile, DECISIONS)
     dba_profile_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     dba_type: Mapped[str | None] = mapped_column(String(10), nullable=True)  # type1-4
     line_profile_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
