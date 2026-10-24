@@ -145,6 +145,26 @@ Belum ada OID tulis ONU yang terverifikasi. Semua aksi tulis CDATA tetap lewat C
 Auth ONU, hapus ONU, profile kecepatan, VLAN, service-port, PPPoE, TR-069, dan reboot.
 Belum ada OID tulis yang terverifikasi untuk aksi-aksi ini.
 
+### Standing preference: SNMP-first untuk polling (2026-10-24)
+
+Permintaan eksplisit user: **semua pembacaan data yang tersedia via SNMP dan OID-nya
+sudah terbukti di tabel atas wajib memakai SNMP** (polling metadata, status berkala,
+trafik LIVE) karena jauh lebih cepat dari CLI. CLI hanya dipakai sebagai fallback saat
+OID-nya tidak ada / tidak lengkap, atau saat yang dibutuhkan memang `show running-config`
+utuh.
+
+**Pengecualian (juga eksplisit dari user):** tombol diagnostik Detail ONU — `Status`,
+`Show running-config`, `Info SW` — **tetap WAJIB CLI**. Output ketiga tombol itu tidak
+boleh dialihkan ke SNMP.
+
+Jangan mengklaim sebuah data "didukung SNMP" tanpa hasil probe read-only yang tercatat
+di tabel ini.
+
+Terverifikasi untuk metadata ONU (OLT SBI, C300, 2026-10-24, read-only bulkwalk):
+`1012.3.28.1.1.2` (name) dan `1012.3.28.1.1.3` (description) mengembalikan **39/39 baris,
+identik 100% dengan stanza `interface gpon-onu_…` `show running-config`** (0 selisih
+nilai, keyset index sama). Jadi metadata ONU tidak perlu sesi CLI lagi.
+
 ### Aturan untuk Nexfiber
 
 1. Simpan `snmp_community_ro` dan `snmp_community_rw` sebagai kolom terpisah dan terenkripsi.
