@@ -110,11 +110,12 @@ def test_pppoe_password_never_rendered(src: str):
 
 
 def test_destructive_actions_keep_confirmation_and_rbac(src: str):
-    """Hapus & restore factory tetap minta ketik serial dan tetap manager-only."""
-    assert src.count("typed === d.serial_number") >= 1
-    for action in ('setConfirm("restore-factory")', 'setConfirm("delete")'):
+    """Hapus & restore factory tetap minta ketik serial (di modal) dan tetap manager-only."""
+    modal = (Path(__file__).resolve().parents[2] / "frontend/src/components/onu/modals/ConfirmActionModal.tsx").read_text()
+    assert "typed === serial" in modal
+    for action in ('setModal({ kind: "restore-factory" })', 'setModal({ kind: "delete" })'):
         idx = src.index(action)
-        assert "isManager" in src[idx - 200 : idx], action
+        assert "isManager" in src[idx - 400 : idx], action
 
 
 def test_port_counts_come_from_master_data_not_hardcode(src: str):
