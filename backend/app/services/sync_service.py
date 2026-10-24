@@ -52,6 +52,16 @@ def _mark_olt_ok(olt: Olt, now: datetime) -> None:
     olt.last_sync_at = now
     olt.last_error = None
 
+OPTICAL_COLUMNS = ("rx_power_dbm", "tx_power_dbm", "olt_rx_power_dbm",
+                   "temperature_c", "voltage_v", "bias_current_ma")
+
+def _clear_optical(onu: Onu) -> None:
+    """ONU mati tidak punya nilai optik. Angka terakhir hanya boleh hidup di riwayat
+    (onu_signal_history); dibiarkan di baris ONU, UI menampilkan Rx -30 dBm palsu
+    untuk ONU yang sudah lama down."""
+    for column in OPTICAL_COLUMNS:
+        setattr(onu, column, None)
+
 async def sync_onu_status(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict:
     """Write only on status change (PRD 4.4); unchanged online ONUs get one bulk
     last_seen_at touch instead of a per-row UPDATE every minute.
@@ -82,6 +92,10 @@ async def sync_onu_status(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict
             onu_id=onu.id, status=sample.status, sampled_at=now,
             rx_power_dbm=onu.rx_power_dbm, olt_rx_power_dbm=onu.olt_rx_power_dbm,
         ))
+        # Riwayat sudah menyimpan angka terakhir di atas; baris ONU-nya dikosongkan
+        # supaya ONU yang tidak online tidak lagi menampilkan Rx/Tx lama.
+        if sample.status != "online":
+            _clear_optical(onu)
         changed += 1
     if still_online:
         await db.execute(update(Onu).where(Onu.id.in_(still_online)).values(last_seen_at=now))
@@ -89,13 +103,20 @@ async def sync_onu_status(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict
     return {"changed": changed, "unchanged_online": len(still_online)}
 
 async def sync_onu_optical(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict:
+    """ONU yang tidak online dilewati (nilai optiknya dikosongkan): polling 15 menit
+    tidak boleh menghidupkan lagi Rx/Tx lama untuk ONU yang sudah down."""
     now = datetime.now(UTC)
     onus = await _onus_by_position(db, olt.id)
-    updated = 0
+    updated = skipped_offline = 0
     for sample in sorted(await driver.fetch_optical(None, None),
                          key=lambda s: (s.slot, s.port, s.onu_id)):
         onu = onus.get((sample.slot, sample.port, sample.onu_id))
         if onu is None:
+            continue
+        if onu.status != "online":
+            _clear_optical(onu)
+            onu.last_sync_at = now
+            skipped_offline += 1
             continue
         onu.rx_power_dbm = sample.rx_power_dbm
         onu.tx_power_dbm = sample.tx_power_dbm
@@ -106,7 +127,7 @@ async def sync_onu_optical(db: AsyncSession, olt: Olt, driver: OltDriver) -> dic
                                 olt_rx_power_dbm=sample.olt_rx_power_dbm))
         updated += 1
     _mark_olt_ok(olt, now)
-    return {"updated": updated}
+    return {"updated": updated, "skipped_offline": skipped_offline}
 
 def _clip(value: str | None, limit: int) -> str | None:
     """Teks bebas dari perangkat bisa lebih panjang dari kolomnya; potong, jangan gagalkan
