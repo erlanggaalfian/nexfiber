@@ -88,6 +88,20 @@ class Onu(TimestampMixin, Base):
     tr069_profile_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     genieacs_device_id: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Phase 2
 
+    zone_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("zones.id"), nullable=True)
+    onu_type_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("onu_types.id"), nullable=True)
+    preset_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("onu_presets.id"), nullable=True)
+    splitter_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    contact: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    external_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    onu_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    wan_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    pppoe_username: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    pppoe_password_enc: Mapped[bytes | None] = mapped_column(nullable=True)
+    mgmt_ip_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    latitude: Mapped[float | None] = mapped_column(Numeric(9, 6), nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Numeric(9, 6), nullable=True)
+
     mac_address: Mapped[str | None] = mapped_column(String(17), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(INET, nullable=True)
 

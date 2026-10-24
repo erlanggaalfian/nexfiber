@@ -17,6 +17,7 @@ class Splitter(TimestampMixin, Base):
     pon_port_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("pon_ports.id"), nullable=True
     )
+    zone_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("zones.id"), nullable=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     type: Mapped[str] = mapped_column(SplitterType, nullable=False)
