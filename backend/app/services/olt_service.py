@@ -2,20 +2,31 @@
 except the pre-save connection check, which has no saved credentials to hand the worker.
 """
 
+from dataclasses import asdict
 from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AppError, ConflictError, NotFoundError, ValidationAppError
+from app.core.exceptions import (
+    AppError,
+    CommandRejectedError,
+    ConflictError,
+    NotFoundError,
+    ValidationAppError,
+)
 from app.core.rbac import MANAGERS, SUPERADMIN, scope_olt_ids
 from app.core.security import encrypt_secret
+from app.drivers.factory import build_driver
 from app.drivers.transport.snmp import SnmpTransport
+from app.drivers.types import debug_log
+from app.models.job import Job
 from app.models.olt import Olt
 from app.models.user import User
 from app.repositories import olt_repo
 from app.repositories.activity_log_repo import log_activity
 from app.schemas.olt import (
+    InterfaceOut,
     OltCardOut,
     OltCreate,
     OltDetail,
@@ -25,6 +36,7 @@ from app.schemas.olt import (
     OltTestResult,
     OltUpdate,
     PonPortOut,
+    PortConfigRequest,
 )
 from app.services import job_service
 
@@ -198,6 +210,55 @@ async def test_connection(db: AsyncSession, body: OltTestRequest, user: User) ->
     await db.commit()
     return OltTestResult(success=False, message=message[:200])
 
+async def list_interfaces(db: AsyncSession, olt_id: int, user: User) -> list[InterfaceOut]:
+    """Status port uplink dibaca LIVE tiap kali tab Interfaces dibuka (PRD 3.4.7).
+
+    Baca-saja, jadi dipanggil langsung dari endpoint — sama alasannya dengan cek koneksi
+    pra-simpan: tidak ada state yang diubah, dan nilainya tidak berguna kalau basi.
+    """
+    olt = await get_olt(db, olt_id, user)
+    return [InterfaceOut(**asdict(row)) for row in await build_driver(olt).fetch_interfaces()]
+
+
+async def set_port_config(db: AsyncSession, olt_id: int, port: str, body: PortConfigRequest,
+                          user: User) -> int:
+    """Push auto-nego/speed/duplex satu port uplink lewat job (AGENTS.md: menyentuh
+    perangkat selalu lewat job, sama seperti VLAN uplink ports).
+    """
+    await get_olt(db, olt_id, user)
+    job = await job_service.enqueue(
+        db, "set_port_config", olt_id=olt_id, created_by=user.id,
+        payload={"port": port, "auto_nego": body.auto_nego, "speed": body.speed,
+                 "duplex": body.duplex},
+    )
+    await log_activity(db, action="olt.set_port_config", entity_type="olt",
+                       entity_id=str(olt_id), success=True, user_id=user.id, olt_id=olt_id,
+                       job_id=job.id, after=body.model_dump(mode="json") | {"port": port})
+    await db.commit()
+    return job.id
+
+
+async def push_port_config(db: AsyncSession, job: Job, driver) -> dict:
+    """Worker: kirim konfigurasi port ke OLT, catat command mentah ke activity_logs.
+
+    Pola sama vlan_service.push_ports: jejak CLI ikut ke job.result supaya tab Interfaces
+    bisa menampilkannya baik saat sukses maupun gagal.
+    """
+    payload = job.payload
+    result = await driver.set_port_config(
+        payload["port"], payload["auto_nego"], payload.get("speed"), payload.get("duplex")
+    )
+    await log_activity(db, action="olt.push_port_config", entity_type="olt",
+                       entity_id=str(job.olt_id), success=result.success,
+                       user_id=job.created_by, job_id=job.id, olt_id=job.olt_id,
+                       raw_command=result.raw_command, raw_output=result.raw_output)
+    if not result.success:
+        job.result = {"debug_log": debug_log(result)}
+        await db.commit()
+        raise CommandRejectedError(result.message or "OLT menolak perintah")
+    return {"debug_log": debug_log(result), "port": payload["port"]}
+
+
 async def enqueue_olt_job(db: AsyncSession, olt_id: int, job_type: str, user: User) -> int:
     await get_olt(db, olt_id, user)
     job = await job_service.enqueue(db, job_type, olt_id=olt_id, created_by=user.id)
@@ -235,6 +296,8 @@ async def get_detail(db: AsyncSession, olt_id: int, user: User) -> OltDetail:
         temperature_c=olt.temperature_c,
         uptime_seconds=olt.uptime_seconds,
         software_version=olt.software_version,
+        sys_name=olt.sys_name,
+        sys_location=olt.sys_location,
         cards=[OltCardOut(**card) for card in (olt.cards or [])],
         pon_ports=_pon_ports(olt, await olt_repo.list_pon_ports(db, olt_id)),
         uplink_ports=list(olt.uplink_ports or []),

@@ -13,6 +13,20 @@ class DriverResult:
     message: str = ""
 
 
+# Potongan command+output yang dibawa ke result job supaya UI bisa menampilkan jejak CLI
+# live setelah aksi push (bukan histori Logs). Dibatasi supaya JSONB result tidak membesar.
+DEBUG_LOG_LIMIT = 4000
+
+
+def debug_log(result: "DriverResult") -> dict:
+    """Jejak CLI satu aksi push: command yang dikirim + respons mentah OLT."""
+    return {
+        "command": result.raw_command[:DEBUG_LOG_LIMIT],
+        "output": result.raw_output[:DEBUG_LOG_LIMIT],
+        "success": result.success,
+    }
+
+
 @dataclass
 class ConnectionCheck:
     """Hasil tes koneksi: CLI dan SNMP diuji TERPISAH, masing-masing boolean sendiri.
@@ -56,6 +70,27 @@ class OltHealth:
     software_version: str | None = None
     cards: list[OltCard] = field(default_factory=list)
     uplink_ports: list[str] = field(default_factory=list)
+    # Info sistem SNMP standar (sysName/sysLocation) — dibaca di siklus health yang sama,
+    # bukan endpoint/job sendiri.
+    sys_name: str | None = None
+    sys_location: str | None = None
+
+
+@dataclass
+class InterfaceStatus:
+    """Satu port uplink fisik apa adanya dari perangkat (tab Interfaces, PRD 3.4.7 butir 2
+    "edit port: auto-negotiation, speed, duplex"). Dibaca live, tidak disimpan ke DB.
+    """
+
+    name: str
+    media: str | None = None
+    pvid: int | None = None
+    auto_nego: str | None = None  # "enable" | "disable"
+    speed: str | None = None  # "auto" atau angka Mbps apa adanya
+    duplex: str | None = None
+    flow_ctrl: str | None = None
+    admin_status: str | None = None
+    link: str | None = None  # "up" | "down"
 
 
 

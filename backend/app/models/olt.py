@@ -57,6 +57,9 @@ class Olt(TimestampMixin, Base):
     temperature_c: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     uptime_seconds: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     software_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Info sistem SNMP standar (sysName/sysLocation), ikut siklus health yang sama.
+    sys_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sys_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     cards: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     # Nama port uplink hasil scan (gei_1/5/1, ...), pilihan port di tab VLANs.
     uplink_ports: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)

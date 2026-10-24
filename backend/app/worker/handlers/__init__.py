@@ -11,7 +11,13 @@ from app.core.exceptions import CommandRejectedError
 from app.drivers.base import OltDriver
 from app.models.job import Job
 from app.models.olt import Olt
-from app.services import onu_service, speed_profile_service, sync_service, vlan_service
+from app.services import (
+    olt_service,
+    onu_service,
+    speed_profile_service,
+    sync_service,
+    vlan_service,
+)
 
 Handler = Callable[[AsyncSession, Job, Olt, OltDriver], Awaitable[dict]]
 
@@ -104,6 +110,9 @@ async def test_connection(db, job, olt, driver):
 async def set_vlan_ports(db, job, olt, driver):
     return await vlan_service.push_ports(db, job, driver)
 
+async def set_port_config(db, job, olt, driver):
+    return await olt_service.push_port_config(db, job, driver)
+
 async def tr069_push(db, job, olt, driver):
     raise NotImplementedPhase2("Phase 2, belum diimplementasi")
 
@@ -129,5 +138,6 @@ HANDLERS: dict[str, Handler] = {
     "backup_olt_config": backup_olt_config,
     "test_connection": test_connection,
     "set_vlan_ports": set_vlan_ports,
+    "set_port_config": set_port_config,
     "tr069_push": tr069_push,
 }

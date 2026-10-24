@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import CommandRejectedError, ConflictError, NotFoundError
 from app.core.rbac import scope_olt_ids
 from app.drivers.base import OltDriver
-from app.drivers.types import DriverResult
+from app.drivers.types import DriverResult, debug_log
 from app.models.job import Job
 from app.models.onu import Onu
 from app.models.speed_profile import SpeedProfile
@@ -156,6 +156,10 @@ async def _record(db: AsyncSession, job: Job, vlan: Vlan, action: str,
                        olt_id=vlan.olt_id, raw_command=result.raw_command,
                        raw_output=result.raw_output)
     if not result.success:
+        # mark_failed tidak menulis job.result, dan worker me-rollback sebelum menandai
+        # gagal — jadi jejak CLI harus ikut commit di sini supaya UI tetap bisa
+        # menampilkannya saat aksi gagal.
+        job.result = {"debug_log": debug_log(result)}
         await db.commit()
         raise CommandRejectedError(result.message or "OLT rejected command")
 
@@ -166,7 +170,7 @@ async def push_create(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
     result = await driver.create_vlan(vlan.vlan_id, vlan.description or vlan.name)
     await _record(db, job, vlan, "vlan.push_create", result)
     vlan.is_active = True
-    return {"raw_command": result.raw_command}
+    return {"debug_log": debug_log(result)}
 
 
 async def push_delete(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
@@ -175,7 +179,7 @@ async def push_delete(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
     result = await driver.delete_vlan(vlan.vlan_id)
     await _record(db, job, vlan, "vlan.push_delete", result)
     await db.delete(vlan)
-    return {"raw_command": result.raw_command}
+    return {"debug_log": debug_log(result)}
 
 
 async def push_ports(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
@@ -184,4 +188,4 @@ async def push_ports(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
     ports: dict[str, str] = job.payload.get("ports", {})
     result = await driver.set_vlan_ports(vlan.vlan_id, ports)
     await _record(db, job, vlan, "vlan.push_ports", result)
-    return {"raw_command": result.raw_command, "ports": len(ports)}
+    return {"debug_log": debug_log(result), "ports": len(ports)}

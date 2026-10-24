@@ -23,6 +23,7 @@ from app.drivers.types import (
     AuthorizeRequest,
     ConnectionCheck,
     DriverResult,
+    InterfaceStatus,
     ModifyRequest,
     OltCard,
     OltHealth,
@@ -43,8 +44,14 @@ OID_IF_DESCR = "1.3.6.1.2.1.2.2.1.2"  # ifDescr, e.g. "gpon-olt_1/3/6"
 # Kesehatan OLT (NEXFIBER-SNMP-OID.md, ditandai terverifikasi di sana).
 OID_SYS_UPTIME = "1.3.6.1.2.1.1.3"  # sysUpTime, satuan 1/100 detik
 OID_OLT_TEMPERATURE = "1.3.6.1.4.1.3902.1015.2.1.3.2"
+OID_SYS_NAME = "1.3.6.1.2.1.1.5"  # sysName
+OID_SYS_LOCATION = "1.3.6.1.2.1.1.6"  # sysLocation
 # Nama interface uplink ZTE di ifDescr: gei_1/5/1 (GE), xgei_1/5/1 (10GE).
 UPLINK_PREFIXES = ("gei_", "xgei_", "gei-", "xgei-")
+# Nama port uplink yang sah: gei_<rack>/<slot>/<port> atau xgei_... (dipakai validasi push).
+UPLINK_PORT_RE = re.compile(r"^(x?gei)_(\d+)/(\d+)/(\d+)$", re.I)
+PORT_SPEEDS = ("10", "100", "1000", "10000")
+DUPLEXES = ("full", "half")
 
 # Optical power OIDs (ZTE enterprise MIB). UNVERIFIED like list_unconfigured/delete/
 # set_state/reboot/fetch_inventory above — community-sourced (public GitHub monitoring
@@ -207,6 +214,8 @@ class ZteC320Driver(OltDriver):
             software_version=_parse_software_version(version_out),
             cards=cards,
             uplink_ports=await self._list_uplink_ports(),
+            sys_name=await self._snmp_first_str(OID_SYS_NAME),
+            sys_location=await self._snmp_first_str(OID_SYS_LOCATION),
         )
 
     async def _list_uplink_ports(self) -> list[str]:
@@ -218,6 +227,18 @@ class ZteC320Driver(OltDriver):
         except Exception:
             return []
         return sorted({str(v) for _oid, v in rows if str(v).startswith(UPLINK_PREFIXES)})
+
+    async def _snmp_first_str(self, oid: str) -> str | None:
+        """Nilai pertama satu OID skalar sebagai teks (sysName/sysLocation).
+
+        Best-effort sama seperti _snmp_first_float: OID tidak dijawab != job gagal.
+        """
+        try:
+            rows = await self._snmp.bulkwalk(oid)
+        except Exception:
+            return None
+        value = str(rows[0][1]).strip() if rows else ""
+        return value or None
 
     async def _snmp_first_float(self, oid: str) -> float | None:
         try:
@@ -249,6 +270,68 @@ class ZteC320Driver(OltDriver):
         if not commands:
             return DriverResult(success=True, raw_command="", raw_output="",
                                 message="Tidak ada port uplink yang dipilih")
+        async with self._open_cli() as cli:
+            output = await cli.send_config_set(commands)
+        return self._result(" ; ".join(commands), output)
+
+    async def fetch_interfaces(self) -> list[InterfaceStatus]:
+        """Status live port uplink lewat `show interface port-status <nama>`.
+
+        BUG NYATA (OLT SBI, 2026-10-24): `show interface port-status` TIDAK punya bentuk
+        massal — tanpa nama port dijawab "Incomplete command", dan `all` / `xgei_1/19` /
+        rentang `1-4` ditolak; hanya `1-2` (sub-rentang yang benar-benar ada) diterima.
+        Jadi satu command per port, tidak bisa satu command untuk semua.
+
+        Nama port juga tidak bisa diandalkan dari ifDescr: di perangkat itu seluruh
+        ifDescr kosong, jadi `_list_uplink_ports()` (SNMP) dipakai kalau terisi, dan kalau
+        kosong nama port ditebak dari `show card` lalu divalidasi ke perangkat — port yang
+        dijawab error (mis. xgei_1/19/3 walau kartu melaporkan 4 port) otomatis hilang
+        karena baris statusnya tidak pernah ada di output.
+        """
+        names = await self._list_uplink_ports()
+        async with self._open_cli() as cli:
+            if names:
+                output = "\n".join([
+                    await cli.send_command(f"show interface port-status {n}") for n in names
+                ])
+                return _parse_port_status(output)
+            return await self._probe_uplink_ports(cli)
+
+    async def _probe_uplink_ports(self, cli) -> list[InterfaceStatus]:
+        """Cari port uplink dari `show card` saat ifDescr kosong.
+
+        Per kartu: coba port 1 dengan awalan xgei lalu gei; awalan yang dijawab dipakai
+        untuk sisa port kartu itu. Kartu PON/kontrol otomatis terlewat karena nama
+        gei/xgei-nya ditolak perangkat.
+        """
+        rows: list[InterfaceStatus] = []
+        cards = _parse_cards(await cli.send_command("show card"))
+        for card in cards:
+            if not card.port_count:
+                continue
+            for prefix in ("xgei", "gei"):
+                first = _parse_port_status(
+                    await cli.send_command(f"show interface port-status {prefix}_1/{card.slot}/1")
+                )
+                if not first:
+                    continue
+                rows += first
+                for port in range(2, card.port_count + 1):
+                    rows += _parse_port_status(await cli.send_command(
+                        f"show interface port-status {prefix}_1/{card.slot}/{port}"
+                    ))
+                break
+        return rows
+
+    async def set_port_config(self, port: str, auto_nego: str, speed: str | None,
+                              duplex: str | None) -> DriverResult:
+        """Auto-negotiation / speed / duplex satu port uplink.
+
+        Sintaks ZXROS (mode config-if): `negotiation auto` / `no negotiation auto` +
+        `speed <mbps>` + `duplex <full|half>`. Validasi dilakukan di sini supaya tidak ada
+        command setengah jadi yang terkirim ke perangkat.
+        """
+        commands = build_port_config_commands(port, auto_nego, speed, duplex)
         async with self._open_cli() as cli:
             output = await cli.send_config_set(commands)
         return self._result(" ; ".join(commands), output)
@@ -493,6 +576,56 @@ class ZteC320Driver(OltDriver):
         async with self._open_cli() as cli:
             output = await cli.send_config_set(commands)
         return self._result(" ; ".join(commands), output)
+
+# Baris `show interface port-status <nama>` (format nyata ZXROS):
+#      Port      hybrid  Native Negotiation  Speed  Duplex Flow-   Admin      Link
+#                Status  VLAN     auto       (Mbps)        Ctrl    Status
+#     gei_1/3/1      optical  1       enable     auto    full  disable activate   down
+PORT_STATUS_RE = re.compile(
+    r"^[ \t]*(x?gei_\d+/\d+/\d+)[ \t]+(\S+)[ \t]+(\d+)[ \t]+(\S+)[ \t]+(\S+)"
+    r"[ \t]+(\S+)[ \t]+(\S+)[ \t]+(\S+)[ \t]+(\S+)[ \t\r]*$",
+    re.M | re.I,
+)
+
+
+def _parse_port_status(output: str) -> list[InterfaceStatus]:
+    """Satu baris per port uplink; baris header dan error per-port diabaikan."""
+    return [
+        InterfaceStatus(
+            name=m.group(1).lower(), media=m.group(2).lower(), pvid=int(m.group(3)),
+            auto_nego=m.group(4).lower(), speed=m.group(5).lower(), duplex=m.group(6).lower(),
+            flow_ctrl=m.group(7).lower(), admin_status=m.group(8).lower(), link=m.group(9).lower(),
+        )
+        for m in PORT_STATUS_RE.finditer(output)
+    ]
+
+
+def build_port_config_commands(port: str, auto_nego: str, speed: str | None,
+                               duplex: str | None) -> list[str]:
+    """Command auto-nego/speed/duplex satu port uplink; ValueError kalau input tak sah.
+
+    Port gei tidak bisa dipaksa 10000 Mbps — perangkat menolak diam-diam, jadi ditolak
+    di sini supaya tidak ada command yang terkirim.
+    """
+    match = UPLINK_PORT_RE.match((port or "").strip())
+    if match is None:
+        raise ValueError("Format port tidak valid; gunakan gei_R/S/P atau xgei_R/S/P")
+    name = port.strip().lower()
+    if auto_nego not in ("enable", "disable"):
+        raise ValueError("Auto negotiation harus enable atau disable")
+    if auto_nego == "enable":
+        return [f"interface {name}", "negotiation auto", "exit"]
+    speed = (speed or "").strip()
+    duplex = (duplex or "").strip().lower()
+    if speed not in PORT_SPEEDS:
+        raise ValueError("Speed harus 10, 100, 1000, atau 10000 Mbps")
+    if match.group(1).lower() == "gei" and speed == "10000":
+        raise ValueError(f"Port {name} maksimal 1000 Mbps; pakai port xgei untuk 10000 Mbps")
+    if duplex not in DUPLEXES:
+        raise ValueError("Duplex harus full atau half")
+    return [f"interface {name}", "no negotiation auto", f"speed {speed}",
+            f"duplex {duplex}", "exit"]
+
 
 def build_authorize_commands(req: AuthorizeRequest) -> list[str]:
     """Scope MVP otorisasi (DECISIONS "Scope authorize_onu"): onu + type + sn + tcont +

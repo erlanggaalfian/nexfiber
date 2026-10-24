@@ -118,6 +118,8 @@ async def sync_olt_metrics(db: AsyncSession, olt: Olt, driver: OltDriver) -> dic
     olt.temperature_c = health.temperature_c
     olt.uptime_seconds = health.uptime_seconds
     olt.software_version = health.software_version
+    olt.sys_name = health.sys_name
+    olt.sys_location = health.sys_location
     olt.cards = [asdict(card) for card in health.cards]
     olt.uplink_ports = health.uplink_ports
     await _upsert_pon_ports(

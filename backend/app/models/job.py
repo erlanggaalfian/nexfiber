@@ -31,6 +31,7 @@ JobType = Enum(
     "create_vlan",
     "delete_vlan",
     "set_vlan_ports",
+    "set_port_config",
     "push_speed_profile",
     "sync_speed_profiles",
     "tr069_push",

@@ -6,6 +6,7 @@ from app.core.deps import get_current_user, require_roles
 from app.core.rbac import MANAGERS
 from app.models.user import User
 from app.schemas.olt import (
+    InterfaceOut,
     JobAccepted,
     OltCreate,
     OltDetail,
@@ -15,6 +16,7 @@ from app.schemas.olt import (
     OltTestResult,
     OltUpdate,
     PonPortOut,
+    PortConfigRequest,
 )
 from app.services import olt_service
 
@@ -68,6 +70,20 @@ async def get_detail(olt_id: int, db: AsyncSession = Depends(get_db),
 async def list_pon_ports(olt_id: int, db: AsyncSession = Depends(get_db),
                          user: User = Depends(get_current_user)):
     return await olt_service.list_pon_ports(db, olt_id, user)
+
+@router.get("/{olt_id}/interfaces", response_model=list[InterfaceOut])
+async def list_interfaces(olt_id: int, db: AsyncSession = Depends(get_db),
+                          user: User = Depends(admin)):
+    """Tab Interfaces (PRD 3.4.7): status port uplink dibaca live dari perangkat."""
+    return await olt_service.list_interfaces(db, olt_id, user)
+
+@router.post("/{olt_id}/interfaces/{port}/config", response_model=JobAccepted,
+             status_code=status.HTTP_202_ACCEPTED)
+async def set_port_config(olt_id: int, port: str, body: PortConfigRequest,
+                          db: AsyncSession = Depends(get_db), user: User = Depends(admin)):
+    """Auto-nego/speed/duplex satu port uplink -> job push, pola sama VLAN uplink ports."""
+    job_id = await olt_service.set_port_config(db, olt_id, port, body, user)
+    return JobAccepted(job_id=job_id)
 
 @router.post("/{olt_id}/test", response_model=JobAccepted, status_code=status.HTTP_202_ACCEPTED)
 async def test_connection(olt_id: int, db: AsyncSession = Depends(get_db),

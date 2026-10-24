@@ -15,7 +15,7 @@ from app.drivers.zte_c320 import (
     _parse_processor,
     _parse_software_version,
 )
-from app.services import sync_service, vlan_service
+from app.services import olt_service, sync_service, vlan_service
 from app.worker import handlers
 
 # Transkrip nyata diambil read-only dari OLT SBI (103.210.52.64, 2026-10-24) — bukan
@@ -157,6 +157,7 @@ class FakeJob:
     id = 1
     created_by = None
     olt_id = 8
+    result = None
 
     def __init__(self, payload=None):
         self.payload = payload or {}
@@ -317,3 +318,44 @@ def test_driver_builds_hybrid_before_untag():
     asyncio.run(driver.set_vlan_ports(100, {"gei_1/5/1": "untagged"}))
     assert sent == [["interface gei_1/5/1", "switchport mode hybrid",
                      "switchport vlan 100 untag", "exit"]]
+
+
+# --- Tab Interfaces: push konfigurasi port uplink ----------------------------
+
+class PortConfigDriver:
+    def __init__(self, success=True):
+        self.success, self.calls = success, []
+
+    async def set_port_config(self, port, auto_nego, speed, duplex):
+        self.calls.append((port, auto_nego, speed, duplex))
+        return DriverResult(
+            success=self.success, raw_command=f"interface {port} ; speed {speed}",
+            raw_output="" if self.success else "%Error 20202: Invalid input detected",
+            message="" if self.success else "OLT menolak perintah",
+        )
+
+
+async def test_push_port_config_returns_debug_log(monkeypatch):
+    driver = PortConfigDriver()
+    monkeypatch.setattr(olt_service, "log_activity", _noop_log)
+    job = FakeJob({"port": "xgei_1/19/2", "auto_nego": "disable", "speed": "10000",
+                   "duplex": "full"})
+    out = await olt_service.push_port_config(PortsDb(None), job, driver)
+    assert driver.calls == [("xgei_1/19/2", "disable", "10000", "full")]
+    # Jejak CLI live yang ditampilkan di Drawer tab Interfaces.
+    assert out["debug_log"]["command"] == "interface xgei_1/19/2 ; speed 10000"
+    assert out["debug_log"]["success"] is True
+
+
+async def test_push_port_config_rejected_keeps_debug_log(monkeypatch):
+    """Saat gagal, jejak CLI harus tetap tersimpan di job.result sebelum error dilempar."""
+    monkeypatch.setattr(olt_service, "log_activity", _noop_log)
+    job = FakeJob({"port": "xgei_1/19/2", "auto_nego": "enable", "speed": None, "duplex": None})
+    with pytest.raises(CommandRejectedError):
+        await olt_service.push_port_config(PortsDb(None), job, PortConfigDriver(success=False))
+    assert job.result["debug_log"]["success"] is False
+    assert "%Error" in job.result["debug_log"]["output"]
+
+
+def test_set_port_config_handler_registered():
+    assert handlers.HANDLERS["set_port_config"] is handlers.set_port_config

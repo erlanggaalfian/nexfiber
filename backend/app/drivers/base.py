@@ -4,6 +4,7 @@ from app.drivers.types import (
     AuthorizeRequest,
     ConnectionCheck,
     DriverResult,
+    InterfaceStatus,
     ModifyRequest,
     OltHealth,
     OnuLiveDetail,
@@ -37,6 +38,17 @@ class OltDriver(ABC):
     @abstractmethod
     async def set_vlan_ports(self, vlan_id: int, ports: dict[str, str]) -> DriverResult:
         """{nama_port: "tagged"|"untagged"} di port uplink."""
+
+    @abstractmethod
+    async def fetch_interfaces(self) -> list[InterfaceStatus]:
+        """Status live tiap port uplink fisik untuk tab Interfaces (PRD 3.4.7)."""
+
+    @abstractmethod
+    async def set_port_config(self, port: str, auto_nego: str, speed: str | None,
+                              duplex: str | None) -> DriverResult:
+        """Auto-negotiation/speed/duplex satu port uplink. auto_nego="enable" mengabaikan
+        speed/duplex (perangkat yang menentukan).
+        """
 
     @abstractmethod
     async def list_unconfigured(self) -> list[UnconfiguredOnu]: ...

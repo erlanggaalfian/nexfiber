@@ -115,6 +115,30 @@ class OltCardOut(BaseModel):
     cpu_pct: float | None = None
     ram_pct: float | None = None
 
+class InterfaceOut(BaseModel):
+    """Satu port uplink dibaca live (GET /api/olts/{id}/interfaces). Bentuk mengikuti
+    drivers.types.InterfaceStatus."""
+
+    name: str
+    media: str | None = None
+    pvid: int | None = None
+    auto_nego: str | None = None
+    speed: str | None = None
+    duplex: str | None = None
+    flow_ctrl: str | None = None
+    admin_status: str | None = None
+    link: str | None = None
+
+
+class PortConfigRequest(BaseModel):
+    """Form edit port tab Interfaces. speed/duplex diabaikan saat auto_nego=enable;
+    nilai sah dicek lagi di driver (satu sumber aturan per vendor)."""
+
+    auto_nego: str = Field(pattern="^(enable|disable)$")
+    speed: str | None = Field(None, pattern="^(10|100|1000|10000)$")
+    duplex: str | None = Field(None, pattern="^(full|half)$")
+
+
 class OltDetail(OltOut):
     """Satu panggilan untuk seluruh halaman Detail OLT (PRD 3.4.7): identitas + kesehatan
     + PON + ringkasan ONU. Nama port uplink diambil dari pon_ports/cards yang sudah
@@ -130,6 +154,8 @@ class OltDetail(OltOut):
     temperature_c: float | None
     uptime_seconds: int | None
     software_version: str | None
+    sys_name: str | None = None
+    sys_location: str | None = None
     cards: list[OltCardOut]
     pon_ports: list[PonPortOut]
     uplink_ports: list[str]

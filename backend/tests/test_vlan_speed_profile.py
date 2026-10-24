@@ -116,7 +116,9 @@ async def test_push_create_vlan_sends_command_and_activates(monkeypatch):
     out = await vlan_service.push_create(db, FakeJob({"vlan_db_id": 3}), driver)
     assert driver.calls == [("create_vlan", 100, "INTERNET")]
     assert vlan.is_active is True
-    assert out["raw_command"] == "vlan 100"
+    # Jejak CLI live (tab VLANs/Interfaces) ikut di job.result sebagai debug_log.
+    assert out["debug_log"]["command"] == "vlan 100"
+    assert out["debug_log"]["success"] is True
 
 
 async def test_push_delete_vlan_removes_row(monkeypatch):

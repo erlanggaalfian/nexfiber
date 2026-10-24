@@ -114,7 +114,15 @@ export type OltDetail = Olt & {
   onu_by_status: Record<string, number>;
   cpu_pct: number | null; ram_pct: number | null; temperature_c: number | null;
   uptime_seconds: number | null; software_version: string | null;
+  sys_name: string | null; sys_location: string | null;
   cards: OltCard[]; pon_ports: PonPort[]; uplink_ports: string[];
+};
+
+/** Satu port uplink dibaca live dari OLT (tab Interfaces, PRD 3.4.7). */
+export type OltInterface = {
+  name: string; media: string | null; pvid: number | null; auto_nego: string | null;
+  speed: string | null; duplex: string | null; flow_ctrl: string | null;
+  admin_status: string | null; link: string | null;
 };
 
 export type RxBucketFilter = "good" | "fair" | "weak" | "critical" | "los";

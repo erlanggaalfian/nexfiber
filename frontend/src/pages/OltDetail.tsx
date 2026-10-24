@@ -12,20 +12,28 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useParams } from "react-router";
 import * as z from "zod";
-import { Confirm, Drawer, Field, TableCard, UsageBar, cell, input } from "../components/crud";
+import {
+  Confirm, Drawer, Field, JobTrace, TableCard, UsageBar, cell, input,
+} from "../components/crud";
 import {
   Empty, ErrorState, Panel, PageTitle, Skeleton, StatusBadge, fmtDateTime, nf,
 } from "../components/data";
 import { Button } from "../components/ui/button";
-import { api, qs, type OltDetail as Detail, type OnuRow, type Page, type Vlan } from "../lib/api";
+import {
+  api, qs, type OltDetail as Detail, type OltInterface, type OnuRow, type Page, type Vlan,
+} from "../lib/api";
 import { useAuth } from "../lib/auth";
 
-const TABS = ["Monitoring", "VLANs", "Konfigurasi", "Daftar ONU"] as const;
+const TABS = ["Monitoring", "VLANs", "Interfaces", "Konfigurasi", "Daftar ONU"] as const;
 type Tab = (typeof TABS)[number];
-const MANAGER_ONLY: Tab[] = ["VLANs", "Konfigurasi"];
+const MANAGER_ONLY: Tab[] = ["VLANs", "Interfaces", "Konfigurasi"];
 
 const VLAN_TYPES = ["internet", "management", "voip", "iptv", "other"] as const;
 const TAG_ACTIONS = ["tag", "transparent", "translate"] as const;
+// 10G hanya ada di port xge; port gei ditolak perangkat kalau dipaksa 10000.
+const PORT_SPEEDS = ["10", "100", "1000", "10000"] as const;
+const DUPLEXES = ["full", "half"] as const;
+const isTenGig = (port: string) => port.toLowerCase().startsWith("xgei");
 
 function fmtUptime(seconds: number | null) {
   if (seconds === null) return "—";
@@ -207,6 +215,7 @@ function PortsDrawer({ oltId, vlan, ports, onClose }: {
 }) {
   const qc = useQueryClient();
   const [value, setValue] = useState<Record<string, string>>(() => ({ ...vlan.uplink_ports }));
+  const [jobId, setJobId] = useState<number | null>(null);
   const save = useMutation({
     mutationFn: () => {
       const picked = Object.fromEntries(Object.entries(value).filter(([, v]) => v !== ""));
@@ -214,9 +223,10 @@ function PortsDrawer({ oltId, vlan, ports, onClose }: {
         method: "PUT", json: { ports: picked },
       });
     },
-    onSuccess: () => {
+    // Drawer dibiarkan terbuka supaya jejak CLI job-nya terbaca di tempat.
+    onSuccess: (r) => {
+      setJobId(r.job_id);
       qc.invalidateQueries({ queryKey: ["olts", oltId, "vlans"] });
-      onClose();
     },
   });
 
@@ -250,6 +260,7 @@ function PortsDrawer({ oltId, vlan, ports, onClose }: {
       <p className="text-xs text-muted">
         Menyimpan mengantre job push ke OLT. Untagged otomatis mengubah port ke mode hybrid.
       </p>
+      <JobTrace jobId={jobId} />
     </Drawer>
   );
 }
@@ -260,6 +271,7 @@ function Vlans({ oltId, uplinkPorts }: { oltId: number; uplinkPorts: string[] })
   const [adding, setAdding] = useState(false);
   const [ports, setPorts] = useState<Vlan | null>(null);
   const [remove, setRemove] = useState<Vlan | null>(null);
+  const [delJob, setDelJob] = useState<number | null>(null);
 
   const q = useQuery({
     queryKey: ["olts", oltId, "vlans"],
@@ -268,9 +280,10 @@ function Vlans({ oltId, uplinkPorts }: { oltId: number; uplinkPorts: string[] })
 
   const del = useMutation({
     mutationFn: (v: Vlan) => api<{ job_id: number }>(`/api/vlans/${v.id}`, { method: "DELETE" }),
-    onSuccess: () => {
+    // Dialog dibiarkan terbuka sampai job selesai supaya jejak CLI-nya terlihat.
+    onSuccess: (r) => {
+      setDelJob(r.job_id);
       qc.invalidateQueries({ queryKey: ["olts", oltId, "vlans"] });
-      setRemove(null);
     },
   });
 
@@ -318,9 +331,126 @@ function Vlans({ oltId, uplinkPorts }: { oltId: number; uplinkPorts: string[] })
           busy={del.isPending}
           error={del.error?.message}
           onConfirm={() => del.mutate(remove)}
-          onClose={() => setRemove(null)}
-        />
+          onClose={() => { setRemove(null); setDelJob(null); }}
+        >
+          <JobTrace jobId={delJob} />
+        </Confirm>
       )}
+    </>
+  );
+}
+
+/** Edit auto-nego/speed/duplex satu port uplink. Simpan = job push, jejak CLI-nya
+ *  ditampilkan di tempat (JobTrace) supaya tidak perlu buka Logs untuk lihat perintahnya. */
+function PortConfigDrawer({ oltId, port, onClose }: {
+  oltId: number; port: OltInterface; onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [autoNego, setAutoNego] = useState(port.auto_nego === "enable" ? "enable" : "disable");
+  const [speed, setSpeed] = useState(
+    PORT_SPEEDS.includes(port.speed as (typeof PORT_SPEEDS)[number]) ? port.speed! : "1000",
+  );
+  const [duplex, setDuplex] = useState(port.duplex === "half" ? "half" : "full");
+  const [jobId, setJobId] = useState<number | null>(null);
+
+  const save = useMutation({
+    mutationFn: () =>
+      api<{ job_id: number }>(
+        `/api/olts/${oltId}/interfaces/${encodeURIComponent(port.name)}/config`,
+        { method: "POST", json: autoNego === "enable"
+            ? { auto_nego: "enable" }
+            : { auto_nego: "disable", speed, duplex } },
+      ),
+    // Drawer tetap terbuka: jejak CLI job baru berguna setelah job jalan.
+    onSuccess: (r) => {
+      setJobId(r.job_id);
+      qc.invalidateQueries({ queryKey: ["olts", oltId, "interfaces"] });
+    },
+  });
+
+  const speeds = PORT_SPEEDS.filter((s) => s !== "10000" || isTenGig(port.name));
+  return (
+    <Drawer
+      title={`Konfigurasi ${port.name}`}
+      onClose={onClose}
+      onSubmit={() => save.mutate()}
+      busy={save.isPending}
+      error={save.error?.message}
+    >
+      <Field label="Auto negotiation">
+        <select className={input} value={autoNego} onChange={(e) => setAutoNego(e.target.value)}>
+          <option value="enable">Enable</option>
+          <option value="disable">Disable</option>
+        </select>
+      </Field>
+      {autoNego === "disable" && (
+        <>
+          <Field label="Speed (Mbps)">
+            <select className={input} value={speed} onChange={(e) => setSpeed(e.target.value)}>
+              {speeds.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </Field>
+          <Field label="Duplex">
+            <select className={input} value={duplex} onChange={(e) => setDuplex(e.target.value)}>
+              {DUPLEXES.map((dx) => <option key={dx} value={dx}>{dx}</option>)}
+            </select>
+          </Field>
+        </>
+      )}
+      <p className="text-xs text-muted">
+        {autoNego === "enable"
+          ? "Speed dan duplex ditentukan perangkat saat auto negotiation aktif."
+          : "Menyimpan mengantre job push ke OLT; port akan putus sesaat saat berubah."}
+      </p>
+      <JobTrace jobId={jobId} />
+    </Drawer>
+  );
+}
+
+function Interfaces({ oltId }: { oltId: number }) {
+  const [edit, setEdit] = useState<OltInterface | null>(null);
+  // Dibaca live tiap tab dibuka (bukan dari DB): butuh satu sesi CLI ke OLT, jadi
+  // sengaja tidak auto-refetch.
+  const q = useQuery({
+    queryKey: ["olts", oltId, "interfaces"],
+    queryFn: () => api<OltInterface[]>(`/api/olts/${oltId}/interfaces`),
+    staleTime: 30_000,
+  });
+
+  return (
+    <>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-xs text-muted">
+          Dibaca langsung dari OLT saat tab dibuka, bukan dari database.
+        </p>
+        <Button size="sm" onClick={() => q.refetch()} disabled={q.isFetching}>
+          <ArrowClockwise size={14} /> {q.isFetching ? "Membaca ..." : "Baca ulang"}
+        </Button>
+      </div>
+      <TableCard
+        query={q}
+        columns={["Port", "Media", "PVID", "Auto nego", "Speed", "Duplex", "Admin", "Link", ""]}
+        empty="Tidak ada port uplink terbaca di OLT ini."
+        loadingText="Membaca port uplink dari OLT ..."
+        row={(p) => (
+          <tr key={p.name} className="border-b last:border-0">
+            <td className={`${cell} font-mono`}>{p.name}</td>
+            <td className={cell}>{p.media ?? "—"}</td>
+            <td className={`${cell} font-mono`}>{p.pvid ?? "—"}</td>
+            <td className={cell}>{p.auto_nego ?? "—"}</td>
+            <td className={`${cell} font-mono`}>{p.speed ?? "—"}</td>
+            <td className={cell}>{p.duplex ?? "—"}</td>
+            <td className={cell}>{p.admin_status ?? "—"}</td>
+            <td className={cell}>
+              <StatusBadge status={p.link === "up" ? "online" : "offline"} />
+            </td>
+            <td className={`${cell} text-right`}>
+              <Button size="sm" variant="quiet" onClick={() => setEdit(p)}>Edit</Button>
+            </td>
+          </tr>
+        )}
+      />
+      {edit && <PortConfigDrawer oltId={oltId} port={edit} onClose={() => setEdit(null)} />}
     </>
   );
 }
@@ -344,6 +474,8 @@ function Konfigurasi({ d }: { d: Detail }) {
         <Row label="Host" value={d.host} />
         <Row label="Vendor / model" value={`${d.vendor} ${d.model}`} />
         <Row label="Versi software" value={d.software_version ?? "—"} />
+        <Row label="Nama sistem (sysName)" value={d.sys_name ?? "—"} />
+        <Row label="Lokasi (sysLocation)" value={d.sys_location ?? "—"} />
         <Row label="Pemilik" value={d.owner_name} />
         <Row label="CLI" value={`${d.cli_protocol}://${d.cli_username}@:${d.cli_port}`} />
         <Row label="SNMP port" value={String(d.snmp_port)} />
@@ -467,6 +599,7 @@ export function OltDetail() {
 
       {tab === "Monitoring" && <Monitoring d={d} oltId={oltId} />}
       {tab === "VLANs" && <Vlans oltId={oltId} uplinkPorts={d.uplink_ports} />}
+      {tab === "Interfaces" && <Interfaces oltId={oltId} />}
       {tab === "Konfigurasi" && <Konfigurasi d={d} />}
       {tab === "Daftar ONU" && <DaftarOnu oltId={oltId} />}
     </>

@@ -32,6 +32,15 @@ Sintaks C300 dan C320 sama. Pakai `terminal length 0` sebelum perintah `show` ya
 | Profile upload (T-CONT) | `show running-config \| include profile tcont` | ✅ terverifikasi |
 | Profile download (traffic) | `show running-config \| include profile traffic` | ✅ terverifikasi |
 | Profile VLAN ONU | `show gpon onu profile vlan` | ✅ terverifikasi |
+| Status satu port uplink | `show interface port-status <ge\|xge>i_<rack>/<slot>/<port>` | ✅ terverifikasi |
+| VLAN satu port uplink | `show vlan port <port>` | ✅ terverifikasi |
+
+`show interface port-status` TIDAK punya bentuk massal: tanpa nama port dijawab
+`%Error 20203: Incomplete command`, dan `all`, nama slot (`xgei_1/19`) maupun rentang yang
+melewati port yang ada (`xgei_1/19/1-4` saat hanya 2 port) ditolak. Satu command per port.
+Nama port juga tidak bisa diambil dari `ifDescr` SNMP di semua perangkat — di C300 produksi
+seluruh `ifDescr` kosong, jadi nama port ditebak dari `show card` lalu divalidasi lewat
+command di atas (port yang tidak ada menjawab `%Error 20202`).
 
 ### Baca — PON
 
@@ -235,6 +244,28 @@ Kode penolakan yang harus ditangani:
 - `%Code 60551`: `switchport default vlan 1` ditolak. Pakai `no switchport default vlan`.
 
 Status: 🔧 produksi.
+
+### Ubah — Port uplink (auto-negotiation, speed, duplex)
+
+```text
+configure terminal
+interface <port>
+negotiation auto
+exit
+```
+
+Manual (auto-negotiation dimatikan dulu, kalau tidak speed/duplex diabaikan perangkat):
+
+```text
+configure terminal
+interface <port>
+no negotiation auto
+speed <10|100|1000|10000>
+duplex <full|half>
+exit
+```
+
+Port `gei_*` maksimal 1000 Mbps; `10000` hanya untuk port `xgei_*`.
 
 ### Ubah — TR-069 (Phase 2)
 

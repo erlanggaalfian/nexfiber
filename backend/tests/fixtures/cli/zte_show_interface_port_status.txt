@@ -1,0 +1,22 @@
+show interface port-status xgei_1/19/1
+--------------------------------------------------------------------------------
+     Port      hybrid  Native Negotiation  Speed  Duplex Flow-   Admin      Link
+               Status  VLAN     auto       (Mbps)        Ctrl    Status
+--------------------------------------------------------------------------------
+xgei_1/19/1    optical  1       disable    10000   full  disable activate   up   
+OLT_C300_SBI_01#
+show interface port-status xgei_1/19/2
+--------------------------------------------------------------------------------
+     Port      hybrid  Native Negotiation  Speed  Duplex Flow-   Admin      Link
+               Status  VLAN     auto       (Mbps)        Ctrl    Status
+--------------------------------------------------------------------------------
+xgei_1/19/2    optical  1       disable    10000   full  disable activate   down 
+OLT_C300_SBI_01#
+show interface port-status xgei_1/19/3
+                                           ^
+%Error 20202: Invalid input detected at '^' marker.Invalid parameter
+OLT_C300_SBI_01#
+show interface port-status gei_1/6/1
+                                           ^
+%Error 20202: Invalid input detected at '^' marker.Invalid parameter
+OLT_C300_SBI_01#

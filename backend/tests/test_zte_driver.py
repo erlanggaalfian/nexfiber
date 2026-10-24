@@ -20,8 +20,10 @@ from app.drivers.zte_c320 import (
     _decode_onu_rx_dbm,
     _parse_onu_ids,
     _parse_onu_iface,
+    _parse_port_status,
     _parse_slot_port,
     _parse_unconfigured,
+    build_port_config_commands,
     decode_pon_ifindex,
     phase_state_to_status,
 )
@@ -181,3 +183,86 @@ async def test_list_pon_ports_filters_ifdescr(monkeypatch):
     monkeypatch.setattr(driver._snmp, "bulkwalk", fake_bulkwalk)
     ports = await driver.list_pon_ports()
     assert [(p.slot, p.port, p.ifindex) for p in ports] == [(3, 6, IFX_1_3_6)]
+
+
+# --- Tab Interfaces: port uplink (PRD 3.4.7) ----------------------------------
+
+def test_parse_port_status_from_real_transcript():
+    """Transkrip nyata OLT SBI: 2 port sah + 2 baris error, header harus terlewat."""
+    text = (FIXTURES / "zte_show_interface_port_status.txt").read_text()
+    rows = _parse_port_status(text)
+    assert [r.name for r in rows] == ["xgei_1/19/1", "xgei_1/19/2"]
+    first = rows[0]
+    assert (first.media, first.pvid, first.auto_nego) == ("optical", 1, "disable")
+    assert (first.speed, first.duplex, first.flow_ctrl) == ("10000", "full", "disable")
+    assert (first.admin_status, first.link) == ("activate", "up")
+    assert rows[1].link == "down"
+
+
+def test_build_port_config_commands_auto_nego_ignores_speed_duplex():
+    assert build_port_config_commands("xgei_1/19/2", "enable", "1000", "half") == [
+        "interface xgei_1/19/2", "negotiation auto", "exit",
+    ]
+
+
+def test_build_port_config_commands_manual():
+    assert build_port_config_commands("xgei_1/19/2", "disable", "10000", "full") == [
+        "interface xgei_1/19/2", "no negotiation auto", "speed 10000", "duplex full", "exit",
+    ]
+
+
+@pytest.mark.parametrize(
+    "port,auto_nego,speed,duplex",
+    [
+        ("gpon-olt_1/3/6", "disable", "1000", "full"),  # bukan port uplink
+        ("xgei_1/19/2", "maybe", "1000", "full"),
+        ("xgei_1/19/2", "disable", "2500", "full"),  # speed di luar daftar
+        ("gei_1/19/2", "disable", "10000", "full"),  # port GE tak bisa 10G
+        ("xgei_1/19/2", "disable", "1000", "auto"),
+        ("xgei_1/19/2", "disable", None, None),
+    ],
+)
+def test_build_port_config_commands_rejects_bad_input(port, auto_nego, speed, duplex):
+    with pytest.raises(ValueError):
+        build_port_config_commands(port, auto_nego, speed, duplex)
+
+
+async def test_fetch_interfaces_probes_cards_when_ifdescr_empty(monkeypatch):
+    """BUG NYATA (OLT SBI): seluruh ifDescr kosong, jadi nama port ditebak dari
+    `show card` dan port yang ditolak perangkat hilang sendiri."""
+    driver = _driver()
+    status = (FIXTURES / "zte_show_interface_port_status.txt").read_text()
+    cards = (
+        "Rack Shelf Slot CfgType RealType Port  HardVer SoftVer         Status\n"
+        "1    1     6    GTGO    GTGOG    8     V1.0.0  V2.1.0          INSERVICE\n"
+        "1    1     19   HUVQ    HUVQ     2     V1.0.0  V2.1.0          INSERVICE\n"
+    )
+    seen: list[str] = []
+
+    async def fake_bulkwalk(_base_oid):
+        return []  # ifDescr kosong, seperti perangkat nyata
+
+    class FakeCli:
+        async def send_command(self, command: str) -> str:
+            seen.append(command)
+            if command == "show card":
+                return cards
+            if command.endswith("xgei_1/19/1"):
+                return status.split("show interface port-status xgei_1/19/2")[0]
+            if command.endswith("xgei_1/19/2"):
+                return status
+            return "%Error 20202: Invalid input detected at '^' marker."
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return None
+
+    monkeypatch.setattr(driver._snmp, "bulkwalk", fake_bulkwalk)
+    monkeypatch.setattr(driver, "_open_cli", lambda: FakeCli())
+    rows = await driver.fetch_interfaces()
+    assert sorted({r.name for r in rows}) == ["xgei_1/19/1", "xgei_1/19/2"]
+    # Kartu PON slot 6 ditolak di port 1 untuk kedua awalan -> tidak diprobe 8x.
+    assert seen.count("show interface port-status xgei_1/6/1") == 1
+    assert "show interface port-status xgei_1/6/2" not in seen

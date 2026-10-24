@@ -6,6 +6,7 @@ import { CaretDown, X } from "@phosphor-icons/react";
 import { Dialog, Popover } from "radix-ui";
 import type { ReactNode } from "react";
 import { useState } from "react";
+import { DONE, useJob } from "../lib/jobs";
 import { Empty, ErrorState, Skeleton } from "./data";
 import { Button } from "./ui/button";
 
@@ -55,9 +56,9 @@ export function Drawer({ title, onClose, onSubmit, busy, error, children }: {
   );
 }
 
-export function Confirm({ title, body, action, onConfirm, onClose, error, busy }: {
+export function Confirm({ title, body, action, onConfirm, onClose, error, busy, children }: {
   title: string; body: string; action: string; onConfirm: () => void; onClose: () => void;
-  error?: string; busy?: boolean;
+  error?: string; busy?: boolean; children?: ReactNode;
 }) {
   return (
     <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
@@ -67,6 +68,7 @@ export function Confirm({ title, body, action, onConfirm, onClose, error, busy }
           <Dialog.Title className="mb-2 text-lg font-semibold">{title}</Dialog.Title>
           <p className="mb-4 text-muted">{body}</p>
           {error && <p className="mb-3 text-down" role="alert">{error}</p>}
+          {children}
           <div className="flex justify-end gap-2">
             <Dialog.Close asChild><Button>Tutup</Button></Dialog.Close>
             <Button variant="danger" onClick={onConfirm} disabled={busy}>{action}</Button>
@@ -74,6 +76,37 @@ export function Confirm({ title, body, action, onConfirm, onClose, error, busy }
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+/** Jejak CLI satu aksi push ke OLT: perintah yang dikirim + respons mentah perangkat.
+ *  Hanya untuk sesi saat ini (hilang saat drawer/dialog ditutup) — histori permanen tetap
+ *  di halaman Logs. Dipakai tab VLANs dan Interfaces, jangan tulis ulang per halaman.
+ */
+export function JobTrace({ jobId }: { jobId: number | null }) {
+  const { data: job } = useJob(jobId);
+  if (jobId === null) return null;
+  const trace = (job?.result as { debug_log?: { command?: string; output?: string } } | null)
+    ?.debug_log;
+  const done = job ? DONE.has(job.status) : false;
+  const failed = job?.status === "failed";
+  return (
+    <div className={`mt-3 rounded-sm border px-3 py-2 text-xs ${failed ? "border-down" : ""}`}>
+      <p className={failed ? "text-down" : "text-muted"}>
+        Job #{jobId}: {job?.status ?? "menunggu"}
+        {job?.error_message ? ` — ${job.error_message}` : ""}
+      </p>
+      {trace ? (
+        <details className="mt-1">
+          <summary className="cursor-pointer text-muted hover:text-ink">Jejak CLI</summary>
+          <pre className="mt-1 max-h-48 overflow-auto bg-sunken p-2 font-mono whitespace-pre-wrap">
+            {`$ ${trace.command ?? "—"}\n${trace.output ?? ""}`.trim()}
+          </pre>
+        </details>
+      ) : (
+        done && <p className="mt-1 text-faint">Tidak ada jejak CLI untuk job ini.</p>
+      )}
+    </div>
   );
 }
 
