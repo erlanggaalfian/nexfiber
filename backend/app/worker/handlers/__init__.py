@@ -33,6 +33,21 @@ async def set_state(db, job, olt, driver):
 async def apply_speed_profile(db, job, olt, driver):
     return await onu_service.apply_speed_profile(db, job, driver)
 
+async def refresh_onu_detail(db, job, olt, driver):
+    return await onu_service.refresh_onu_detail(db, job, driver)
+
+async def resync_onu(db, job, olt, driver):
+    return await onu_service.resync_onu(db, job, driver)
+
+async def set_onu_vlan(db, job, olt, driver):
+    return await onu_service.set_onu_vlan(db, job, driver)
+
+async def replace_onu(db, job, olt, driver):
+    return await onu_service.replace_onu(db, job, driver)
+
+async def restore_factory(db, job, olt, driver):
+    return await onu_service.restore_factory(db, job, driver)
+
 async def create_vlan(db, job, olt, driver):
     return await vlan_service.push_create(db, job, driver)
 
@@ -98,6 +113,11 @@ HANDLERS: dict[str, Handler] = {
     "reboot_onu": reboot_onu,
     "set_state": set_state,
     "apply_speed_profile": apply_speed_profile,
+    "refresh_onu_detail": refresh_onu_detail,
+    "resync_onu": resync_onu,
+    "set_onu_vlan": set_onu_vlan,
+    "replace_onu": replace_onu,
+    "restore_factory": restore_factory,
     "create_vlan": create_vlan,
     "delete_vlan": delete_vlan,
     "push_speed_profile": push_speed_profile,

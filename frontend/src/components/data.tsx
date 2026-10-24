@@ -23,7 +23,9 @@ export function StatusBadge({ status, compact = false }: { status: string; compa
 
 export type RxBucket = "good" | "fair" | "weak" | "critical";
 
-/** PRD 3.4.2 / DESIGN 3 (c3): one bucket rule everywhere. null = LOS / no reading. */
+/** PRD 3.4.2 / DESIGN 3 (c3): one bucket rule everywhere. null = LOS / no reading.
+ *  Batasnya WAJIB sama dengan rx_bucket() di backend/app/core/signal.py (filter tabel
+ *  Configured + export CSV dihitung di server) — kalau salah satu diubah, ubah keduanya. */
 export function rxBucket(dbm: number | null): RxBucket | null {
   if (dbm === null) return null;
   if (dbm > -8 || dbm <= -28) return "critical";

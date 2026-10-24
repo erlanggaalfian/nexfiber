@@ -6,6 +6,7 @@ from app.drivers.types import (
     DriverResult,
     ModifyRequest,
     OltHealth,
+    OnuLiveDetail,
     OnuSnapshot,
     OnuStatusSample,
     OpticalSample,
@@ -73,6 +74,21 @@ class OltDriver(ABC):
     @abstractmethod
     async def list_onu_ids(self, slot: int, port: int) -> list[int]:
         """ONU IDs currently configured on one PON, read live (authorize picks a free one)."""
+
+    @abstractmethod
+    async def fetch_onu_detail(self, slot: int, port: int, onu_id: int) -> OnuLiveDetail:
+        """Baca live satu ONU untuk halaman Detail ONU (PRD 3.4.6): optical, jarak,
+        versi software/hardware dan running-config read-only.
+        """
+
+    @abstractmethod
+    async def set_onu_vlan(self, slot: int, port: int, onu_id: int, old_vlan: int | None,
+                           new_vlan: int) -> DriverResult:
+        """Pindahkan ONU ke VLAN lain; old_vlan dibutuhkan untuk mencabut flow yang lama."""
+
+    @abstractmethod
+    async def restore_factory(self, slot: int, port: int, onu_id: int) -> DriverResult:
+        """Reset ONU ke setelan pabrik (aksi destruktif, selalu lewat job + konfirmasi UI)."""
 
     @abstractmethod
     async def create_vlan(self, vlan_id: int, description: str | None) -> DriverResult: ...

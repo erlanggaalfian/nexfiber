@@ -1,6 +1,13 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+from app.core.signal import BUCKETS
+
+# Bucket RX: nilainya dari app.core.signal (satu definisi untuk seluruh backend).
+SignalBucket = Literal[BUCKETS]  # type: ignore[valid-type]
+OnuStatus = Literal["online", "offline", "los", "dying_gasp", "power_off", "unknown"]
 
 
 class OnuRow(BaseModel):
@@ -21,6 +28,9 @@ class OnuRow(BaseModel):
     rx_power_dbm: float | None
     olt_rx_power_dbm: float | None
     speed_profile_name: str | None
+    vlan_number: int | None
+    zone_name: str | None
+    splitter_name: str | None
     last_seen_at: datetime | None
     last_down_at: datetime | None
     last_down_reason: str | None
@@ -30,16 +40,29 @@ class OnuDetail(OnuRow):
     description: str | None
     address: str | None
     phone: str | None
+    contact: str | None
+    external_id: str | None
     tx_power_dbm: float | None
     temperature_c: float | None
+    voltage_v: float | None
     distance_m: int | None
     mac_address: str | None
     ip_address: str | None
     vlan_id: int | None
+    zone_id: int | None
+    splitter_id: int | None
+    splitter_port: int | None
     speed_profile_id: int | None
     line_profile_id: str | None
     srv_profile_id: str | None
     software_version: str | None
+    hardware_version: str | None
+    onu_mode: str | None
+    wan_mode: str | None
+    mgmt_ip_mode: str | None
+    pppoe_username: str | None
+    latitude: float | None
+    longitude: float | None
     registered_at: datetime | None
 
 class OnuPage(BaseModel):
@@ -60,18 +83,40 @@ class PendingOnu(BaseModel):
     first_seen_at: datetime
     last_seen_at: datetime
 
+ONU_MODES = "^(routing|bridging)$"
+WAN_MODES = "^(webpage|dhcp|static|pppoe)$"
+
+
 class AuthorizeBody(BaseModel):
+    """Form Otorisasi (PRD 3.4.4). `vlan_id` = id baris tabel `vlans` (dropdown VLAN
+    existing, DECISIONS "Scope authorize_onu"), bukan nomor VLAN."""
+
     olt_id: int
     serial_number: str = Field(min_length=4, max_length=32)
     customer_id: str = Field(min_length=1, max_length=50)
     customer_name: str = Field(min_length=1, max_length=255)
     address: str | None = Field(None, max_length=500)
     name: str | None = Field(None, max_length=100)
+    description: str | None = Field(None, max_length=128)
+    phone: str | None = Field(None, max_length=30)
+    contact: str | None = Field(None, max_length=100)
+    external_id: str | None = Field(None, max_length=50)
     onu_type: str | None = Field(None, max_length=50)
+    onu_type_id: int | None = None
     vlan_id: int | None = None
     speed_profile_id: int | None = None
     line_profile_id: str | None = Field(None, max_length=50)
     srv_profile_id: str | None = Field(None, max_length=50)
+    zone_id: int | None = None
+    splitter_id: int | None = None
+    splitter_port: int | None = Field(None, ge=1)
+    preset_id: int | None = None
+    onu_mode: str | None = Field(None, pattern=ONU_MODES)
+    wan_mode: str | None = Field(None, pattern=WAN_MODES)
+    pppoe_username: str | None = Field(None, max_length=100)
+    pppoe_password: str | None = Field(None, max_length=100)  # disimpan terenkripsi
+    latitude: float | None = Field(None, ge=-90, le=90)
+    longitude: float | None = Field(None, ge=-180, le=180)
     onu_index: int | None = Field(None, ge=1, description="Empty = smallest free ID on the OLT")
 
 class StateBody(BaseModel):
@@ -79,6 +124,41 @@ class StateBody(BaseModel):
 
 class SpeedProfileBody(BaseModel):
     speed_profile_id: int
+
+class VlanBody(BaseModel):
+    """`vlan_id` = id baris tabel `vlans`, bukan nomor VLAN (konsisten dengan AuthorizeBody)."""
+
+    vlan_id: int
+
+class ReplaceOnuBody(BaseModel):
+    """Ganti ONU: SN baru menggantikan SN lama, data pelanggan di baris yang sama tetap."""
+
+    serial_number: str = Field(min_length=4, max_length=32)
+    onu_type: str | None = Field(None, max_length=50)
+
+BULK_ACTIONS = ("reboot_onu", "resync_onu", "set_state", "apply_speed_profile",
+                "set_onu_vlan", "delete_onu")
+
+class BulkActionBody(BaseModel):
+    """Aksi massal tabel Configured (PRD 3.4.5): satu job per ONU, bukan satu job gabungan."""
+
+    serials: list[str] = Field(min_length=1, max_length=200)
+    action: Literal[BULK_ACTIONS]  # type: ignore[valid-type]
+    enabled: bool | None = None          # untuk set_state
+    speed_profile_id: int | None = None  # untuk apply_speed_profile
+    vlan_id: int | None = None           # untuk set_onu_vlan
+
+class BulkActionItem(BaseModel):
+    serial_number: str
+    job_id: int | None
+    error: str | None
+
+class BulkActionResult(BaseModel):
+    """Per-serial, supaya UI bisa menunjukkan ONU mana yang gagal tanpa menebak."""
+
+    items: list[BulkActionItem]
+    queued: int
+    failed: int
 
 class SignalPoint(BaseModel):
     sampled_at: datetime

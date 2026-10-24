@@ -35,6 +35,11 @@ JobType = Enum(
     "sync_speed_profiles",
     "tr069_push",
     "test_connection",
+    "refresh_onu_detail",
+    "resync_onu",
+    "set_onu_vlan",
+    "replace_onu",
+    "restore_factory",
     name="job_type",
 )
 JobStatus = Enum("pending", "running", "success", "failed", "cancelled", name="job_status")

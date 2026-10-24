@@ -6,13 +6,16 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.rbac import Scope, scoped
+from app.core.signal import bucket_filter
 from app.models.activity_log import ActivityLog
 from app.models.olt import Olt, PonPort
 from app.models.onu import Onu, OnuSignalHistory
 from app.models.speed_profile import SpeedProfile
+from app.models.splitter import Splitter
 from app.models.unconfigured_onu import UnconfiguredOnu
 from app.models.user import User
 from app.models.vlan import Vlan
+from app.models.zone import Zone
 
 DOWN_STATUSES = ("offline", "los", "dying_gasp", "power_off")
 SORT_COLUMNS = {
@@ -26,20 +29,26 @@ SORT_COLUMNS = {
 
 def _onu_rows() -> Select:
     return (
-        select(Onu, Olt.name, PonPort.slot, PonPort.port, SpeedProfile.name)
+        select(Onu, Olt.name, PonPort.slot, PonPort.port, SpeedProfile.name,
+               Vlan.vlan_id, Zone.name, Splitter.name)
         .join(Olt, Olt.id == Onu.olt_id)
         .join(PonPort, PonPort.id == Onu.pon_port_id)
         .outerjoin(SpeedProfile, SpeedProfile.id == Onu.speed_profile_id)
+        .outerjoin(Vlan, Vlan.id == Onu.vlan_id)
+        .outerjoin(Zone, Zone.id == Onu.zone_id)
+        .outerjoin(Splitter, Splitter.id == Onu.splitter_id)
         .where(Onu.deleted_at.is_(None))
     )
 
 def _apply_filters(stmt: Select, *, q, olt_id, pon_port_id, state, speed_profile_id,
-                   rx_warn_dbm: float) -> Select:
+                   rx_warn_dbm: float, signal=None, status=None, vlan_id=None, zone_id=None,
+                   splitter_id=None, onu_type=None) -> Select:
     if q:
         like = f"%{q}%"
         stmt = stmt.where(or_(
             Onu.serial_number.ilike(like), Onu.customer_name.ilike(like),
             Onu.customer_id.ilike(like), Onu.mac_address.ilike(like), Onu.name.ilike(like),
+            Onu.address.ilike(like), Onu.pppoe_username.ilike(like), Onu.external_id.ilike(like),
         ))
     if olt_id:
         stmt = stmt.where(Onu.olt_id == olt_id)
@@ -47,6 +56,19 @@ def _apply_filters(stmt: Select, *, q, olt_id, pon_port_id, state, speed_profile
         stmt = stmt.where(Onu.pon_port_id == pon_port_id)
     if speed_profile_id:
         stmt = stmt.where(Onu.speed_profile_id == speed_profile_id)
+    if vlan_id:
+        stmt = stmt.where(Onu.vlan_id == vlan_id)
+    if zone_id:
+        stmt = stmt.where(Onu.zone_id == zone_id)
+    if splitter_id:
+        stmt = stmt.where(Onu.splitter_id == splitter_id)
+    if onu_type:
+        stmt = stmt.where(Onu.onu_type == onu_type)
+    if status:
+        stmt = stmt.where(Onu.status.in_(status))
+    if signal:
+        # DECISIONS.md: satu definisi bucket, dari app.core.signal. Jangan ulangi batas dBm di sini.
+        stmt = stmt.where(or_(*(bucket_filter(Onu.rx_power_dbm, b) for b in signal)))
     if state == "online":
         stmt = stmt.where(Onu.status == "online")
     elif state == "down":
@@ -58,16 +80,21 @@ def _apply_filters(stmt: Select, *, q, olt_id, pon_port_id, state, speed_profile
     return stmt
 
 async def search(db: AsyncSession, scope: Scope, *, q, olt_id, pon_port_id, state, speed_profile_id,
-                 rx_warn_dbm: float, sort: str, page: int, size: int) -> tuple[list, int]:
+                 rx_warn_dbm: float, sort: str, page: int, size: int, signal=None, status=None,
+                 vlan_id=None, zone_id=None, splitter_id=None, onu_type=None) -> tuple[list, int]:
     filters = dict(q=q, olt_id=olt_id, pon_port_id=pon_port_id, state=state,
-                   speed_profile_id=speed_profile_id, rx_warn_dbm=rx_warn_dbm)
+                   speed_profile_id=speed_profile_id, rx_warn_dbm=rx_warn_dbm, signal=signal,
+                   status=status, vlan_id=vlan_id, zone_id=zone_id, splitter_id=splitter_id,
+                   onu_type=onu_type)
     total = await db.scalar(scoped(_apply_filters(
         select(func.count(Onu.id)).where(Onu.deleted_at.is_(None)), **filters
     ), Onu.olt_id, scope))
     column = SORT_COLUMNS[sort.lstrip("-")]
     order = column.desc().nulls_last() if sort.startswith("-") else column.asc().nulls_last()
     stmt = (scoped(_apply_filters(_onu_rows(), **filters), Onu.olt_id, scope)
-            .order_by(order, Onu.id).offset((page - 1) * size).limit(size))
+            .order_by(order, Onu.id))
+    if size is not None:
+        stmt = stmt.offset((page - 1) * size).limit(size)
     return list(await db.execute(stmt)), total or 0
 
 async def get_row_by_serial(db: AsyncSession, serial: str, scope: Scope):

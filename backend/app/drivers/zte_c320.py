@@ -728,17 +728,22 @@ def _parse_onu_detail_info(output: str) -> OnuLiveDetail:
 
 def _parse_attenuation(output: str, rx: float | None, tx: float | None,
                        olt_rx: float | None) -> tuple[float | None, float | None, float | None]:
-    """`show pon power attenuation`: isi hanya yang masih kosong dari detail-info."""
+    """`show pon power attenuation`: isi hanya yang masih kosong dari detail-info.
+
+    Label ZTE: `OltRxOnuTx` = daya yang diterima OLT (olt_rx), `OnuRxOltTx` = daya yang
+    diterima ONU (rx). Nilai dari detail-info selalu menang.
+    """
     for line in output.splitlines():
         pair = _kv(line)
         if pair is None:
             continue
         label, value = pair
-        if "up" in label and "rx" in label:
+        label = label.replace(" ", "").replace("-", "").replace("_", "")
+        if "oltrx" in label:
             olt_rx = olt_rx if olt_rx is not None else _dbm(value)
-        elif "down" in label and "rx" in label:
+        elif "onurx" in label:
             rx = rx if rx is not None else _dbm(value)
-        elif "tx" in label:
+        elif "onutx" in label or label.endswith("tx"):
             tx = tx if tx is not None else _dbm(value)
     return rx, tx, olt_rx
 
