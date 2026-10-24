@@ -9,7 +9,7 @@
  */
 import { useState } from "react";
 import { serviceVlanOptions, type OnuConfigOptions } from "../../../lib/onuActions";
-import { ModalShell, PasswordInput, Radios, Row, Select, field } from "./ModalShell";
+import { Help, ModalShell, PasswordInput, Radios, Row, Select, field } from "./ModalShell";
 
 export type OnuModeBody = {
   wan_vlan: number | null;
@@ -85,7 +85,10 @@ export function OnuModeModal(
                   pppoe_password: isPppoe ? text(pass) : null,
                   wan_remote_access: remote,
                 })}>
-      <Row label="WAN VLAN-ID" hint="Setelah diubah, cek VLAN pada port Ethernet.">
+      <Row label="WAN VLAN-ID"
+           hint={<Help warn>
+             Setelah WAN VLAN-ID diubah, periksa setelan port Ethernet dan perbarui VLAN sesuai kebutuhan.
+           </Help>}>
         <Select value={wanVlan} onChange={setWanVlan} placeholder="Tanpa VLAN" label="WAN VLAN-ID">
           {serviceVlanOptions(options).map((v) => (
             <option key={v.number} value={v.number}>{v.number} - {v.name}</option>
@@ -117,7 +120,7 @@ export function OnuModeModal(
             <>
               <Row label="WAN IP source">
                 <Radios name="wan-ip-source" value={ipSource} onChange={setIpSource}
-                        options={[{ value: "pool", label: "Dari IP pool" }, { value: "manual", label: "IP manual" }]} />
+                        options={[{ value: "pool", label: "From IP pool" }, { value: "manual", label: "Manual IP" }]} />
               </Row>
               {ipSource === "manual" && (
                 <Row label="WAN IP address">
@@ -130,11 +133,11 @@ export function OnuModeModal(
           )}
           {isPppoe && (
             <>
-              <Row label="PPPoE username">
+              <Row label="Username">
                 <input className={field} value={user} autoComplete="off" aria-label="PPPoE username"
                        onChange={(e) => setUser(e.target.value.trim())} />
               </Row>
-              <Row label="PPPoE password">
+              <Row label="Password">
                 <PasswordInput label="PPPoE password" value={pass} onChange={setPass} />
               </Row>
             </>

@@ -42,7 +42,7 @@ export function EthPortModal(
   const showAllowed = mode === "trunk" || mode === "hybrid";
 
   return (
-    <ModalShell title={`Configure ethernet port eth_0/${port}`} action="Simpan"
+    <ModalShell title={`Configure ethernet port eth_0/${port}`} action="Save" wide
                 supported={supported} note={note} busy={busy} error={error} onClose={onClose}
                 onSubmit={() => onSubmit({
                   port, enabled: enabled === "on", mode,
@@ -51,16 +51,15 @@ export function EthPortModal(
                   dhcp,
                 })}>
       <Row label="Link">
-        <span className="font-mono text-xs text-muted">{link ?? "—"}</span>
+        <span className="font-mono text-sm text-muted">{link ?? "—"}</span>
       </Row>
       <Row label="Status">
         <Radios name={`eth-${port}-status`} value={enabled} onChange={setEnabled}
                 options={[{ value: "on", label: "Enabled" }, { value: "off", label: "Port shutdown" }]} />
       </Row>
+      {/* Acuan memakai radio sebaris untuk 5 mode (bukan select). */}
       <Row label="Mode">
-        <Select value={mode} onChange={setMode} label="Mode">
-          {MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-        </Select>
+        <Radios name={`eth-${port}-mode`} value={mode} onChange={setMode} options={MODES} />
       </Row>
       <Row label="VLAN-ID">
         <Select value={vlan} onChange={setVlan} placeholder="Tanpa VLAN" label="VLAN-ID">
@@ -68,8 +67,8 @@ export function EthPortModal(
         </Select>
       </Row>
       {showAllowed && (
-        <Row label="Allowed VLANs">
-          <VlanMulti label="Allowed VLANs" options={vlanList} value={allowed} onChange={setAllowed} />
+        <Row label="Allowed VLANs list">
+          <VlanMulti label="Allowed VLANs list" options={vlanList} value={allowed} onChange={setAllowed} />
         </Row>
       )}
       <Row label="DHCP">

@@ -22,7 +22,7 @@ export function OnuTypeModal(
 ) {
   const [id, setId] = useState(current === null ? "" : String(current));
   return (
-    <ModalShell title="Change ONU type" action="Ubah" {...c} disabled={id === ""}
+    <ModalShell title="Change ONU type" action="Change" {...c} disabled={id === ""}
                 onSubmit={() => id !== "" && onSubmit({ onu_type_id: Number(id) })}>
       <Row label="ONU type">
         <Select value={id} onChange={setId} placeholder="Pilih tipe ..." label="ONU type">
@@ -63,7 +63,7 @@ export function SpeedProfileModal(
   const byDir = (dir: string) =>
     list.filter((p) => !p.direction || p.direction === dir);
   return (
-    <ModalShell title="Configure speed profiles" action="Update" {...c}
+    <ModalShell title="Configure speed profiles" action="Save" {...c}
                 onSubmit={() => onSubmit({
                   download_profile: dn === "" ? null : dn,
                   upload_profile: up === "" ? null : up,
@@ -95,7 +95,7 @@ export function MoveOnuModal(
   const [port, setPort] = useState(String(current.port));
   const ok = olt !== "" && board !== "" && port !== "";
   return (
-    <ModalShell title="Move ONU" action="Pindahkan" {...c} disabled={!ok}
+    <ModalShell title="Move ONU" action="Move" {...c} disabled={!ok}
                 onSubmit={() => ok && onSubmit({
                   olt_id: Number(olt), board: Number(board), port: Number(port),
                 })}>
@@ -123,12 +123,12 @@ export function ReplaceSnModal(
   const [sn, setSn] = useState("");
   const ok = sn.length >= 4 && sn !== currentSn;
   return (
-    <ModalShell title="Replace ONU by SN" action="Ganti" {...c} disabled={!ok}
+    <ModalShell title="Replace ONU by SN" action="Replace" {...c} disabled={!ok}
                 onSubmit={() => ok && onSubmit({ new_sn: sn })}>
-      <Row label="SN sekarang">
+      <Row label="SN saat ini">
         <input className={field} value={currentSn} readOnly disabled aria-label="SN sekarang" />
       </Row>
-      <Row label="SN baru">
+      <Row label="SN">
         <input className={field} value={sn} autoComplete="off" aria-label="SN baru"
                onChange={(e) => setSn(e.target.value.trim())} />
       </Row>

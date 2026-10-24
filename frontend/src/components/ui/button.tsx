@@ -6,6 +6,8 @@ const VARIANTS = {
   secondary: "border border-line-strong text-ink hover:bg-sunken",
   quiet: "text-fiber hover:underline",
   danger: "border border-down text-down hover:bg-sunken",
+  /** Aksi merusak sebagai tombol utama footer modal (acuan SmartOLT `btn-danger` terisi penuh). */
+  dangerSolid: "bg-down text-white font-semibold border border-down hover:opacity-90",
 };
 const SIZES = { sm: "h-7 px-2", md: "h-8 px-3", lg: "h-10 px-4" };
 

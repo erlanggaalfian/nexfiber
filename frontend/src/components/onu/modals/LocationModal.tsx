@@ -125,12 +125,13 @@ export function LocationModal(
         <input className={field} value={f.longitude} placeholder="106.816660" aria-label="Longitude"
                onChange={(e) => set("longitude", e.target.value)} />
       </Row>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" onClick={locate}>Ambil lokasi saat ini</Button>
+      {/* Acuan: tombol lokasi + tautan peta sebaris di bawah Longitude. */}
+      <div className="flex flex-wrap items-center gap-3 sm:pl-[25%]">
+        <Button size="md" onClick={locate}>Get current location</Button>
         {hasCoords && (
-          <a className="text-xs text-fiber hover:underline" target="_blank" rel="noreferrer"
+          <a className="text-sm text-fiber hover:underline" target="_blank" rel="noreferrer"
              href={`https://www.openstreetmap.org/?mlat=${f.latitude}&mlon=${f.longitude}#map=17/${f.latitude}/${f.longitude}`}>
-            Buka di peta
+            Open in Maps
           </a>
         )}
         {geoMsg && <span className="text-xs text-muted">{geoMsg}</span>}

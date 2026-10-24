@@ -75,10 +75,10 @@ export function VoipEnableModal(
   const [pass, setPass] = useState("");
   const text = (v: string) => (v.trim() === "" ? null : v.trim());
   return (
-    <ModalShell title="Enable VoIP" action="Aktifkan" {...c}
+    <ModalShell title="Enable VoIP" action="Enable" {...c}
                 onSubmit={() => onSubmit({ port, phone_number: text(phone), password: text(pass) })}>
       <Row label="Port">
-        <span className="font-mono text-xs text-muted">pots_0/{port}</span>
+        <span className="font-mono text-sm text-muted">pots_0/{port}</span>
       </Row>
       <Row label="Phone number">
         <input className={field} value={phone} autoComplete="off" aria-label="Phone number"

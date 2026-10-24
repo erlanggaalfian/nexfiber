@@ -107,7 +107,7 @@ const CASES = [
   ["iptv", (p) => p.getByRole("button", { name: /^IPTV/ }).click(), "Update IPTV"],
   ["reboot", (p) => p.getByRole("button", { name: "Reboot" }).first().click(), "Reboot"],
   ["disable", (p) => p.getByRole("button", { name: "Nonaktifkan ONU" }).click(), "Disable ONU"],
-  ["resync", (p) => p.getByRole("button", { name: "Resync config" }).click(), "Recreate OLT config"],
+  ["resync", (p) => p.getByRole("button", { name: "Resync config" }).first().click(), "Recreate OLT config for this ONU"],
   ["restore-factory", (p) => p.getByRole("button", { name: "Restore factory" }).click(), "Restore to factory defaults"],
   ["delete", (p) => p.getByRole("button", { name: "Hapus" }).click(), "Delete"],
 ];
@@ -181,7 +181,7 @@ for (const [view, width, height] of [["desktop-1440", 1440, 1200], ["mobile-390"
     }
     /** Delete & Restore: tombol aksi mati sampai serial number diketik persis. */
     if (name === "delete" || name === "restore-factory") {
-      const btn = dialog.getByRole("button", { name: /^Ya,/ });
+      const btn = dialog.getByRole("button", { name: name === "delete" ? "Delete" : "Restore to factory defaults" });
       assert.equal(await btn.isDisabled(), true, `${name}/${view}: tombol harus mati sebelum konfirmasi`);
       await dialog.getByLabel("Konfirmasi serial number").fill(detail.serial_number);
       assert.equal(await btn.isDisabled(), false, `${name}/${view}: tombol harus hidup setelah SN cocok`);

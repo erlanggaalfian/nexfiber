@@ -3,7 +3,7 @@
  *  hanya di state lokal, "Clear WiFi port settings" memakai kind `wifi-clear`. */
 import { useState } from "react";
 import { serviceVlanOptions, type OnuConfigOptions } from "../../../lib/onuActions";
-import { ModalShell, PasswordInput, Radios, Row, Select, VlanMulti, field } from "./ModalShell";
+import { Help, ModalShell, PasswordInput, Radios, Row, Select, VlanMulti, field } from "./ModalShell";
 import { Button } from "../../ui/button";
 
 export type WifiPortBody = {
@@ -52,12 +52,12 @@ export function WifiPortModal(
   const text = (v: string) => (v.trim() === "" ? null : v.trim());
 
   return (
-    <ModalShell title={`Configure WiFi port wifi_0/${port}`} action="Simpan"
+    <ModalShell title={`Configure WiFi port wifi_0/${port}`} action="Save"
                 supported={supported} note={note} busy={busy} error={error} onClose={onClose}
                 extra={
-                  <Button size="sm" variant="danger" disabled={clearSupported === false}
+                  <Button size="md" variant="dangerSolid" disabled={clearSupported === false}
                           onClick={() => onClear(port)}>
-                    Bersihkan setelan WiFi
+                    Clear WiFi port settings
                   </Button>
                 }
                 onSubmit={() => onSubmit({
@@ -72,10 +72,9 @@ export function WifiPortModal(
         <Radios name={`wifi-${port}-status`} value={enabled} onChange={setEnabled}
                 options={[{ value: "on", label: "Enabled" }, { value: "off", label: "Port shutdown" }]} />
       </Row>
+      {/* Acuan memakai radio sebaris untuk 4 mode WiFi (bukan select). */}
       <Row label="Mode">
-        <Select value={mode} onChange={setMode} label="Mode">
-          {MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-        </Select>
+        <Radios name={`wifi-${port}-mode`} value={mode} onChange={setMode} options={MODES} />
       </Row>
       <Row label="VLAN-ID">
         <Select value={vlan} onChange={setVlan} placeholder="Tanpa VLAN" label="VLAN-ID">
@@ -83,15 +82,16 @@ export function WifiPortModal(
         </Select>
       </Row>
       {showAllowed && (
-        <Row label="Allowed VLANs">
-          <VlanMulti label="Allowed VLANs" options={vlanList} value={allowed} onChange={setAllowed} />
+        <Row label="Allowed VLANs list">
+          <VlanMulti label="Allowed VLANs list" options={vlanList} value={allowed} onChange={setAllowed} />
         </Row>
       )}
       <Row label="SSID">
         <input className={field} value={ssid} aria-label="SSID" autoComplete="off"
                onChange={(e) => setSsid(e.target.value)} />
       </Row>
-      <Row label="Auth mode">
+      <Row label="Auth mode"
+           hint={<Help>Kemampuan autentikasi belum dilaporkan oleh ONU.</Help>}>
         <Select value={auth} onChange={setAuth} label="Auth mode">
           {AUTH.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
         </Select>
@@ -99,9 +99,9 @@ export function WifiPortModal(
       {auth !== "open" && (
         <>
           <Row label="Encryption">
-            <span className="font-mono text-xs text-muted">AES</span>
+            <span className="font-mono text-sm text-muted">AES</span>
           </Row>
-          <Row label="Password" hint="Kosongkan bila tidak diganti.">
+          <Row label="New password" hint="Kosongkan bila tidak diganti.">
             <PasswordInput label="Password WiFi" value={pass} onChange={setPass} />
           </Row>
         </>

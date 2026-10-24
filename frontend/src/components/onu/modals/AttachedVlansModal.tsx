@@ -2,7 +2,7 @@
  *  VLAN management tidak muncul (disaring `serviceVlanOptions`). */
 import { useState } from "react";
 import { serviceVlanOptions, type OnuConfigOptions } from "../../../lib/onuActions";
-import { ModalShell, Row, VlanMulti } from "./ModalShell";
+import { Help, HelpPanel, ModalShell, Row, VlanMulti } from "./ModalShell";
 
 export function AttachedVlansModal(
   { options, current, supported, note, busy, error, onClose, onSubmit }:
@@ -21,9 +21,16 @@ export function AttachedVlansModal(
   return (
     <ModalShell title="Update attached VLANs" action="Update" supported={supported} note={note}
                 busy={busy} error={error} onClose={onClose} onSubmit={() => onSubmit(vlans)}>
-      <Row label="VLANs" hint="Setelah diubah, cek VLAN pada port Ethernet.">
+      <Row label="VLANs">
         <VlanMulti label="VLANs" options={serviceVlanOptions(options)} value={vlans} onChange={setVlans} />
       </Row>
+      {/* Acuan: dua catatan di panel penuh lebar di bawah multiselect, bukan hint kecil. */}
+      <HelpPanel>
+        <Help>Pilih semua VLAN yang akan dipakai pada ONU ini.</Help>
+        <Help warn>
+          Setelah daftar VLAN diubah, buka setelan port Ethernet dan tetapkan VLAN sesuai kebutuhan.
+        </Help>
+      </HelpPanel>
     </ModalShell>
   );
 }

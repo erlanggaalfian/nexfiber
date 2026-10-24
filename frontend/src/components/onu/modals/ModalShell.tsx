@@ -8,39 +8,60 @@
  *  operator bisa melihat isinya, tombol simpannya mati dengan catatan "Belum didukung"
  *  (kontrak `GET /api/onus/{id}/actions`).
  */
-import { CaretDown, Eye, EyeSlash } from "@phosphor-icons/react";
+import { CaretDown, Eye, EyeSlash, Info, Warning, X } from "@phosphor-icons/react";
 import { Dialog } from "radix-ui";
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { input } from "../../crud";
 import { Button } from "../../ui/button";
 
-export const field = input;
-export const selectCls = input;
+/** Kontrol form modal: acuan SmartOLT memakai input 45px pada basis teks 15px (3x tinggi teks).
+ *  Skala Nexfiber teks 13px, jadi 36px (`h-9`) + padding 12px menjaga proporsi yang sama
+ *  tanpa keluar dari token repo (`crud.input` 32px terlalu rapat dibanding acuan). */
+export const field = "h-9 w-full rounded-sm border border-line-strong bg-surface px-3 text-sm";
+export const selectCls = field;
 
-/** Baris form: label kiri sempit (pola acuan `col-sm-3`), kontrol kanan; menumpuk di mobile. */
-export function Row({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+/** Kotak catatan acuan (`.help-block` di dalam panel): kartu `surface` di atas badan `sunken`. */
+export function Help({ children, warn }: { children: ReactNode; warn?: boolean }) {
+  const Icon = warn ? Warning : Info;
   return (
-    <div className="mb-2.5 grid gap-1 sm:grid-cols-12 sm:items-center sm:gap-x-3">
-      <span className="text-xs font-semibold text-ink sm:col-span-4 sm:pt-0 sm:text-right">{label}</span>
-      <div className="min-w-0 sm:col-span-8">
+    <p className={`flex items-start gap-1.5 text-xs ${warn ? "text-amber" : "text-muted"}`}>
+      <Icon size={13} aria-hidden className="mt-0.5 shrink-0" />
+      <span className="min-w-0">{children}</span>
+    </p>
+  );
+}
+
+/** Panel catatan penuh lebar (acuan `.attached-vlans-help`). */
+export function HelpPanel({ children }: { children: ReactNode }) {
+  return (
+    <div className="mt-2.5 space-y-1 rounded-sm border border-line bg-surface px-3 py-2.5">{children}</div>
+  );
+}
+
+/** Baris form acuan `form-horizontal`: label `col-sm-3` kanan + tebal, kontrol `col-sm-9`;
+ *  menumpuk jadi satu kolom di mobile supaya 390px tidak pernah meluber. */
+export function Row({ label, children, hint }: { label: string; children: ReactNode; hint?: ReactNode }) {
+  return (
+    <div className="mb-3.5 grid gap-1 sm:grid-cols-12 sm:items-center sm:gap-x-4">
+      <span className="text-sm font-semibold text-ink sm:col-span-3 sm:text-right">{label}</span>
+      <div className="min-w-0 sm:col-span-9">
         {children}
-        {hint && <p className="mt-0.5 text-xs text-faint">{hint}</p>}
+        {hint && <div className="mt-1.5">{typeof hint === "string" ? <Help>{hint}</Help> : hint}</div>}
       </div>
     </div>
   );
 }
 
-/** Pilihan radio: menumpuk di mobile (390px) supaya label panjang tidak pecah tak rapi,
- *  sebaris di `sm` ke atas. */
+/** Pilihan radio acuan `radio-inline`: sebaris dengan jarak 16px di `sm` ke atas, menumpuk di
+ *  390px supaya label panjang ("Setup via ONU webpage") tidak pecah tak rapi. */
 export function Radios<T extends string>(
   { name, value, options, onChange }:
   { name: string; value: T; options: { value: T; label: string; disabled?: boolean }[]; onChange: (v: T) => void },
 ) {
   return (
-    <div className="flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:gap-x-3">
+    <div className="flex min-h-9 flex-col gap-1.5 py-1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1.5">
       {options.map((o) => (
-        <label key={o.value} className="flex items-center gap-1.5 text-sm">
+        <label key={o.value} className="flex cursor-pointer items-center gap-1.5 text-sm">
           <input type="radio" name={name} value={o.value} checked={value === o.value}
                  disabled={o.disabled} onChange={() => onChange(o.value)} />
           <span className={o.disabled ? "text-faint" : ""}>{o.label}</span>
@@ -91,9 +112,9 @@ export function VlanMulti(
   const toggle = (n: number) =>
     onChange(value.includes(n) ? value.filter((x) => x !== n) : [...value, n].sort((a, b) => a - b));
   return (
-    <div className="rounded-sm border border-line-strong">
-      <div className="flex items-center gap-2 border-b p-1.5">
-        <input className={`${field} h-7`} placeholder="Cari VLAN ..." value={q} aria-label={`Cari ${label}`}
+    <div className="rounded-sm border border-line-strong bg-surface">
+      <div className="flex items-center gap-2 border-b p-2">
+        <input className={`${field} h-8`} placeholder="Cari VLAN ..." value={q} aria-label={`Cari ${label}`}
                onChange={(e) => setQ(e.target.value)} />
         <Button size="sm" variant="quiet" className="shrink-0"
                 onClick={() => onChange(allShown
@@ -152,6 +173,10 @@ export type ShellProps = {
   note?: string | null;
   /** Tombol aksi memakai gaya bahaya (hapus/factory). */
   danger?: boolean;
+  /** Gaya peringatan kuning acuan (`btn-warning`/`btn-yellow`): reboot, disable, resync. */
+  warn?: boolean;
+  /** Acuan `configureNetworkPort` memakai dialog 900px, bukan 600px. */
+  wide?: boolean;
   /** Mati karena validasi lokal (mis. konfirmasi belum diketik). */
   disabled?: boolean;
   extra?: ReactNode;
@@ -160,22 +185,33 @@ export type ShellProps = {
 
 export function ModalShell({
   title, onClose, onSubmit, action = "Simpan", busy, error, supported = true, note,
-  danger, disabled, extra, children,
+  danger, warn, wide, disabled, extra, children,
 }: ShellProps) {
   const unsupported = supported === false;
   return (
     <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
+        {/* Lebar acuan `.modal-dialog` 600px (900px untuk port ethernet, lihat `wide`). */}
         <Dialog.Content
-          className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-[560px] -translate-x-1/2 -translate-y-1/2 flex-col rounded-md border bg-surface shadow-modal data-[state=open]:animate-[fade-in_150ms_ease-out]"
+          className={`fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-md border bg-surface shadow-modal data-[state=open]:animate-[fade-in_150ms_ease-out] ${wide ? "max-w-[900px]" : "max-w-[600px]"}`}
         >
-          <Dialog.Title className="border-b px-4 py-2.5 text-sm font-semibold">{title}</Dialog.Title>
+          {/* Header acuan: judul besar kiri + tombol silang kanan, garis bawah. */}
+          <div className="flex items-start justify-between gap-3 border-b px-5 py-3.5">
+            <Dialog.Title className="text-lg font-semibold text-ink">{title}</Dialog.Title>
+            <Dialog.Close
+              className="-mr-1 shrink-0 rounded-sm p-0.5 text-faint hover:text-ink"
+              aria-label="Tutup"
+            >
+              <X size={16} aria-hidden />
+            </Dialog.Close>
+          </div>
           <form
             onSubmit={(e) => { e.preventDefault(); if (!unsupported) onSubmit?.(); }}
             className="flex min-h-0 flex-1 flex-col"
           >
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            {/* Badan acuan lebih gelap/teredam dari header+footer supaya form menonjol. */}
+            <div className="min-h-0 flex-1 overflow-y-auto bg-sunken px-5 py-4">
               {children}
               {unsupported && (
                 <p className="mt-2 text-xs text-amber" role="status">
@@ -184,11 +220,13 @@ export function ModalShell({
               )}
               {error && <p className="mt-2 text-xs text-down" role="alert">{error}</p>}
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t px-4 py-2.5">
+            {/* Footer acuan: aksi sekunder kiri, `Close` teks biasa + tombol aksi terisi kanan. */}
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t px-5 py-3">
               {extra && <span className="mr-auto">{extra}</span>}
-              <Button size="sm" onClick={onClose}>Batal</Button>
+              <Button size="md" variant="quiet" onClick={onClose}>Close</Button>
               {onSubmit && (
-                <Button size="sm" type="submit" variant={danger ? "danger" : "fiber"}
+                <Button size="md" type="submit"
+                        variant={danger ? "dangerSolid" : warn ? "primary" : "fiber"}
                         disabled={busy || unsupported || disabled}>
                   {busy ? "Mengirim ..." : action}
                 </Button>
