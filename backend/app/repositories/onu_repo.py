@@ -114,6 +114,13 @@ async def get_row_by_serial(db: AsyncSession, serial: str, scope: Scope):
     stmt = scoped(_onu_rows().where(Onu.serial_number == serial), Onu.olt_id, scope)
     return (await db.execute(stmt)).first()
 
+async def get_serial_by_id(db: AsyncSession, onu_id: int, scope: Scope) -> str | None:
+    """Serial dari id internal ONU (kunci URL UI). None kalau tidak ada / di luar scope /
+    sudah soft-delete — pemanggil yang memutuskan 404."""
+    stmt = scoped(select(Onu.serial_number).where(Onu.id == onu_id, Onu.deleted_at.is_(None)),
+                  Onu.olt_id, scope)
+    return await db.scalar(stmt)
+
 async def get_active(db: AsyncSession, onu_id: int) -> Onu | None:
     onu = await db.get(Onu, onu_id)
     return onu if onu and onu.deleted_at is None else None

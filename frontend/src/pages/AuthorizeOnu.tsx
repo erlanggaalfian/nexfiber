@@ -178,8 +178,11 @@ export function AuthorizeOnu() {
 
   const job = useJob(jobId);
   useEffect(() => {
-    if (job.data?.status === "success") navigate(`/onu/${serial}`);
-  }, [job.data?.status, navigate, serial]);
+    // URL Detail ONU memakai id internal (bukan serial): id-nya sudah ada di job hasil
+    // authorize (`job.onu_id`), jadi tidak perlu request tambahan untuk menukar serial->id.
+    const onuId = job.data?.onu_id;
+    if (job.data?.status === "success" && onuId != null) navigate(`/onu/${onuId}`);
+  }, [job.data?.status, job.data?.onu_id, navigate]);
 
   if (pending.isPending) return <Skeleton text="Memuat ONU ..." rows={4} />;
   if (pending.isError) {

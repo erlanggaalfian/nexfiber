@@ -252,7 +252,7 @@ export function Configured() {
           <tr
             key={o.id}
             className="cursor-pointer border-b last:border-0 hover:bg-sunken"
-            onClick={() => navigate(`/onu/${o.serial_number}`)}
+            onClick={() => navigate(`/onu/${o.id}`)}
           >
             <td className={cell} onClick={(e) => e.stopPropagation()}>
               <input
