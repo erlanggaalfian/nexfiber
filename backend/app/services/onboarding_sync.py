@@ -76,7 +76,7 @@ async def _metadata_from_description(db: AsyncSession, olt: Olt, onus: list[Onu]
 
         zone_id = onu.zone_id
         if meta.zone and onu.zone_id is None:
-            key = meta.zone.strip().lower()
+            key = master_data_service.normalize_master_name(meta.zone)
             if key not in zones:
                 zone = await master_data_service.get_or_create_zone(
                     db, olt.owner_id, meta.zone, create=create_master
@@ -88,7 +88,7 @@ async def _metadata_from_description(db: AsyncSession, olt: Olt, onus: list[Onu]
                 filled["zone"] += 1
 
         if meta.splitter and onu.splitter_id is None:
-            key = (meta.splitter.strip().lower(), zone_id)
+            key = (master_data_service.normalize_master_name(meta.splitter), zone_id)
             if key not in splitters:
                 splitter = await master_data_service.get_or_create_splitter(
                     db, meta.splitter, zone_id=zone_id, olt_id=olt.id, create=create_master

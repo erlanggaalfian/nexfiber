@@ -28,7 +28,7 @@ from app.models.speed_profile import SpeedProfile
 from app.models.splitter import Splitter
 from app.models.vlan import Vlan
 from app.models.zone import Zone
-from app.services import onboarding_sync, speed_profile_service
+from app.services import master_data_service, onboarding_sync, speed_profile_service
 
 # --- dekoder murni ----------------------------------------------------------
 
@@ -193,8 +193,15 @@ def _matches(stmt, obj) -> bool:
             else [stmt.whereclause]:
         left, right = clause.left, clause.right
         value = right.value if isinstance(right, sa.sql.elements.BindParameter) else right
-        if isinstance(left, sa.sql.functions.Function):  # lower(col)
-            actual = (getattr(obj, left.clauses.clauses[0].name, None) or "").lower()
+        if isinstance(left, sa.sql.functions.Function):  # lower(col) / lower(regexp_replace(col))
+            inner = left.clauses.clauses[0]
+            if isinstance(inner, sa.sql.functions.Function):  # regexp_replace(col, ...)
+                column = inner.clauses.clauses[0]
+                actual = master_data_service.normalize_master_name(
+                    getattr(obj, column.name, None) or ""
+                )
+            else:
+                actual = (getattr(obj, inner.name, None) or "").lower()
             if clause.operator is sa.sql.operators.in_op:
                 if actual not in {v.lower() for v in value}:
                     return False
@@ -358,6 +365,30 @@ async def test_speed_profile_not_invented_when_device_omits_kbps():
                 and p.direction == "download"]
     # Arah upload tetap terisi: satu arah gagal tidak menggagalkan yang lain.
     assert onu.upload_speed_profile_id is not None
+
+
+async def test_zone_name_underscore_variant_does_not_duplicate_master():
+    """OLT WNG nyata menulis zone yang SAMA dua gaya: `Kecamatan_Selogiri` + `Kecamatan Selogiri`.
+
+    Keduanya harus menunjuk SATU baris Zone, dan nama tersimpan pakai spasi.
+    """
+    db, olt, onu_a = _scenario(description="zone_Kecamatan_Selogiri_descr_Jl A_authd_20250131")
+    onu_b = Onu(olt_id=158, pon_port_id=500, onu_index=4, serial_number="SN4",
+                description="zone_Kecamatan Selogiri_descr_Jl B_authd_20250201")
+    onu_b.id = 2
+    db.objects.append(onu_b)
+    provisioning = await _driver().fetch_provisioning()
+    await onboarding_sync.sync_onu_metadata(db, olt, StubDriver(provisioning))
+
+    zones = [o for o in db.added if isinstance(o, Zone)]
+    assert [z.name for z in zones] == ["Kecamatan Selogiri"]
+    assert onu_a.zone_id == onu_b.zone_id == zones[0].id
+
+
+async def test_normalize_master_name_treats_underscore_as_space():
+    norm = master_data_service.normalize_master_name
+    assert norm("Kecamatan_Selogiri") == norm("Kecamatan Selogiri") == "kecamatan selogiri"
+    assert norm("WNG-01B0313-depan  pasar") == "wng-01b0313-depan pasar"
 
 
 async def test_empty_description_counted_and_leaves_metadata_blank():

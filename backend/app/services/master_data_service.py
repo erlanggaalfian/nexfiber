@@ -276,6 +276,16 @@ async def delete_splitter(db: AsyncSession, splitter_id: int, user: User) -> Non
 # onboarding_sync.sync_onu_metadata) dan `create` bisa dimatikan lewat argumen.
 
 
+def normalize_master_name(name: str) -> str:
+    """Kunci pencocokan nama master: huruf kecil, `_` dianggap spasi, spasi dirapatkan.
+
+    Perangkat menulis nama zone yang SAMA dengan dua gaya (OLT WNG nyata:
+    `zone_Kecamatan_Selogiri_...` dan `zone_Kecamatan Selogiri_...`). Tanpa normalisasi
+    ini keduanya jadi dua baris Zone terpisah.
+    """
+    return " ".join(name.replace("_", " ").split()).lower()
+
+
 async def get_or_create_zone(db: AsyncSession, owner_id: int, name: str,
                              *, create: bool = True) -> Zone | None:
     """Zone milik `owner_id` dengan nama ini; dibuat kalau belum ada dan create=True.
@@ -285,12 +295,17 @@ async def get_or_create_zone(db: AsyncSession, owner_id: int, name: str,
     name = name.strip()
     if not name:
         return None
+    key = normalize_master_name(name)
     existing = await db.scalar(
-        select(Zone).where(Zone.owner_id == owner_id, func.lower(Zone.name) == name.lower())
+        select(Zone).where(
+            Zone.owner_id == owner_id,
+            func.lower(func.regexp_replace(Zone.name, r"[_\s]+", " ", "g")) == key,
+        )
     )
     if existing is not None or not create:
         return existing
-    zone = Zone(owner_id=owner_id, name=name[:100])
+    # Simpan gaya yang bisa dibaca manusia (spasi), bukan `Kecamatan_Selogiri`.
+    zone = Zone(owner_id=owner_id, name=" ".join(name.replace("_", " ").split())[:100])
     db.add(zone)
     await db.flush()
     return zone
@@ -301,19 +316,23 @@ async def get_or_create_splitter(db: AsyncSession, name: str, *, zone_id: int | 
     """Splitter/ODP bernama ini di zone yang sama; dibuat sebagai tipe `odp` bila perlu.
 
     Nama ODP di perangkat sudah unik per area (mis. `WNG-01B0213`), jadi kuncinya
-    (zone_id, lower(name)). `ratio`/`capacity` TIDAK ditebak — perangkat tidak
+    (zone_id, nama ter-normalisasi). `ratio`/`capacity` TIDAK ditebak — perangkat tidak
     melaporkannya, operator mengisi nanti di Settings > Splitter.
     """
     name = name.strip()
     if not name:
         return None
-    stmt = select(Splitter).where(func.lower(Splitter.name) == name.lower())
+    key = normalize_master_name(name)
+    stmt = select(Splitter).where(
+        func.lower(func.regexp_replace(Splitter.name, r"[_\s]+", " ", "g")) == key
+    )
     stmt = stmt.where(Splitter.zone_id == zone_id) if zone_id is not None \
         else stmt.where(Splitter.zone_id.is_(None))
     existing = await db.scalar(stmt)
     if existing is not None or not create:
         return existing
-    splitter = Splitter(name=name[:100], type="odp", zone_id=zone_id, olt_id=olt_id)
+    splitter = Splitter(name=" ".join(name.replace("_", " ").split())[:100], type="odp",
+                        zone_id=zone_id, olt_id=olt_id)
     db.add(splitter)
     await db.flush()
     return splitter
