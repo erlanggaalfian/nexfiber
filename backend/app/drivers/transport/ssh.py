@@ -57,6 +57,18 @@ class SshTransport:
             delay_factor=expect_prompt_delay,
         )
 
+    async def show(self, command: str, read_timeout: float = 60) -> str:
+        """Perintah baca-saja: menunggu prompt OLT (cepat), bukan jeda tetap.
+
+        Tidak menjawab (y/n) otomatis; jangan dipakai untuk perintah yang mengubah config.
+        """
+        if self._conn is None:
+            raise RuntimeError("connect() must be called first")
+        return await asyncio.to_thread(
+            self._conn.send_command, command,
+            strip_prompt=False, strip_command=False, read_timeout=read_timeout,
+        )
+
     async def send_config_set(self, commands: list[str]) -> str:
         if self._conn is None:
             raise RuntimeError("SshTransport.connect() must be called first")

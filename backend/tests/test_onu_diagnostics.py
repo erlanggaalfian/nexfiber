@@ -283,6 +283,8 @@ class FakeCli:
         self._log.append(command)
         return self._replies.get(command, "")
 
+    show = send_command
+
 
 def _driver(replies: dict[str, str]) -> tuple:
     from app.drivers.zte_c320 import ZteC320Driver

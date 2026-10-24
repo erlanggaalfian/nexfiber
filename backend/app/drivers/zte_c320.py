@@ -643,7 +643,7 @@ class ZteC320Driver(OltDriver):
             f"show mac gpon onu {iface}",
         ]
         async with self._open_cli() as cli:
-            outputs = [await cli.send_command(command) for command in commands]
+            outputs = [await cli.show(command) for command in commands]
         attenuation, catv, detail_info, ip_host, eth, vlan, voip, macs = outputs
         return OnuReport(
             view="status",
@@ -668,9 +668,9 @@ class ZteC320Driver(OltDriver):
             f"show onu running config {iface}",
         ]
         async with self._open_cli() as cli:
-            detail = await cli.send_command(commands[0])
-            onu_cfg = await cli.send_command(commands[1])
-            mng_cfg = await cli.send_command(commands[2])
+            detail = await cli.show(commands[0])
+            onu_cfg = await cli.show(commands[1])
+            mng_cfg = await cli.show(commands[2])
         return OnuReport(
             view="running",
             output=onu_report.running_config_report(
@@ -690,8 +690,8 @@ class ZteC320Driver(OltDriver):
             f"show gpon remote-onu capability {iface}",
         ]
         async with self._open_cli() as cli:
-            equip = await cli.send_command(commands[0])
-            capability = await cli.send_command(commands[1])
+            equip = await cli.show(commands[0])
+            capability = await cli.show(commands[1])
         return OnuReport(
             view="software",
             output=onu_report.software_report(equip=equip, capability=capability),
