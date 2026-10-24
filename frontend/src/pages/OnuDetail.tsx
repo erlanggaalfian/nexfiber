@@ -1,17 +1,28 @@
 /** Detail ONU — PRD 3.4.6. Satu halaman (tidak ada halaman detail kedua).
  *
- *  Tata letak mengikuti desain acuan `design/onu-detail-stitch.html` (grid label rata-kanan
- *  bold / nilai): bagian atas dua kolom (kiri meta, kanan ilustrasi panel belakang ONU +
- *  status + kartu Rx + spesifikasi koneksi) → toolbar diagnostik + panel output → dua kartu
- *  grafik (Trafik | Sinyal) → tabel Profil Kecepatan → Port Ethernet → WiFi → Layanan
- *  (VoIP/IPTV/CATV) → Aksi siklus hidup → Log aksi.
+ *  Tata letak mengikuti desain acuan `design/onu-detail-stitch.html` + screenshot aplikasi
+ *  referensi (grid label rata-kanan bold / nilai): bagian atas dua kolom (kiri identitas,
+ *  kanan ilustrasi panel belakang ONU + Status + `Rx signal levels` + spesifikasi koneksi) →
+ *  baris tombol `Status` (+ panel LIVE realtime saat LIVE aktif) → dua kartu `Traffic/Signal`
+ *  → tabel Profil Kecepatan → Port Ethernet → WiFi → Layanan (VoIP/IPTV/CATV) → Aksi siklus
+ *  hidup → Log aksi.
+ *
+ *  Label baris pada dua blok atas DIPAKAI PERSIS seperti aplikasi referensi (bahasa Inggris:
+ *  `ONU type`, `Configuration Preset`, `Attached VLANs`, `WAN setup mode`, ...) atas permintaan
+ *  pemilik; sisa halaman tetap bahasa Indonesia.
  *
  *  Penyesuaian pemilik terhadap desain acuan (sengaja TIDAK diikuti):
- *  - Shelf/Board, Slot, Port, GPON channel, Tx ONU, suhu, tegangan, MAC/IP TIDAK ditampilkan;
+ *  - Shelf/Board, Slot, Port, GPON channel, Tx ONU, suhu, tegangan, MAC TIDAK ditampilkan;
  *  - Rx null = "LOS", tidak pernah digambar sebagai angka (mis. −30) yang tidak dibaca;
- *  - baris PPPoE hanya muncul saat `wan_mode === "pppoe"`; kata sandi tidak pernah dirender;
- *  - bagian yang backend-nya belum ada (grafik trafik tanpa LIVE, detail port/WiFi, IPTV,
- *    TR-069, preset, sector) ditampilkan "—"/"Segera", bukan angka karangan.
+ *  - kolom identitas yang memang kosong ditulis `None` miring seperti acuan; baris
+ *    spesifikasi koneksi memakai `Inactive`/"—" sesuai aturan pemilik;
+ *  - baris `PPPoE username`/`PPPoE password` hanya muncul saat `wan_mode === "pppoe"`;
+ *    kata sandi TIDAK PERNAH dirender (backend tidak mengirimnya);
+ *  - `Pps`/`Avg size` di panel LIVE = "—": kontrak counter backend hanya octet, tidak ada
+ *    counter paket. Tidak ada OID/CLI baru yang ditambahkan ke perangkat untuk ini;
+ *  - kartu `Traffic history` (histori jam-jaman) KOSONG dengan keterangan jujur: backend
+ *    belum menyimpan sampel counter di DB. Diajukan terpisah, bukan dikarang di frontend;
+ *  - tombol `TR-069` dirender MATI (belum ada ACS internal), bukan tombol ke endpoint karangan.
  *
  *  Warna memakai token Nexfiber sendiri (`bg-surface`, `text-fiber`, dst.), bukan palet/CDN
  *  desain acuan, dan tidak ada data contoh dari desain yang disalin: semua nilai dari API.
@@ -26,7 +37,9 @@
  *  Semua aksi ke perangkat = job: tombol hanya membuat job lalu menunggu statusnya. TANPA
  *  optimistic update (AGENTS.md).
  */
-import { ArrowLeft, Eye, EyeSlash, Pencil } from "@phosphor-icons/react";
+import {
+  ArrowDown, ArrowLeft, ArrowSquareOut, ArrowUp, Eye, EyeSlash, Gear, Pencil,
+} from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
@@ -57,6 +70,30 @@ const TRAFFIC_KEEP = 120;
 const dash = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
 const dbm = (v: number | null) => (v === null ? "—" : `${Number(v).toFixed(2)} dBm`);
 const mbps = (v: number) => `${v < 10 ? v.toFixed(2) : v.toFixed(1)} Mbps`;
+
+/** Kolom identitas mengikuti acuan: kolom yang memang KOSONG ditulis `None` miring, bukan "—".
+ *  Hanya untuk blok identitas — baris spesifikasi koneksi tetap memakai `dash()`/`Inactive`
+ *  sesuai aturan pemilik. Tidak pernah mengisi nilai: kosong tetap terlihat kosong. */
+const NONE = <span className="italic text-faint">None</span>;
+const orNone = (v: unknown) =>
+  v === null || v === undefined || v === "" ? NONE : <>{String(v)}</>;
+
+/** Mode WAN yang dikenal aplikasi referensi: default `Setup via ONU webpage`, lalu DHCP /
+ *  Static IP / PPPoE untuk ONU yang mendukungnya. Nilai di luar daftar ini DITAMPILKAN APA
+ *  ADANYA (bukan error, bukan dipaksa ke salah satu label) supaya mode baru dari perangkat
+ *  tetap terbaca operator. Huruf kapital ada di teks label, BUKAN `text-transform` CSS. */
+const WAN_MODE_LABEL: Record<string, string> = {
+  webpage: "Setup via ONU webpage",
+  dhcp: "DHCP",
+  static: "Static IP",
+  pppoe: "PPPoE",
+};
+/** Mode yang menampilkan IP WAN + baris PPPoE. `webpage` sengaja tidak punya IP. */
+const wanLabel = (mode: string | null) =>
+  mode === null || mode === "" ? null : (WAN_MODE_LABEL[mode.toLowerCase()] ?? mode);
+
+/** Mode IP manajemen pada acuan: `Static` / `DHCP`. Nilai lain tampil apa adanya. */
+const MGMT_MODE_LABEL: Record<string, string> = { static: "Static", dhcp: "DHCP" };
 
 /** Kartu bagian (desain acuan §3-§9): label di kolom kiri sempit **rata kanan bold**,
  *  isi di kanan. Label pindah ke atas di bawah `md`. */
@@ -116,15 +153,14 @@ function CardHead({ title, note, action }: { title: string; note?: string; actio
 }
 
 /** Nama pengguna PPPoE: tersembunyi secara default, dibuka manual lewat tombol mata
- *  (pola desain acuan). Hanya menampilkan nilai yang MEMANG dikirim backend — kata sandi
- *  tidak pernah ada di props mana pun. */
+ *  (pola desain acuan — teksnya `**********` dengan panjang tetap supaya panjang nilai
+ *  nyata tidak ikut terbaca). Hanya menampilkan nilai yang MEMANG dikirim backend —
+ *  kata sandi tidak pernah ada di props mana pun. */
 function PppoeUser({ value }: { value: string }) {
   const [shown, setShown] = useState(false);
   return (
     <>
-      <span className={shown ? "" : "tracking-widest"}>
-        {shown ? value : "•".repeat(Math.min(value.length, 12))}
-      </span>
+      <span className={shown ? "" : "tracking-wider"}>{shown ? value : "**********"}</span>
       <button type="button" onClick={() => setShown(!shown)}
               aria-pressed={shown}
               className="text-fiber hover:underline"
@@ -133,6 +169,18 @@ function PppoeUser({ value }: { value: string }) {
         <span className="sr-only">{shown ? "Sembunyikan nama pengguna PPPoE" : "Tampilkan nama pengguna PPPoE"}</span>
       </button>
     </>
+  );
+}
+
+/** Tautan ke alamat IP perangkat: tab baru + ikon keluar seperti acuan. Dipakai untuk
+ *  IP WAN dan IP manajemen; `http://` karena yang dituju halaman web ONU di LAN. */
+function IpLink({ ip }: { ip: string }) {
+  return (
+    <a className="inline-flex items-center gap-1 text-fiber hover:underline" href={`http://${ip}`}
+       target="_blank" rel="noopener noreferrer">
+      {ip}
+      <ArrowSquareOut size={12} aria-hidden />
+    </a>
   );
 }
 
@@ -209,30 +257,86 @@ function RxChart({ points }: { points: SignalPoint[] }) {
   );
 }
 
-/** Grafik trafik LIVE: dua polyline dari delta counter nyata. Tidak pernah menggambar nilai
- *  karangan — selama sampel belum cukup yang tampil adalah keterangan, bukan garis nol. */
-function TrafficChart({ points }: { points: TrafficPoint[] }) {
+/** Grafik trafik LIVE: dua polyline dari delta counter nyata, sumbu Y Mbps berskala otomatis
+ *  seperti acuan (puncak dibulatkan ke atas ke langkah yang rapi). Tidak pernah menggambar
+ *  nilai karangan — selama sampel belum cukup yang tampil adalah keterangan, bukan garis nol. */
+function LiveChart({ points }: { points: TrafficPoint[] }) {
   if (points.length < 2) {
     return (
       <p className="py-10 text-center text-muted">
-        Aktifkan LIVE untuk mengambil sampel counter dari OLT. Butuh dua sampel sebelum
-        laju bisa dihitung.
+        Mengambil sampel counter dari OLT setiap {TRAFFIC_MS / 1000} detik. Butuh dua sampel
+        sebelum laju bisa dihitung.
       </p>
     );
   }
-  const peak = Math.max(...points.flatMap((p) => [p.inMbps, p.outMbps]), 0.1);
+  const peak = Math.max(...points.flatMap((p) => [p.inMbps, p.outMbps]));
+  /** Skala sumbu: 5 garis (0 .. top) dengan `top` dibulatkan ke 1/2/5 × 10^n di atas puncak. */
+  const top = niceTop(peak);
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * top);
   const x = (i: number) => (i / (points.length - 1)) * 100;
-  const y = (v: number) => 100 - (v / peak) * 100;
+  const y = (v: number) => 100 - (v / top) * 100;
   const path = (pick: (p: TrafficPoint) => number) =>
     points.map((p, i) => `${x(i)},${y(pick(p))}`).join(" ");
   return (
-    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-32 w-full" role="img"
-         aria-label={`Grafik trafik, ${points.length} sampel, puncak ${peak.toFixed(1)} Mbps`}>
-      <polyline points={path((p) => p.inMbps)} fill="none" stroke="currentColor" strokeWidth="1"
-                className="text-fiber" vectorEffect="non-scaling-stroke" />
-      <polyline points={path((p) => p.outMbps)} fill="none" stroke="currentColor" strokeWidth="1"
-                className="text-amber" vectorEffect="non-scaling-stroke" />
-    </svg>
+    <div className="flex gap-2">
+      {/* Label sumbu Y di luar SVG: SVG-nya non-uniform scale, teks di dalamnya ikut melar. */}
+      <div className="flex w-12 shrink-0 flex-col justify-between py-0.5 text-right font-mono text-[10px] text-faint">
+        {[...ticks].reverse().map((t, i) => <span key={i}>{axisTick(t)}</span>)}
+      </div>
+      <div className="min-w-0 grow">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-40 w-full" role="img"
+             aria-label={`Grafik trafik LIVE, ${points.length} sampel, puncak ${peak.toFixed(2)} Mbps`}>
+          {ticks.map((t) => (
+            <line key={t} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
+                  strokeWidth="0.3" className="text-line" vectorEffect="non-scaling-stroke" />
+          ))}
+          <polyline points={path((p) => p.outMbps)} fill="none" stroke="currentColor" strokeWidth="1.5"
+                    className="text-amber" vectorEffect="non-scaling-stroke" />
+          <polyline points={path((p) => p.inMbps)} fill="none" stroke="currentColor" strokeWidth="1.5"
+                    className="text-fiber" vectorEffect="non-scaling-stroke" />
+        </svg>
+        <p className="mt-1 text-center font-mono text-[10px] text-faint">Mbps</p>
+      </div>
+    </div>
+  );
+}
+
+/** Batas atas sumbu yang "rapi": 1, 2, 5 × 10^n tepat di atas nilai puncak. */
+function niceTop(peak: number) {
+  if (!(peak > 0)) return 1;
+  const pow = 10 ** Math.floor(Math.log10(peak));
+  for (const m of [1, 2, 5, 10]) if (peak <= m * pow) return m * pow;
+  return 10 * pow;
+}
+
+const axisTick = (v: number) => (v === 0 ? "0" : v < 1 ? v.toFixed(1) : String(Number(v.toFixed(1))));
+
+/** Satu baris ringkasan arah (naik/turun) di bawah grafik LIVE, mengikuti acuan:
+ *  Speed / Max / Pps / Avg size. `Pps` dan `Avg size` butuh counter PAKET yang BELUM ADA di
+ *  kontrak backend (`OnuTrafficSample` hanya mengirim octet) — jadi keduanya "—", bukan angka
+ *  hasil pembagian yang tidak punya sumber. */
+function LiveRow(
+  { dir, label, color, speed, max }:
+  { dir: "up" | "down"; label: string; color: string; speed: number | null; max: number | null },
+) {
+  const Arrow = dir === "up" ? ArrowUp : ArrowDown;
+  const cell = (k: string, v: string) => (
+    <span className="flex items-baseline gap-1">
+      <span className="text-faint">{k}</span>
+      <span className="text-ink">{v}</span>
+    </span>
+  );
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b py-1.5 font-mono text-xs last:border-0">
+      <span className={`flex items-center gap-1 font-semibold ${color}`}>
+        <Arrow size={12} aria-hidden />
+        {label}
+      </span>
+      <span className={`font-semibold ${color}`}>{speed === null ? "—" : mbps(speed)}</span>
+      {cell("Max", max === null ? "—" : mbps(max))}
+      {cell("Pps", "—")}
+      {cell("Avg size", "—")}
+    </div>
   );
 }
 
@@ -372,7 +476,7 @@ type DiagView = "status" | "running" | "software";
 const DIAG_LABEL: Record<DiagView, string> = {
   status: "Get status",
   running: "Show running-config",
-  software: "Info SW",
+  software: "SW info",
 };
 
 /** LIVE trafik: ambil satu snapshot counter per interval, ubah jadi titik Mbps.
@@ -393,6 +497,11 @@ function useLiveTraffic(serial: string, enabled: boolean) {
   useEffect(() => {
     if (!enabled) {
       prev.current = null;
+      // Titik dibuang saat LIVE mati: "Max" di panel = maksimum sesi LIVE yang sedang jalan,
+      // bukan sisa sesi sebelumnya yang sudah tidak terlihat di grafik.
+      setPoints([]);
+      setLast(null);
+      setError(null);
       return;
     }
     let alive = true;
@@ -584,6 +693,24 @@ export function OnuDetail() {
   const meta = d.device_metadata ?? null;
   const onuIf = `gpon-onu_${d.slot}/${d.port}${d.onu_index === null ? "" : `:${d.onu_index}`}`;
   const latest = traffic.points.at(-1) ?? null;
+  /** "Max" di panel LIVE = puncak sejak LIVE dinyalakan (titik dibuang saat LIVE mati). */
+  const liveMax = traffic.points.length === 0 ? null : {
+    out: Math.max(...traffic.points.map((p) => p.outMbps)),
+    in: Math.max(...traffic.points.map((p) => p.inMbps)),
+  };
+  /** Teks baris spesifikasi koneksi. Semuanya turunan data nyata — tidak ada nilai cadangan. */
+  const wanMode = wanLabel(d.wan_mode);
+  const isPppoe = (d.wan_mode ?? "").toLowerCase() === "pppoe";
+  /** `webpage` = konfigurasi dilakukan di halaman web ONU, tidak ada IP WAN yang dibaca OLT. */
+  const wanHasIp = wanMode !== null && (d.wan_mode ?? "").toLowerCase() !== "webpage";
+  /** Mgmt IP hanya punya mode Static/DHCP di acuan; nilai lain tampil apa adanya. */
+  const mgmtMode = d.mgmt_ip_mode === null || d.mgmt_ip_mode === ""
+    ? null
+    : (MGMT_MODE_LABEL[d.mgmt_ip_mode.toLowerCase()] ?? d.mgmt_ip_mode);
+  /** VLAN WAN pada "ONU mode" = VLAN layanan ONU dari `service_vlans`. Tidak ada fallback ke
+   *  `vlan_number` (satu VLAN primer di master ≠ VLAN WAN perangkat): tanpa daftar nyata,
+   *  nomornya tidak ditempel sama sekali. */
+  const wanVlan = vlanList && vlanList.length > 0 ? vlanList[0].vlan_id ?? null : null;
 
   const runDiag = (view: DiagView) => {
     if (diagRunning) return; // tombol sudah disabled; jaga-jaga bila terpanggil lewat keyboard
@@ -668,20 +795,23 @@ export function OnuDetail() {
               } />
               <DRow label="SN" value={<span className="font-semibold text-fiber">{d.serial_number}</span>}
                     onEdit={isManager ? replaceDialog : undefined} />
-              <DRow label="Tipe ONU" value={dash(d.onu_type)} />
-              <DRow label="Preset konfigurasi" value={dash(d.preset_name)} />
+              <DRow label="ONU type" value={orNone(d.onu_type)} />
+              <DRow label="Configuration Preset" value={orNone(d.preset_name)} />
               <DRow label="Zone" value={fromMasterOrDescription(d.zone_name, meta?.zone)} onEdit={infoDialog} />
-              <DRow label="Splitter / ODP" onEdit={infoDialog} value={
+              <DRow label="Splitter" onEdit={infoDialog} value={
                 d.splitter_name
                   ? `${d.splitter_name}${d.splitter_port ? ` · port ${d.splitter_port}` : ""}`
                   : fromMasterOrDescription(null, meta?.splitter)
               } />
-              <DRow label="Nama" value={dash(d.customer_name ?? d.name)} onEdit={infoDialog} />
-              <DRow label="Alamat atau keterangan"
+              {/* Sector belum ada kolomnya di master data Nexfiber: baris tetap ada supaya
+                  urutan acuan utuh, nilainya `None` karena memang tidak ada datanya. */}
+              <DRow label="Sector" value={NONE} />
+              <DRow label="Name" value={orNone(d.customer_name ?? d.name)} onEdit={infoDialog} />
+              <DRow label="Address or comment"
                     value={fromMasterOrDescription(d.address, meta?.address ?? d.description)}
                     onEdit={infoDialog} />
-              <DRow label="Kontak" value={dash(d.contact ?? d.phone)} onEdit={infoDialog} />
-              <DRow label="Tanggal otorisasi" value={
+              <DRow label="Contact" value={orNone(d.contact ?? d.phone)} onEdit={infoDialog} />
+              <DRow label="Authorization date" value={
                 <>
                   {fromMasterOrDescription(
                     d.registered_at ? fmtDateTime(d.registered_at) : null,
@@ -690,9 +820,14 @@ export function OnuDetail() {
                   {d.registered_by_name && (
                     <span className="text-muted">oleh {d.registered_by_name}</span>
                   )}
+                  {/* "History" pada acuan = tautan ke riwayat ONU; di Nexfiber riwayatnya ada
+                      di halaman Logs, dicari lewat param `q` yang memang dipakai halaman itu. */}
+                  <Link className="text-fiber hover:underline" to={`/logs?q=${encodeURIComponent(d.serial_number)}`}>
+                    History
+                  </Link>
                 </>
               } />
-              <DRow label="ONU external ID" value={dash(d.external_id)} onEdit={infoDialog} />
+              <DRow label="ONU external ID" value={orNone(d.external_id)} onEdit={infoDialog} />
               <DRow label="Lokasi" value={d.latitude !== null && d.longitude !== null
                 ? <a className="text-fiber hover:underline" target="_blank" rel="noreferrer"
                      href={`https://www.openstreetmap.org/?mlat=${d.latitude}&mlon=${d.longitude}#map=17/${d.latitude}/${d.longitude}`}>
@@ -712,6 +847,7 @@ export function OnuDetail() {
 
             {/* (b) Baris status + jarak + muat ulang */}
             <div className="flex flex-wrap items-center gap-3 border-b pb-2.5">
+              <span className="text-xs font-semibold text-ink">Status</span>
               <StatusBadge status={statusKey} reason={d.last_down_reason} withLabel />
               <span className="font-mono text-xs text-muted">{fmtDistance(d.distance_m)}</span>
               <Button size="sm" variant="quiet" onClick={() => onu.refetch()} disabled={onu.isFetching}>
@@ -724,19 +860,35 @@ export function OnuDetail() {
 
             {/* (c) Kartu Rx: dua kotak sebelah-menyebelah seperti desain */}
             <div className="rounded-sm border bg-app p-3">
-              <CardHead title="Level sinyal Rx" note="Normal −8,0 s/d −27,0 dBm" />
+              <CardHead title="Rx signal levels" note="Normal −8,0 s/d −27,0 dBm" />
               <div className="grid gap-2 sm:grid-cols-2">
-                <RxBox title="Rx ONU 1490nm" value={d.rx_power_dbm} />
-                <RxBox title="Rx OLT 1310nm" value={d.olt_rx_power_dbm} />
+                <RxBox title="ONU Rx 1490nm" value={d.rx_power_dbm} />
+                <RxBox title="OLT Rx 1310nm" value={d.olt_rx_power_dbm} />
               </div>
             </div>
 
-            {/* (d) Spesifikasi koneksi — urutan desain acuan: TR-069, Mgmt IP, VLAN,
-                mode ONU, mode setup WAN, lalu PPPoE (hanya saat modenya pppoe). */}
+            {/* (d) Spesifikasi koneksi — label persis acuan (Inggris, permintaan pemilik):
+                TR069 Profile, Mgmt IP, Attached VLANs, ONU mode, WAN setup mode, lalu dua
+                baris PPPoE HANYA saat modenya pppoe. */}
             <div className="flex flex-col">
-              <DRow label="TR-069 profile" value={<span className="text-faint">Segera</span>} />
-              <DRow label="Mode IP manajemen" value={dash(d.mgmt_ip_mode)} />
-              <DRow label="VLAN terpasang" value={
+              {/* Nexfiber belum punya profil ACS/TR-069 internal (DECISIONS.md), jadi nilainya
+                  selalu `Inactive` apa adanya — bukan badge "via Mgmt IP" milik aplikasi lain. */}
+              <DRow label="TR069 Profile" value="Inactive" />
+              {/* Mgmt IP mengikuti acuan: "<Static|DHCP> - vlan: N - IP". Potongan yang tidak
+                  dikirim backend hilang dari teks; tanpa mode sama sekali = `Inactive`. */}
+              <DRow label="Mgmt IP" value={
+                mgmtMode === null ? "Inactive" : (
+                  <>
+                    <span>
+                      {mgmtMode}
+                      {d.vlan_id !== null && ` - vlan: ${d.vlan_id}`}
+                      {d.ip_address && " - "}
+                    </span>
+                    {d.ip_address && <IpLink ip={d.ip_address} />}
+                  </>
+                )
+              } />
+              <DRow label="Attached VLANs" value={
                 vlanList === null ? (
                   <>
                     <span>{dash(d.vlan_number)}</span>
@@ -759,27 +911,35 @@ export function OnuDetail() {
                   </>
                 )
               } onEdit={vlanDialog} />
-              <DRow label="Mode ONU" value={dash(d.onu_mode)} />
-              <DRow label="Mode setup WAN" value={
-                <>
-                  <span className="uppercase">{dash(d.wan_mode)}</span>
-                  {d.ip_address && (
-                    <a className="text-fiber hover:underline" href={`http://${d.ip_address}`}
-                       target="_blank" rel="noopener noreferrer">{d.ip_address}</a>
-                  )}
-                </>
+              {/* "Routing - WAN vlan: N" seperti acuan; nomor VLAN hanya ditempel bila ada. */}
+              <DRow label="ONU mode" value={
+                d.onu_mode === null || d.onu_mode === ""
+                  ? "—"
+                  : `${d.onu_mode}${wanVlan === null ? "" : ` - WAN vlan: ${wanVlan}`}`
               } />
-              {d.wan_mode === "pppoe" && (
+              {/* WAN setup mode: label mode dari WAN_MODE_LABEL (huruf kapital di teks, bukan
+                  CSS uppercase) + IP sebagai tautan tab baru. `webpage` tidak punya IP WAN. */}
+              <DRow label="WAN setup mode" value={
+                wanMode === null ? "—" : (
+                  <>
+                    <span>{wanMode}</span>
+                    {wanHasIp && d.ip_address && <IpLink ip={d.ip_address} />}
+                  </>
+                )
+              } />
+              {/* Dua baris PPPoE hanya untuk mode pppoe; static/dhcp/webpage menyembunyikannya
+                  sepenuhnya. Kata sandi TIDAK PERNAH dikirim backend, jadi barisnya ada (sesuai
+                  acuan) tapi isinya keterangan jujur, bukan nilai palsu di balik tombol mata. */}
+              {isPppoe && (
                 <>
-                  <DRow label="Nama pengguna PPPoE" value={
+                  <DRow label="PPPoE username" value={
                     d.pppoe_username
                       ? <PppoeUser value={d.pppoe_username} />
                       : "—"
                   } />
-                  <DRow label="Kata sandi PPPoE" value={<span className="text-faint">Tidak ditampilkan</span>} />
+                  <DRow label="PPPoE password" value={<span className="text-faint">Tidak ditampilkan</span>} />
                 </>
               )}
-              <DRow label="Akses remote WAN" value={<span className="text-faint">Segera</span>} />
               <DRow label="Otentikasi" value={d.auth_type === "loid" ? `LOID · ${dash(d.loid)}` : d.auth_type.toUpperCase()} />
               <DRow label="Match state" value={dash(d.match_state)} />
               <DRow label="Config state" value={dash(d.config_state)} />
@@ -800,7 +960,7 @@ export function OnuDetail() {
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
           <div className="md:w-[130px] md:shrink-0 md:pt-1 md:text-right">
             <h2 className="text-xs font-semibold uppercase tracking-[0.05em] text-fiber">
-              Diagnostik ONU:
+              Status
             </h2>
           </div>
           <div className="min-w-0 grow">
@@ -818,8 +978,13 @@ export function OnuDetail() {
               <Button size="sm" onClick={() => runDiag("software")} disabled={diagRunning}>
                 {DIAG_LABEL.software}{diagRunning && diagRunView === "software" ? " ..." : ""}
               </Button>
-              {/* Penanda status TR-069 tidak dirender sampai ada profil ACS internal (Phase 2,
-                  DECISIONS.md) — bukan placeholder "Segera", karena kondisinya tidak pernah benar. */}
+              {/* Tombol TR-069 ada di acuan, tapi Nexfiber belum punya ACS internal
+                  (DECISIONS.md): dirender MATI dengan alasan yang jelas, bukan tombol yang
+                  menembak endpoint karangan. */}
+              <Button size="sm" variant="secondary" disabled
+                      title="Butuh profil ACS/TR-069 internal yang belum ada di Nexfiber">
+                TR-069
+              </Button>
               <span className="ml-auto flex items-center gap-1.5">
                 {diagView && diagOutput && !diagRunning && (
                   <Button size="sm" variant="quiet"
@@ -829,12 +994,44 @@ export function OnuDetail() {
                 )}
                 <Button size="sm" variant={live ? "fiber" : "secondary"} aria-pressed={live}
                         onClick={() => setLive(!live)}>
-                  {live ? "LIVE aktif" : "LIVE!"}
+                  <Gear size={13} aria-hidden className={live ? "animate-spin" : ""} />
+                  LIVE!
                 </Button>
               </span>
             </div>
             {diagMsg && (
               <p className="mt-2 text-sm text-amber" role="status">{diagMsg}</p>
+            )}
+            {/* Panel realtime HANYA saat LIVE aktif (acuan screenshot ke-2): grafik Mbps +
+                dua baris ringkasan arah. Saat LIVE mati panel ini TIDAK dirender sama sekali. */}
+            {live && (
+              <div className="mt-3 rounded-sm border bg-sunken p-3">
+                <CardHead title="LIVE traffic"
+                          note={`${traffic.points.length} sampel · tiap ${TRAFFIC_MS / 1000}s`} />
+                <LiveChart points={traffic.points} />
+                <div className="mt-2 flex flex-wrap items-center gap-3 border-t pt-2 font-mono text-xs">
+                  <span className="flex items-center gap-1.5">
+                    <span aria-hidden className="inline-block h-2.5 w-2.5 rounded-sm bg-amber" />
+                    Upload
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span aria-hidden className="inline-block h-2.5 w-2.5 rounded-sm bg-fiber" />
+                    Download
+                  </span>
+                </div>
+                <div className="mt-1.5 flex flex-col">
+                  {/* out_octets = KELUAR dari ONU = upload pelanggan (schemas/onu_traffic.py). */}
+                  <LiveRow dir="up" label="U Speed" color="text-amber"
+                           speed={latest?.outMbps ?? null} max={liveMax?.out ?? null} />
+                  <LiveRow dir="down" label="D Speed" color="text-fiber"
+                           speed={latest?.inMbps ?? null} max={liveMax?.in ?? null} />
+                </div>
+                {traffic.error && <p className="mt-2 text-xs text-down">{traffic.error}</p>}
+                <p className="mt-2 text-xs text-faint">
+                  Pps dan Avg size butuh counter PAKET per-ONU yang belum ada di kontrak
+                  backend (hanya octet yang dikirim), jadi keduanya tampil "—".
+                </p>
+              </div>
             )}
             {(diagView || diagRunning) && (
               <>
@@ -854,35 +1051,22 @@ export function OnuDetail() {
       </section>
 
       {/* Trafik & sinyal: dua kartu sejajar, menumpuk di layar kecil */}
-      <Section label="Trafik / Sinyal" note={live ? `LIVE ${TRAFFIC_MS / 1000}s` : "LIVE mati"}>
+      <Section label="Traffic/Signal">
         <div className="flex flex-col gap-4 lg:flex-row">
-          <ChartCard
-            title="Histori trafik"
-            note={live ? `${traffic.points.length} sampel` : "butuh LIVE"}
-            legend={
-              <>
-                <LegendRow color="bg-fiber" label="In (counter OLT)"
-                  value={latest ? mbps(latest.inMbps) : "—"} />
-                <LegendRow color="bg-amber" label="Out (counter OLT)"
-                  value={latest ? mbps(latest.outMbps) : "—"} />
-                <LegendRow color="bg-sunken" label="Sampel terakhir"
-                  value={traffic.last ? fmtDateTime(traffic.last.sampled_at) : "—"} />
-                <LegendRow color="bg-sunken" label="Lebar counter"
-                  value={traffic.last ? `${traffic.last.counter_bits} bit` : "—"} />
-              </>
-            }>
-            <TrafficChart points={traffic.points} />
-            {traffic.error && <p className="mt-2 text-xs text-down">{traffic.error}</p>}
-            <p className="mt-2 text-xs text-faint">
-              Arah in/out mengikuti dokumentasi counter backend; laju dihitung dari selisih
-              dua sampel (tahan wrap/reset counter), bukan angka contoh.
+          <ChartCard title="Traffic history" note="bits per second">
+            {/* Histori trafik jam-jaman butuh penyimpanan sampel counter di DB yang BELUM ada
+                di backend Nexfiber (tidak ada tabel/endpoint-nya). Kartu dibiarkan kosong
+                dengan keterangan jujur — laju realtime ada di panel LIVE di atas. */}
+            <p className="py-10 text-center text-muted">
+              Belum ada histori trafik: backend belum menyimpan sampel counter per jam.
+              Laju realtime bisa dilihat lewat tombol LIVE! di atas.
             </p>
           </ChartCard>
-          <ChartCard title="Histori sinyal & status" note={`Rentang ${range}`}
+          <ChartCard title="Signal &amp; Status history" note={`dBm · rentang ${range}`}
             legend={
               <>
-                <LegendRow color="bg-fiber" label="Rx ONU 1490nm" value={dbm(d.rx_power_dbm)} />
-                <LegendRow color="bg-amber" label="Rx OLT 1310nm" value={dbm(d.olt_rx_power_dbm)} />
+                <LegendRow color="bg-fiber" label="ONU Rx 1490nm" value={dbm(d.rx_power_dbm)} />
+                <LegendRow color="bg-amber" label="OLT Rx 1310nm" value={dbm(d.olt_rx_power_dbm)} />
                 {stats && (
                   <LegendRow color="bg-sunken" label={`Rx ${range} min · rata-rata · maks`}
                     value={`${stats.min.toFixed(1)} · ${stats.avg.toFixed(1)} · ${stats.max.toFixed(1)}`} />

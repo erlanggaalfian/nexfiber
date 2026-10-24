@@ -28,11 +28,12 @@ def test_block_order_matches_reference_layout(src: str):
     """Blok harus muncul dalam urutan referensi: grid identitas, Status, Trafik/Sinyal,
     Profil Kecepatan, Port Ethernet, WiFi, VoIP, CATV, baris aksi."""
     labels = re.findall(r'<Section label="([^"]+)"', src)
+    # "Traffic/Signal" memakai judul persis aplikasi referensi (permintaan pemilik).
     assert labels == [
-        "Trafik / Sinyal", "Profil Kecepatan", "Port Ethernet", "WiFi", "Layanan", "Aksi",
+        "Traffic/Signal", "Profil Kecepatan", "Port Ethernet", "WiFi", "Layanan", "Aksi",
     ], labels
     # Kartu identitas/status mendahului seluruh Section, baris aksi sesudahnya.
-    assert src.index("lg:grid-cols-2") < src.index('<Section label="Trafik / Sinyal"')
+    assert src.index("lg:grid-cols-2") < src.index('<Section label="Traffic/Signal"')
     assert src.index('<Section label="WiFi"') < src.index("Restore factory")
 
 
@@ -40,12 +41,18 @@ def test_identity_grid_keeps_reference_field_order(src: str):
     """Urutan baris kolom kiri (OLT .. Lokasi) dipaku supaya tidak bergeser diam-diam."""
     rows = re.findall(r'<DRow label="([^"]+)"', src)
     left = rows[: rows.index("Lokasi") + 1]
-    # Shelf/Slot/Port/Kanal/Tx ONU sengaja dibuang (permintaan user).
+    # Shelf/Slot/Port/Kanal/Tx ONU + Board/GPON channel sengaja dibuang (permintaan user).
     assert left[:2] == ["OLT", "ONU"], left[:2]
-    assert not {"Shelf", "Slot", "Port", "Kanal", "Tx ONU"} & set(rows)
-    assert "SN" in left and "Tipe ONU" in left and "Zone" in left and "Splitter / ODP" in left
+    assert not {"Shelf", "Slot", "Port", "Kanal", "Tx ONU", "Board", "GPON channel"} & set(rows)
+    # Label kolom identitas memakai teks persis aplikasi referensi (bahasa Inggris).
+    assert left[:13] == [
+        "OLT", "ONU", "SN", "ONU type", "Configuration Preset", "Zone", "Splitter", "Sector",
+        "Name", "Address or comment", "Contact", "Authorization date", "ONU external ID",
+    ], left[:13]
     right = rows[rows.index("Lokasi") + 1 :]
-    assert "VLAN terpasang" in right and "Mode ONU" in right
+    # Baris spesifikasi koneksi, juga label persis referensi.
+    for label in ("TR069 Profile", "Mgmt IP", "Attached VLANs", "ONU mode", "WAN setup mode"):
+        assert label in right, label
 
 
 def test_only_existing_onu_endpoints_are_called(src: str):
@@ -71,11 +78,15 @@ def test_reference_app_branding_not_copied(src: str):
 
 
 def test_phase2_menus_are_labelled_not_fake_buttons(src: str):
-    """WAN remote / port configure muncul sebagai penanda 'Segera', bukan tombol
-    yang memanggil endpoint karangan."""
-    for marker in ("Akses remote WAN", "TR-069 profile"):
-        assert marker in src
-    assert "tr069" not in src.lower().replace("tr-069", "")
+    """Fitur yang backend-nya belum ada tidak boleh jadi tombol yang memanggil endpoint
+    karangan. Baris "Akses remote WAN: Segera" DIBUANG atas permintaan pemilik (layout harus
+    sama dengan referensi), dan TR-069 kini hadir sebagai tombol `disabled` — keduanya tetap
+    tidak menembak endpoint apa pun."""
+    assert "Akses remote WAN" not in src
+    tr = src.index("TR-069\n              </Button>")
+    assert "disabled" in src[tr - 260 : tr]
+    assert "onClick" not in src[tr - 260 : tr]
+    assert "tr069" not in src.lower().replace("tr-069", "").replace("tr069 profile", "")
     # Kolom aksi port Ethernet tidak boleh jadi <Button ... onClick=...>
     port_block = src[src.index('<Section label="Port Ethernet"') : src.index('<Section label="WiFi"')]
     assert "<Button" not in port_block

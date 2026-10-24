@@ -88,11 +88,11 @@ check("sampel tanpa kemajuan waktu / lebar counter berubah ditolak", () => {
 
 // ------------------------------------------------------------ bentuk halaman
 
-check("urutan blok mengikuti desain: kartu atas, diagnostik, trafik, profil, port, wifi, aksi", () => {
+check("urutan blok mengikuti desain: kartu atas, baris Status, trafik, profil, port, wifi, aksi", () => {
   const order = [
     "Informasi & status ONU",
-    "Diagnostik ONU:",
-    'label="Trafik / Sinyal"',
+    'tracking-[0.05em] text-fiber">\n              Status',
+    'label="Traffic/Signal"',
     'label="Profil Kecepatan"',
     'label="Port Ethernet"',
     'label="WiFi"',
@@ -178,9 +178,12 @@ check("bucket sinyal tidak dihitung ulang: pakai rxBucket/RX_BUCKETS bersama", (
   assert.ok(!/-2[578]\s*\)?\s*\?/.test(page.replace(/\[-25, -27\]/g, "")), "ambang bucket ditulis ulang");
 });
 
-check("penanda TR-069 status tidak dirender (prasyarat ACS internal belum ada)", () => {
-  const bar = page.slice(page.indexOf("Diagnostik ONU:"), page.indexOf('label="Trafik / Sinyal"'));
-  assert.ok(!bar.includes("TR-069 status"));
+check("penanda TR-069 tidak jadi tombol aktif (prasyarat ACS internal belum ada)", () => {
+  const i = page.indexOf("TR-069\n              </Button>");
+  assert.notEqual(i, -1, "tombol TR-069 hilang");
+  const btn = page.slice(i - 260, i);
+  assert.ok(btn.includes("disabled"), "tombol TR-069 tanpa disabled");
+  assert.ok(!btn.includes("onClick"), "tombol TR-069 punya onClick");
   assert.ok(!page.includes("tr069_profile"));
 });
 
@@ -238,17 +241,96 @@ check("field yang dibuang pemilik tidak pernah dirender", () => {
   }
   // Slot/port hanya boleh dipakai untuk menyusun nama antarmuka, bukan sebagai baris sendiri.
   assert.equal((page.match(/d\.slot/g) ?? []).length, 1, "slot dipakai di luar nama antarmuka");
-  // IP hanya dipakai di baris mode WAN: penjaga, href, dan teks tautan. Tidak ada baris IP sendiri.
-  assert.ok(page.includes("http://${d.ip_address}"), "IP harus jadi tautan mode WAN");
-  assert.equal((page.match(/d\.ip_address/g) ?? []).length, 3, "IP dipakai di luar tautan WAN");
+  // IP hanya muncul sebagai TAUTAN (komponen IpLink) di baris Mgmt IP / WAN setup mode:
+  // dua penjaga + dua props, tidak ada baris "IP" sendiri.
+  assert.ok(page.includes("href={`http://${ip}`}"), "IP harus jadi tautan lewat IpLink");
+  // 5 kemunculan: Mgmt IP (penjaga pemisah, penjaga tautan, prop) + WAN (penjaga, prop).
+  assert.equal((page.match(/d\.ip_address/g) ?? []).length, 5, "IP dipakai di luar tautan");
+  assert.ok(!/<DRow label="(IP|IP address|Alamat IP)"/.test(page), "ada baris IP sendiri");
 });
 
-check("mode setup WAN: nama mode + IP sebagai tautan tab baru; PPPoE hanya saat mode pppoe", () => {
-  assert.ok(page.includes("{dash(d.wan_mode)}"), "nama mode dari data nyata");
+check("mode setup WAN: 4 mode acuan dipetakan, nilai tak dikenal apa adanya", () => {
+  // Label persis daftar aplikasi referensi; huruf kapital ada di TEKS, bukan CSS uppercase.
+  const map = page.slice(page.indexOf("const WAN_MODE_LABEL"), page.indexOf("/** Mode yang menampilkan"));
+  for (const [k, v] of [
+    ["webpage", "Setup via ONU webpage"], ["dhcp", "DHCP"], ["static", "Static IP"], ["pppoe", "PPPoE"],
+  ]) {
+    assert.ok(map.includes(`${k}: "${v}"`), `${k} -> ${v}`);
+  }
+  // Nilai di luar peta tidak boleh error / dipaksa: ditampilkan apa adanya.
+  assert.ok(page.includes("WAN_MODE_LABEL[mode.toLowerCase()] ?? mode"), "fallback apa adanya");
+  assert.ok(!/className="[^"]*\buppercase\b[^"]*">\{(dash\()?d\.wan_mode/.test(page),
+            "mode WAN masih di-uppercase lewat CSS");
+  // IP WAN hanya untuk mode yang punya IP; `webpage` sengaja tanpa IP.
+  assert.ok(page.includes('!== "webpage"'), "webpage masih menampilkan IP WAN");
   assert.ok(page.includes('target="_blank" rel="noopener noreferrer"'), "tautan IP aman");
-  const i = page.lastIndexOf('label="Nama pengguna PPPoE"');
-  assert.notEqual(i, -1);
-  assert.ok(page.slice(i - 300, i).includes('d.wan_mode === "pppoe"'), "baris PPPoE tanpa penjaga mode");
+});
+
+check("baris PPPoE hanya untuk mode pppoe; kata sandi tidak pernah dirender", () => {
+  const i = page.lastIndexOf('label="PPPoE username"');
+  assert.notEqual(i, -1, "baris PPPoE username hilang");
+  assert.ok(page.slice(i - 600, i).includes("{isPppoe && ("), "baris PPPoE tanpa penjaga mode");
+  assert.ok(page.includes('label="PPPoE password"'), "baris PPPoE password hilang");
+  assert.ok(page.includes('const isPppoe = (d.wan_mode ?? "").toLowerCase() === "pppoe"'),
+            "penjaga mode pppoe");
+  assert.ok(!page.includes("pppoe_password"), "kata sandi PPPoE disentuh halaman");
+});
+
+check("baris spesifikasi koneksi memakai label persis acuan", () => {
+  for (const l of [
+    "TR069 Profile", "Mgmt IP", "Attached VLANs", "ONU mode", "WAN setup mode",
+    "PPPoE username", "PPPoE password",
+  ]) {
+    assert.ok(page.includes(`label="${l}"`), `baris hilang: ${l}`);
+  }
+  // Label lama tidak boleh tertinggal.
+  for (const l of ["VLAN terpasang", "Mode ONU", "Mode setup WAN", "Mode IP manajemen",
+                   "TR-069 profile", "Akses remote WAN"]) {
+    assert.ok(!page.includes(`label="${l}"`), `label lama masih ada: ${l}`);
+  }
+  // Tanpa data: `Inactive` (TR069/Mgmt IP) dan "—" (mode), bukan angka/teks karangan.
+  assert.ok(page.includes('label="TR069 Profile" value="Inactive"'), "TR069 Profile Inactive");
+  assert.ok(page.includes('mgmtMode === null ? "Inactive"'), "Mgmt IP Inactive");
+  assert.ok(page.includes('wanMode === null ? "—"'), "WAN setup mode kosong = —");
+});
+
+check("kolom identitas memakai label persis acuan + `None` untuk nilai kosong", () => {
+  const rows = [...page.matchAll(/<DRow label="([^"]+)"/g)].map((m) => m[1]);
+  const left = rows.slice(0, rows.indexOf("ONU external ID") + 1);
+  assert.deepEqual(left, [
+    "OLT", "ONU", "SN", "ONU type", "Configuration Preset", "Zone", "Splitter", "Sector",
+    "Name", "Address or comment", "Contact", "Authorization date", "ONU external ID",
+  ], left.join(","));
+  // Board / Port / GPON channel sengaja dibuang pemilik: tidak boleh muncul lagi.
+  for (const l of ["Board", "Port", "GPON channel"]) {
+    assert.ok(!rows.includes(l), `baris yang dibuang muncul lagi: ${l}`);
+  }
+  assert.ok(page.includes('const NONE = <span className="italic text-faint">None</span>'),
+            "`None` miring seperti acuan");
+  assert.ok(page.includes("function fromMasterOrDescription"), "sumber nilai tetap data nyata");
+});
+
+check("panel LIVE hanya dirender saat LIVE aktif, Pps/Avg size '—' tanpa counter paket", () => {
+  const i = page.indexOf('<CardHead title="LIVE traffic"');
+  assert.notEqual(i, -1, "panel LIVE hilang");
+  assert.ok(page.slice(i - 400, i).includes("{live && ("), "panel LIVE tanpa penjaga `live`");
+  assert.ok(i < page.indexOf('label="Traffic/Signal"'), "panel LIVE harus di atas Traffic/Signal");
+  // Upload = out_octets (keluar dari ONU), download = in_octets — kontrak backend.
+  assert.ok(page.includes('label="U Speed"') && page.includes("latest?.outMbps"), "U Speed = out");
+  assert.ok(page.includes('label="D Speed"') && page.includes("latest?.inMbps"), "D Speed = in");
+  // Max = puncak sejak LIVE dinyalakan, dihitung dari titik nyata.
+  assert.ok(page.includes("Math.max(...traffic.points.map((p) => p.outMbps))"), "Max upload");
+  // Pps / Avg size tidak punya sumber data: harus "—" literal, bukan rumus karangan.
+  assert.ok(page.includes('cell("Pps", "—")'), "Pps harus —");
+  assert.ok(page.includes('cell("Avg size", "—")'), "Avg size harus —");
+});
+
+check("kartu Traffic history dibiarkan kosong: backend belum menyimpan sampel", () => {
+  const i = page.indexOf('<ChartCard title="Traffic history"');
+  assert.notEqual(i, -1, "kartu Traffic history hilang");
+  const card = page.slice(i, i + 700);
+  assert.ok(card.includes("backend belum menyimpan sampel counter"), "keterangan jujur");
+  assert.ok(!card.includes("<svg"), "grafik histori digambar tanpa data");
 });
 
 check("Rx tanpa bacaan = LOS, bukan angka karangan", () => {
