@@ -20,6 +20,7 @@ import { AuthorizeOnu } from "./pages/AuthorizeOnu";
 import { Configured } from "./pages/Configured";
 import { OnuDetail } from "./pages/OnuDetail";
 import { Unconfigured } from "./pages/Unconfigured";
+import { Logs } from "./pages/Logs";
 import "./styles/index.css";
 
 const queryClient = new QueryClient({
@@ -49,7 +50,7 @@ function Placeholder() {
 }
 
 const LATER = [
-  "/settings/*", "/logs", "/akun/password",
+  "/settings/*", "/akun/password",
 ];
 
 createRoot(document.getElementById("root")!).render(
@@ -72,6 +73,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/settings/onu-types" element={<OnuTypes />} />
             <Route path="/settings/splitters" element={<Splitters />} />
             <Route path="/settings/speed-profiles" element={<SpeedProfile />} />
+            <Route path="/logs" element={<Logs />} />
             {LATER.map((p) => <Route key={p} path={p} element={<Placeholder />} />)}
             <Route path="*" element={<NotFound />} />
           </Route>

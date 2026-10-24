@@ -18,6 +18,7 @@ from app.models.setting import Setting
 from app.models.user import User
 from app.repositories import olt_repo
 from app.routers import (
+    activity_logs,
     auth,
     jobs,
     master_data,
@@ -72,7 +73,7 @@ async def system_status(
 
 
 for module in (auth, olts, onus, jobs, master_data, users, zones, onu_types, splitters,
-               vlans, speed_profiles, onu_presets):
+               vlans, speed_profiles, onu_presets, activity_logs):
     app.include_router(module.router)
 
 # ponytail: sajikan frontend build dari API sendiri, satu port saja, no nginx/caddy.

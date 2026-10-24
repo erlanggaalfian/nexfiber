@@ -193,6 +193,16 @@ export type Job = {
   error_message: string | null; error_code: string | null; result: Record<string, unknown> | null;
 };
 
+/** PRD 3.4.15 /logs. */
+export type LogCategory = "authorize" | "reboot" | "service" | "delete" | "olt" | "user" | "login";
+export type LogRow = {
+  id: number; created_at: string; username: string | null; action: string; category: LogCategory;
+  olt_id: number | null; olt_name: string | null; onu_id: number | null; onu_serial: string | null;
+  entity_type: string; entity_id: string | null; success: boolean;
+  raw_command: string | null; raw_output: string | null;
+};
+export type LogPage = { items: LogRow[]; total: number; page: number; size: number };
+
 export type Dashboard = {
   olt_by_status: Record<string, number>;
   onu_by_status: Record<string, number>;
