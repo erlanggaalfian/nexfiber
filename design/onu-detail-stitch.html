@@ -1,0 +1,63 @@
+<!-- ACUAN DESAIN Stitch "GPON ONU Management Dashboard" (dikirim user; diringkas: baris/kolom berulang ditandai komentar). Tailwind v3, font 13px, latar #fcfcfd -->
+<main class="max-w-[1440px] mx-auto bg-white border border-gray-200/80 rounded shadow-sm p-4 sm:p-6">
+
+<!-- 1. BAGIAN ATAS: grid 12 kolom (lg: kiri 6 / kanan 6), gap-x-8. Baris = grid 12: label col-span-4 (bold #1e293b, rata kanan, pr-3, nowrap), nilai col-span-8 (#334155). link biru #0284c7, hover underline. ikon kecil "arrow-up-right-from-square" 10px di samping label yang bisa diklik. -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-y-6 lg:gap-x-8 pb-4">
+  <!-- KIRI (space-y-1.5), urutan baris: -->
+  <!-- OLT (link: "10 - OLT-KHANZANET-SUMBER-C300") -->
+  <!-- Board (link) -- DIBUANG user -->
+  <!-- Port (link + ikon chart-line) -- DIBUANG user -->
+  <!-- ONU: gpon-onu_1/6/4:91 (sky-700 medium) -->
+  <!-- GPON channel -- DIBUANG user -->
+  <!-- SN (semibold sky-600) -->
+  <!-- ONU type (link) -->
+  <!-- Configuration Preset (ikon sliders + teks; "None") -->
+  <!-- Zone (link) -->
+  <!-- Splitter (ikon tower-broadcast + link) -->
+  <!-- Sector (italic sky-600 "None") -->
+  <!-- Name -->
+  <!-- Address or comment (italic None bila kosong) -->
+  <!-- Contact (italic None bila kosong) -->
+  <!-- Authorization date: "23-Oct-2026 13:53:24" + link "History" -->
+  <!-- ONU external ID (semibold sky-600) -->
+
+  <!-- KANAN (flex-col, space-y-4): -->
+  <!-- (a) Ilustrasi panel belakang modem: kotak w-[380px] bg-#f1f3f5 border rounded-t-xl, baris port berlabel 8px uppercase: PON (hijau, titik hijau), Phone2, Phone1 (kotak gelap 5x5), LAN4..LAN1 (kotak amber-400 6x6 dengan kotak gelap di dalam), Reset (titik hitam), Power (bulat gelap titik kuning), ON/OFF (bulat merah). -->
+  <!-- (b) Baris "Status": pil hijau #28a745 putih "Online" (ikon power-off) + teks uptime "16h 56m" + tombol refresh (ikon arrows-rotate abu) + kotak jarak border "11.99 km" dengan chevron-down. -->
+  <!-- (c) Baris "Rx signal levels": kartu border bg-#fafbfc, 2 kotak sebelah-menyebelah (flex gap-2). Tiap kotak: judul 11px abu ("ONU Rx 1490nm" / "OLT Rx 1310nm"), angka text-xl bold + "dBm" (hijau #28a745 bila baik, merah #dc3545 bila buruk), bar mini h-1 (hijau/merah, lebar sesuai level). -->
+  <!-- (d) Spesifikasi koneksi (space-y-1.5): -->
+  <!--   TR069 Profile: "Inactive" -->
+  <!--   Mgmt IP: "Inactive" -->
+  <!--   Attached VLANs: "1020" -->
+  <!--   ONU mode: "Routing - WAN vlan: 1020" -->
+  <!--   WAN setup mode: "PPPoE - <a class="underline font-semibold">192.168.22.98</a> [ikon arrow-up-right]"  (IP di samping mode, klik = tab baru) -->
+  <!--   PPPoE username: "**********" mono tracking-widest + tombol mata (toggle tampil) -->
+  <!--   PPPoE password: "**********" + tombol mata -->
+</section>
+<hr class="my-4 border-gray-200">
+
+<!-- 2. TOOLBAR STATUS: grid 12; label "Status" col-span-2 (rata kanan) ; tombol col-span-10 flex-wrap gap-1: -->
+<!--   [Get status] biru #0070ba, [Show running-config] biru, [SW info] biru, [TR-069] abu #8c9ba5, [LIVE!] hijau #28a745 bold. Semua text-white px-3 py-1.5 rounded-sm text-xs medium. -->
+<hr class="my-4 border-gray-200">
+
+<!-- 3. TRAFFIC/SIGNAL: label "Traffic/Signal" col-span-2; konten col-span-10 grid xl:grid-cols-2 gap-4 -->
+<!--   Kartu 1 "Traffic history" (judul tengah bold 12px): grafik garis, sumbu-Y "bits per second" (8.0M..0.0M), sumbu-X jam (03:00 ... 23:00, tanggal 24-Oct di bawah titik pertama). Garis Upload oranye #f97316, Download biru #3b82f6. Footer (bg-gray-50/50, border-t): legenda kotak warna + "Upload Current: x Mbps Maximum: y Mbps" / "Download Current ... Maximum ...", kanan: ikon tombol hapus (merah), reset, chart-column, ellipsis (sky). -->
+<!--   Kartu 2 "Signal & Status history": sumbu-Y dBm; garis hijau #28a745 = 1490nm ONU Rx, garis oranye #ea580c = 1310nm OLT Rx; sumbu-X sama; di bawahnya scrubber rentang waktu (bar abu h-2 dengan area sky-200 dan 2 pegangan) + ikon expand. Footer legenda: "1490nm ONU Rx Current: -28.86 dBm Maximum: -28.10 dBm", "1310nm OLT Rx for ONU Current: ... Maximum: ...", "Power Fail" (kotak #38bdf8); kanan ikon hapus/reset/ellipsis. -->
+<hr class="my-4 border-gray-200">
+
+<!-- 4. SPEED PROFILES: label "Speed profiles" col-span-2; tabel border rounded text-xs, thead bg-gray-50/80 bold: Download | Upload | Action. Baris: nama profil | nama profil | link sky "+ Configure" (ikon circle-plus). -->
+<hr class="my-4 border-gray-200">
+
+<!-- 5. ETHERNET PORTS: label "Ethernet ports"; tabel kolom: Port (link biru eth_0/1) | Admin state (Enabled) | Mode (LAN) | DHCP (From ONU) | Action (+ Configure). 4 baris eth_0/1..eth_0/4, divide-y gray-100, hover:bg-slate-50. -->
+<hr class="my-4 border-gray-200">
+
+<!-- 6. WiFi: label "WiFi" ; di atas tabel checkbox "Enable" (checked, sky-600). Tabel kolom: Port | Admin state | Mode | SSID | DHCP | Action. Baris sub-header per band: lencana biru tua #1e40af putih 10px "(ikon wifi) 2.4 GHz" (colspan 6, bg-slate-50/50). Baris: wifi_0/1 (link) | Enabled | LAN | SSID (mono) | No control | + Configure. Baris akhir (colspan 6): link sky "+ Add new SSID". -->
+<hr class="my-4 border-gray-200">
+
+<!-- 7. LAYANAN SEKUNDER: grid 12; kiri col-span-2 rata kanan bold: "VoIP service" / "IPTV" / "CATV"; kanan col-span-10: link biru "Disabled", link biru "Inactive", teks italic abu "Not supported by ONU-Type". -->
+
+<!-- 8. AKSI SIKLUS HIDUP: baris kosong col-span-2 + tombol (btn-action: inline-flex gap-1.5 text-xs medium px-2.5 py-1 rounded-[3px] shadow-sm text-white): [Reboot] amber #f59e0b (ikon arrow-rotate-right), [Resync config] kuning #eab308 (ikon rotate), [Restore defaults] kuning #eab308 (ikon rotate-left), [Disable ONU] amber #f59e0b, [Delete] merah #dc2626 (ikon trash-can). -->
+<hr class="my-4 border-gray-200">
+
+<!-- 9. NOTES: label "Notes" col-span-2; tombol abu #6b7280 putih: [Add a note] (ikon clipboard), [New ticket] (ikon ticket). -->
+</main>

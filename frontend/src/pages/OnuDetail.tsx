@@ -1,13 +1,20 @@
 /** Detail ONU — PRD 3.4.6. Satu halaman (tidak ada halaman detail kedua).
  *
- *  Tata letak mengikuti desain Google Stitch yang dikirim pemilik (screen "ONU Diagnostic &
- *  Telemetry Detail"): satu kartu atas dua kolom (identitas | sinyal Rx + konfigurasi WAN) →
- *  toolbar Diagnostik ONU + panel output → dua kartu grafik sejajar (Trafik | Sinyal) →
- *  tabel Profil Kecepatan → tabel Port Ethernet → tabel WiFi → strip layanan (VoIP/IPTV/CATV)
- *  → toolbar aksi. Struktur, urutan, kepadatan, dan hierarki diambil dari desain itu; warna
- *  memakai token Nexfiber sendiri (`bg-surface`, `text-fiber`, dst. — tema gelap teal sudah
- *  sama dengan desain). Tidak ada nama/branding aplikasi referensi, dan tidak ada data contoh
- *  dari desain (nama pelanggan, SSID, IP) yang disalin: semua nilai dari API.
+ *  Tata letak mengikuti desain acuan `design/onu-detail-stitch.html` (grid label rata-kanan
+ *  bold / nilai): bagian atas dua kolom (kiri meta, kanan ilustrasi panel belakang ONU +
+ *  status + kartu Rx + spesifikasi koneksi) → toolbar diagnostik + panel output → dua kartu
+ *  grafik (Trafik | Sinyal) → tabel Profil Kecepatan → Port Ethernet → WiFi → Layanan
+ *  (VoIP/IPTV/CATV) → Aksi siklus hidup → Log aksi.
+ *
+ *  Penyesuaian pemilik terhadap desain acuan (sengaja TIDAK diikuti):
+ *  - Shelf/Board, Slot, Port, GPON channel, Tx ONU, suhu, tegangan, MAC/IP TIDAK ditampilkan;
+ *  - Rx null = "LOS", tidak pernah digambar sebagai angka (mis. −30) yang tidak dibaca;
+ *  - baris PPPoE hanya muncul saat `wan_mode === "pppoe"`; kata sandi tidak pernah dirender;
+ *  - bagian yang backend-nya belum ada (grafik trafik tanpa LIVE, detail port/WiFi, IPTV,
+ *    TR-069, preset, sector) ditampilkan "—"/"Segera", bukan angka karangan.
+ *
+ *  Warna memakai token Nexfiber sendiri (`bg-surface`, `text-fiber`, dst.), bukan palet/CDN
+ *  desain acuan, dan tidak ada data contoh dari desain yang disalin: semua nilai dari API.
  *
  *  Satu markup untuk desktop & mobile: kartu dua kolom menumpuk di bawah `lg`, label baris
  *  pindah ke atas di bawah `sm`, tabel dibungkus `overflow-x-auto`, toolbar `flex-wrap`.
@@ -19,11 +26,12 @@
  *  Semua aksi ke perangkat = job: tombol hanya membuat job lalu menunggu statusnya. TANPA
  *  optimistic update (AGENTS.md).
  */
-import { ArrowLeft, Pencil } from "@phosphor-icons/react";
+import { ArrowLeft, Eye, EyeSlash, Pencil } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Confirm, Drawer, Field, TableCard, cell, input } from "../components/crud";
+import { OnuRearPanel } from "../components/onu/OnuRearPanel";
 import {
   ErrorState, Panel, Skeleton, StatusBadge, fmtDateTime, nf, rxBucket, RX_BUCKETS,
 } from "../components/data";
@@ -50,15 +58,16 @@ const dash = (v: unknown) => (v === null || v === undefined || v === "" ? "—" 
 const dbm = (v: number | null) => (v === null ? "—" : `${Number(v).toFixed(2)} dBm`);
 const mbps = (v: number) => `${v < 10 ? v.toFixed(2) : v.toFixed(1)} Mbps`;
 
-/** Kartu bagian: judul di kolom kiri sempit (desain Stitch) yang pindah ke atas di < md. */
+/** Kartu bagian (desain acuan §3-§9): label di kolom kiri sempit **rata kanan bold**,
+ *  isi di kanan. Label pindah ke atas di bawah `md`. */
 function Section(
   { label, note, children, className = "" }:
   { label: string; note?: string; children: React.ReactNode; className?: string },
 ) {
   return (
     <section className={`rounded-md border bg-surface p-3.5 ${className}`}>
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:gap-4">
-        <div className="md:w-[130px] md:shrink-0 md:pt-1 md:text-right">
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
+        <div className="md:w-[130px] md:shrink-0 md:pt-0.5 md:text-right">
           <h2 className="text-xs font-semibold uppercase tracking-[0.05em] text-fiber">{label}</h2>
           {note && <p className="font-mono text-xs text-faint md:mt-0.5">{note}</p>}
         </div>
@@ -68,21 +77,24 @@ function Section(
   );
 }
 
-/** Baris label/nilai di kartu atas: label kiri lebar tetap (desain Stitch 145px), menumpuk
- *  di bawah `sm`. `onEdit` membuat seluruh baris bisa diklik. */
+/** Baris label/nilai mengikuti desain acuan: label kolom kiri **rata kanan bold**
+ *  (grid 12: label 4 / nilai 8), menumpuk jadi satu kolom di bawah `sm` supaya tetap
+ *  terbaca di 390px. `onEdit` membuat seluruh baris bisa diklik. */
 function DRow(
   { label, value, onEdit }: { label: string; value: React.ReactNode; onEdit?: () => void },
 ) {
   const content = (
     <>
-      <span className="text-xs text-muted sm:w-[145px] sm:shrink-0 sm:text-left">{label}</span>
-      <span className="flex min-w-0 flex-wrap items-center gap-1.5 font-mono text-xs">
-        {onEdit && <Pencil size={12} aria-hidden className="text-muted" />}
+      <span className="text-xs font-semibold text-ink sm:col-span-4 sm:pr-3 sm:text-right">
+        {label}
+      </span>
+      <span className="flex min-w-0 flex-wrap items-center gap-1.5 font-mono text-xs text-muted sm:col-span-8">
+        {onEdit && <Pencil size={12} aria-hidden className="text-faint" />}
         {value}
       </span>
     </>
   );
-  const shape = "flex w-full flex-col gap-0.5 border-b py-1.5 last:border-0 sm:flex-row sm:items-start sm:gap-4";
+  const shape = "grid w-full gap-0.5 border-b py-1 last:border-0 sm:grid-cols-12 sm:items-baseline sm:gap-x-2 sm:border-0 sm:py-0.5";
   return onEdit ? (
     <button type="button" onClick={onEdit} className={`${shape} text-left hover:text-fiber`}>
       {content}
@@ -100,6 +112,27 @@ function CardHead({ title, note, action }: { title: string; note?: string; actio
       {note && <span className="font-mono text-xs text-faint">{note}</span>}
       {action && <span className="ml-auto">{action}</span>}
     </div>
+  );
+}
+
+/** Nama pengguna PPPoE: tersembunyi secara default, dibuka manual lewat tombol mata
+ *  (pola desain acuan). Hanya menampilkan nilai yang MEMANG dikirim backend — kata sandi
+ *  tidak pernah ada di props mana pun. */
+function PppoeUser({ value }: { value: string }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <>
+      <span className={shown ? "" : "tracking-widest"}>
+        {shown ? value : "•".repeat(Math.min(value.length, 12))}
+      </span>
+      <button type="button" onClick={() => setShown(!shown)}
+              aria-pressed={shown}
+              className="text-fiber hover:underline"
+              title={shown ? "Sembunyikan" : "Tampilkan"}>
+        {shown ? <EyeSlash size={14} aria-hidden /> : <Eye size={14} aria-hidden />}
+        <span className="sr-only">{shown ? "Sembunyikan nama pengguna PPPoE" : "Tampilkan nama pengguna PPPoE"}</span>
+      </button>
+    </>
   );
 }
 
@@ -225,16 +258,6 @@ function LegendRow({ color, label, value }: { color: string; label: string; valu
         {label}
       </span>
       <span className="font-mono text-ink">{value}</span>
-    </div>
-  );
-}
-
-/** Satu sel strip layanan (VoIP / IPTV / CATV / web user) di dasar desain. */
-function ServiceCell({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2 rounded-sm border bg-sunken px-3 py-1.5 text-xs">
-      <span className="text-muted">{label}</span>
-      <span className="font-mono">{children}</span>
     </div>
   );
 }
@@ -628,10 +651,11 @@ export function OnuDetail() {
         </p>
       )}
 
-      {/* Kartu atas: kiri identitas, kanan sinyal Rx + konfigurasi WAN (menumpuk di < lg) */}
+      {/* 1. BAGIAN ATAS (desain acuan §1): kiri meta, kanan ilustrasi panel + status +
+          kartu Rx + spesifikasi koneksi. Menumpuk di bawah `lg`. */}
       <div className="overflow-hidden rounded-md border bg-surface">
         <div className="grid divide-y lg:grid-cols-2 lg:divide-x lg:divide-y-0">
-          <div className="p-4">
+          <div className="min-w-0 p-4">
             <CardHead title="Informasi & status ONU" note={`Sinkron terakhir ${fmtDateTime(d.last_sync_at)}`} />
             <div className="flex flex-col">
               <DRow label="OLT" value={
@@ -678,7 +702,15 @@ export function OnuDetail() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-4 p-4">
+          <div className="flex min-w-0 flex-col gap-3 p-4">
+            {/* (a) Ilustrasi panel belakang modem — hanya bila katalog ONU Types tahu
+                jumlah port nyatanya; tidak digambar dari tebakan. */}
+            {specs && (specs.eth_ports > 0 || specs.voip_ports > 0) && (
+              <OnuRearPanel ethPorts={specs.eth_ports} voipPorts={specs.voip_ports}
+                            online={d.status === "online" && d.admin_state !== "disabled"} />
+            )}
+
+            {/* (b) Baris status + jarak + muat ulang */}
             <div className="flex flex-wrap items-center gap-3 border-b pb-2.5">
               <StatusBadge status={statusKey} reason={d.last_down_reason} withLabel />
               <span className="font-mono text-xs text-muted">{fmtDistance(d.distance_m)}</span>
@@ -690,21 +722,20 @@ export function OnuDetail() {
               )}
             </div>
 
+            {/* (c) Kartu Rx: dua kotak sebelah-menyebelah seperti desain */}
             <div className="rounded-sm border bg-app p-3">
               <CardHead title="Level sinyal Rx" note="Normal −8,0 s/d −27,0 dBm" />
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <RxBox title="Rx ONU 1490nm" value={d.rx_power_dbm} />
                 <RxBox title="Rx OLT 1310nm" value={d.olt_rx_power_dbm} />
               </div>
             </div>
 
+            {/* (d) Spesifikasi koneksi — urutan desain acuan: TR-069, Mgmt IP, VLAN,
+                mode ONU, mode setup WAN, lalu PPPoE (hanya saat modenya pppoe). */}
             <div className="flex flex-col">
-              <DRow label="Bias laser" value={
-                d.bias_current_ma === null ? "—" : `${Number(d.bias_current_ma).toFixed(2)} mA`
-              } />
-              <DRow label="Terakhir online" value={fmtDateTime(d.last_seen_at)} />
-              <DRow label="Last down" value={d.last_down_at
-                ? `${dash(d.last_down_reason)} · ${fmtDateTime(d.last_down_at)}` : "—"} />
+              <DRow label="TR-069 profile" value={<span className="text-faint">Segera</span>} />
+              <DRow label="Mode IP manajemen" value={dash(d.mgmt_ip_mode)} />
               <DRow label="VLAN terpasang" value={
                 vlanList === null ? (
                   <>
@@ -740,71 +771,87 @@ export function OnuDetail() {
               } />
               {d.wan_mode === "pppoe" && (
                 <>
-                  <DRow label="Nama pengguna PPPoE" value={dash(d.pppoe_username)} />
+                  <DRow label="Nama pengguna PPPoE" value={
+                    d.pppoe_username
+                      ? <PppoeUser value={d.pppoe_username} />
+                      : "—"
+                  } />
                   <DRow label="Kata sandi PPPoE" value={<span className="text-faint">Tidak ditampilkan</span>} />
                 </>
               )}
               <DRow label="Akses remote WAN" value={<span className="text-faint">Segera</span>} />
-              <DRow label="TR-069 profile" value={<span className="text-faint">Segera</span>} />
               <DRow label="Otentikasi" value={d.auth_type === "loid" ? `LOID · ${dash(d.loid)}` : d.auth_type.toUpperCase()} />
               <DRow label="Match state" value={dash(d.match_state)} />
               <DRow label="Config state" value={dash(d.config_state)} />
+              <DRow label="Bias laser" value={
+                d.bias_current_ma === null ? "—" : `${Number(d.bias_current_ma).toFixed(2)} mA`
+              } />
+              <DRow label="Terakhir online" value={fmtDateTime(d.last_seen_at)} />
+              <DRow label="Last down" value={d.last_down_at
+                ? `${dash(d.last_down_reason)} · ${fmtDateTime(d.last_down_at)}` : "—"} />
             </div>
           </div>
         </div>
       </div>
 
-      {/* Toolbar diagnostik (desain Stitch: satu baris tombol + LIVE di ujung kanan) */}
-      <div className="rounded-md border bg-surface px-4 py-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-xs font-semibold uppercase tracking-[0.05em] text-muted">
-            Diagnostik ONU:
-          </span>
-          <Button size="sm" onClick={() => runDiag("status")} disabled={diagRunning}>
-            {DIAG_LABEL.status}{diagRunning && diagRunView === "status" ? " ..." : ""}
-          </Button>
-          {/* Running-config utuh memuat nilai konfigurasi sensitif: tombolnya hanya dirender
-              untuk admin/superadmin, dan backend tetap menolak role lain (403). */}
-          {isManager && (
-            <Button size="sm" onClick={() => runDiag("running")} disabled={diagRunning}>
-              {DIAG_LABEL.running}{diagRunning && diagRunView === "running" ? " ..." : ""}
-            </Button>
-          )}
-          <Button size="sm" onClick={() => runDiag("software")} disabled={diagRunning}>
-            {DIAG_LABEL.software}{diagRunning && diagRunView === "software" ? " ..." : ""}
-          </Button>
-          {/* Penanda status TR-069 tidak dirender sampai ada profil ACS internal (Phase 2,
-              DECISIONS.md) — bukan placeholder "Segera", karena kondisinya tidak pernah benar. */}
-          <span className="ml-auto flex items-center gap-2">
-            {diagView && diagOutput && !diagRunning && (
-              <Button size="sm" variant="quiet"
-                      onClick={() => navigator.clipboard?.writeText(diagOutput)}>
-                Salin
+      {/* 2. TOOLBAR STATUS (desain acuan §2): label kiri rata kanan + tombol diagnostik.
+          Logika/handler diagnostik tidak diubah — tetap lewat job CLI backend. */}
+      <section className="rounded-md border bg-surface p-3.5">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
+          <div className="md:w-[130px] md:shrink-0 md:pt-1 md:text-right">
+            <h2 className="text-xs font-semibold uppercase tracking-[0.05em] text-fiber">
+              Diagnostik ONU:
+            </h2>
+          </div>
+          <div className="min-w-0 grow">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button size="sm" onClick={() => runDiag("status")} disabled={diagRunning}>
+                {DIAG_LABEL.status}{diagRunning && diagRunView === "status" ? " ..." : ""}
               </Button>
+              {/* Running-config utuh memuat nilai konfigurasi sensitif: tombolnya hanya dirender
+                  untuk admin/superadmin, dan backend tetap menolak role lain (403). */}
+              {isManager && (
+                <Button size="sm" onClick={() => runDiag("running")} disabled={diagRunning}>
+                  {DIAG_LABEL.running}{diagRunning && diagRunView === "running" ? " ..." : ""}
+                </Button>
+              )}
+              <Button size="sm" onClick={() => runDiag("software")} disabled={diagRunning}>
+                {DIAG_LABEL.software}{diagRunning && diagRunView === "software" ? " ..." : ""}
+              </Button>
+              {/* Penanda status TR-069 tidak dirender sampai ada profil ACS internal (Phase 2,
+                  DECISIONS.md) — bukan placeholder "Segera", karena kondisinya tidak pernah benar. */}
+              <span className="ml-auto flex items-center gap-1.5">
+                {diagView && diagOutput && !diagRunning && (
+                  <Button size="sm" variant="quiet"
+                          onClick={() => navigator.clipboard?.writeText(diagOutput)}>
+                    Salin
+                  </Button>
+                )}
+                <Button size="sm" variant={live ? "fiber" : "secondary"} aria-pressed={live}
+                        onClick={() => setLive(!live)}>
+                  {live ? "LIVE aktif" : "LIVE!"}
+                </Button>
+              </span>
+            </div>
+            {diagMsg && (
+              <p className="mt-2 text-sm text-amber" role="status">{diagMsg}</p>
             )}
-            <Button size="sm" variant={live ? "fiber" : "secondary"} aria-pressed={live}
-                    onClick={() => setLive(!live)}>
-              {live ? "LIVE aktif" : "LIVE!"}
-            </Button>
-          </span>
+            {(diagView || diagRunning) && (
+              <>
+                <p className="mt-2 font-mono text-xs text-muted">
+                  {DIAG_LABEL[diagRunView ?? diagView ?? "status"]}
+                  {diagJobId !== null && ` · job #${diagJobId}`}
+                  {diagStatus && ` · ${diagStatus}`}
+                  {diagRunning && ` · ${diagSecs}s`}
+                </p>
+                <pre className="mt-1.5 max-h-[32rem] overflow-auto rounded-sm bg-sunken p-3 font-mono text-xs whitespace-pre">
+                  {diagText()}
+                </pre>
+              </>
+            )}
+          </div>
         </div>
-        {diagMsg && (
-          <p className="mt-2 text-sm text-amber" role="status">{diagMsg}</p>
-        )}
-        {(diagView || diagRunning) && (
-          <>
-            <p className="mt-2 font-mono text-xs text-muted">
-              {DIAG_LABEL[diagRunView ?? diagView ?? "status"]}
-              {diagJobId !== null && ` · job #${diagJobId}`}
-              {diagStatus && ` · ${diagStatus}`}
-              {diagRunning && ` · ${diagSecs}s`}
-            </p>
-            <pre className="mt-1.5 max-h-[32rem] overflow-auto rounded-sm bg-sunken p-3 font-mono text-xs whitespace-pre">
-              {diagText()}
-            </pre>
-          </>
-        )}
-      </div>
+      </section>
 
       {/* Trafik & sinyal: dua kartu sejajar, menumpuk di layar kecil */}
       <Section label="Trafik / Sinyal" note={live ? `LIVE ${TRAFFIC_MS / 1000}s` : "LIVE mati"}>
@@ -967,36 +1014,46 @@ export function OnuDetail() {
         )}
       </Section>
 
-      {/* Strip layanan + toolbar aksi (satu kartu, seperti blok dasar desain) */}
-      <section className="rounded-md border bg-surface p-3.5">
-        <div className="grid gap-3 border-b pb-3 sm:grid-cols-2 lg:grid-cols-4">
-          <ServiceCell label="Layanan VoIP:">
-            {specs && specs.voip_ports > 0 ? `${specs.voip_ports} port` : "Nonaktif"}
-          </ServiceCell>
-          <ServiceCell label="IPTV:"><span className="text-faint">Segera</span></ServiceCell>
-          <ServiceCell label="CATV:">
-            {specs?.catv ? <span className="text-up">Didukung</span> : "Tidak didukung"}
-          </ServiceCell>
-          <ServiceCell label="Mode setup WAN:">{dash(d.wan_mode)}</ServiceCell>
+      {/* 7. LAYANAN SEKUNDER (desain acuan §7): label rata kanan + nilai. Hanya nilai nyata
+          dari katalog ONU Types; yang belum ada di backend ditandai "Segera". */}
+      <Section label="Layanan">
+        <div className="flex flex-col">
+          <DRow label="Layanan VoIP" value={
+            specs
+              ? (specs.voip_ports > 0 ? `${specs.voip_ports} port` : "Tidak didukung tipe ONU")
+              : <span className="text-faint">Tipe ONU belum terdaftar</span>
+          } />
+          <DRow label="IPTV" value={<span className="text-faint">Segera</span>} />
+          <DRow label="CATV" value={
+            specs?.catv
+              ? <span className="text-up">Didukung</span>
+              : specs
+                ? "Tidak didukung tipe ONU"
+                : <span className="text-faint">Tipe ONU belum terdaftar</span>
+          } />
         </div>
-        <div className="flex flex-wrap items-center gap-2 pt-3">
-          <Button onClick={() => setConfirm("reboot")}>Reboot</Button>
-          <Button onClick={() => setConfirm("resync")}>Resync config</Button>
-          <Button onClick={infoDialog}>Ubah data pelanggan</Button>
-          <Button onClick={speedDialog}>Ubah speed</Button>
-          <Button onClick={vlanDialog}>Ubah VLAN</Button>
-          {isManager && <Button onClick={replaceDialog}>Replace ONU / ganti SN</Button>}
-          <Button onClick={() => setConfirm("state")}>
+      </Section>
+
+      {/* 8. AKSI SIKLUS HIDUP (desain acuan §8). Perilaku & konfirmasi tidak diubah. */}
+      <Section label="Aksi">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button size="sm" onClick={() => setConfirm("reboot")}>Reboot</Button>
+          <Button size="sm" onClick={() => setConfirm("resync")}>Resync config</Button>
+          <Button size="sm" onClick={infoDialog}>Ubah data pelanggan</Button>
+          <Button size="sm" onClick={speedDialog}>Ubah speed</Button>
+          <Button size="sm" onClick={vlanDialog}>Ubah VLAN</Button>
+          {isManager && <Button size="sm" onClick={replaceDialog}>Replace ONU / ganti SN</Button>}
+          <Button size="sm" onClick={() => setConfirm("state")}>
             {d.admin_state === "disabled" ? "Aktifkan ONU" : "Nonaktifkan ONU"}
           </Button>
           {isManager && (
-            <Button variant="danger" onClick={() => setConfirm("restore-factory")}>Restore factory</Button>
+            <Button size="sm" variant="danger" onClick={() => setConfirm("restore-factory")}>Restore factory</Button>
           )}
           {isManager && (
-            <Button variant="danger" onClick={() => setConfirm("delete")}>Hapus</Button>
+            <Button size="sm" variant="danger" onClick={() => setConfirm("delete")}>Hapus</Button>
           )}
         </div>
-      </section>
+      </Section>
 
       <Panel title="Log aksi terakhir"
         action={<Link className="text-fiber hover:underline" to={`/logs?q=${d.serial_number}`}>

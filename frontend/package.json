@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "check": "node tests/onu-detail.check.mjs && node tests/olt-sync.check.mjs"
+    "check": "node tests/onu-detail.check.mjs && node tests/olt-sync.check.mjs",
+    "check:layout": "node tests/onu-detail.layout.mjs"
   },
   "dependencies": {
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",

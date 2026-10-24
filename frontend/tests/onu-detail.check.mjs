@@ -218,4 +218,59 @@ check("satu markup untuk dua ukuran: tabel bisa digulir, kolom menumpuk, toolbar
   assert.ok(!/max-w-\[\d+px\]/.test(page), "lebar viewport di-hardcode");
 });
 
+// ------------------------------------------- tata letak desain acuan (design/onu-detail-stitch)
+
+check("grid label/nilai: label rata kanan bold di sm+, menumpuk satu kolom di bawah sm", () => {
+  const fn = page.slice(page.indexOf("function DRow"), page.indexOf("function CardHead"));
+  assert.ok(fn.includes("sm:text-right"), "label rata kanan");
+  assert.ok(fn.includes("font-semibold"), "label bold");
+  assert.ok(fn.includes("sm:grid-cols-12"), "grid 12 kolom di sm+");
+  assert.ok(fn.includes("grid w-full"), "satu kolom (menumpuk) di bawah sm");
+});
+
+check("field yang dibuang pemilik tidak pernah dirender", () => {
+  for (const f of ["d.tx_power_dbm", "d.temperature_c", "d.voltage_v", "d.mac_address"]) {
+    assert.ok(!page.includes(f), `masih dirender: ${f}`);
+  }
+  // Label baris yang dibuang tidak boleh muncul sebagai `label="..."` DRow/Section.
+  for (const l of ["Shelf", "Board", "Slot", "Kanal", "GPON channel", "Suhu", "Tegangan", "MAC"]) {
+    assert.ok(!page.includes(`label="${l}`), `baris masih ada: ${l}`);
+  }
+  // Slot/port hanya boleh dipakai untuk menyusun nama antarmuka, bukan sebagai baris sendiri.
+  assert.equal((page.match(/d\.slot/g) ?? []).length, 1, "slot dipakai di luar nama antarmuka");
+  // IP hanya dipakai di baris mode WAN: penjaga, href, dan teks tautan. Tidak ada baris IP sendiri.
+  assert.ok(page.includes("http://${d.ip_address}"), "IP harus jadi tautan mode WAN");
+  assert.equal((page.match(/d\.ip_address/g) ?? []).length, 3, "IP dipakai di luar tautan WAN");
+});
+
+check("mode setup WAN: nama mode + IP sebagai tautan tab baru; PPPoE hanya saat mode pppoe", () => {
+  assert.ok(page.includes("{dash(d.wan_mode)}"), "nama mode dari data nyata");
+  assert.ok(page.includes('target="_blank" rel="noopener noreferrer"'), "tautan IP aman");
+  const i = page.lastIndexOf('label="Nama pengguna PPPoE"');
+  assert.notEqual(i, -1);
+  assert.ok(page.slice(i - 300, i).includes('d.wan_mode === "pppoe"'), "baris PPPoE tanpa penjaga mode");
+});
+
+check("Rx tanpa bacaan = LOS, bukan angka karangan", () => {
+  const fn = page.slice(page.indexOf("function RxBox"), page.indexOf("function RxChart"));
+  assert.ok(fn.includes('value === null ? "LOS"'), "null ditampilkan LOS");
+  // Tidak ada nilai cadangan yang mengganti bacaan kosong dengan angka.
+  assert.ok(!/\?\?\s*-?\d/.test(fn), "nilai Rx punya fallback angka");
+  assert.ok(!page.includes("rx_power_dbm ?? "), "rx_power_dbm punya fallback");
+});
+
+check("ilustrasi panel belakang dari katalog ONU Types, tidak digambar saat tipe tak dikenal", () => {
+  assert.ok(page.includes("<OnuRearPanel"), "komponen panel dipakai");
+  const i = page.indexOf("<OnuRearPanel");
+  assert.ok(page.slice(i - 200, i).includes("specs &&"), "panel tanpa penjaga katalog");
+  assert.ok(page.includes("ethPorts={specs.eth_ports}"), "jumlah LAN dari katalog");
+  assert.ok(page.includes("voipPorts={specs.voip_ports}"), "jumlah telepon dari katalog");
+});
+
+check("blok Layanan + Aksi mengikuti pola label/nilai, tombol berbahaya tetap manager-only", () => {
+  for (const m of ['label="Layanan"', 'label="Aksi"', 'label="Layanan VoIP"', 'label="IPTV"', 'label="CATV"']) {
+    assert.ok(page.includes(m), m);
+  }
+});
+
 console.log(`\n${passed} pemeriksaan lulus`);
