@@ -270,10 +270,6 @@ function infoPayload(f: InfoForm) {
   };
 }
 
-const PON_LABEL: Record<string, string> = {
-  gpon: "GPON", epon: "EPON", xgpon: "XG-PON", xgspon: "XGS-PON",
-};
-
 /** VLAN terpasang = DAFTAR, bukan satu nilai. Sumbernya seluruh `service-port` ONU di
  *  running-config (mis. 15 dan 100 sekaligus). Backend mengirimnya sebagai
  *  `service_vlans` pada detail ONU — kontrak milik track metadata ONU
@@ -641,15 +637,11 @@ export function OnuDetail() {
               <DRow label="OLT" value={
                 <Link className="text-fiber hover:underline" to={`/olt/${d.olt_id}`}>{d.olt_name}</Link>
               } />
-              <DRow label="Shelf" value="1" />
-              <DRow label="Slot" value={d.slot} />
-              <DRow label="Port" value={d.port} />
               <DRow label="ONU" value={
                 <Link className="text-fiber hover:underline" to={`/configured?olt_id=${d.olt_id}`}>
                   {onuIf}
                 </Link>
               } />
-              <DRow label="Kanal" value={specs ? PON_LABEL[specs.pon_type] ?? specs.pon_type.toUpperCase() : "—"} />
               <DRow label="SN" value={<span className="font-semibold text-fiber">{d.serial_number}</span>}
                     onEdit={isManager ? replaceDialog : undefined} />
               <DRow label="Tipe ONU" value={dash(d.onu_type)} />
@@ -707,22 +699,12 @@ export function OnuDetail() {
             </div>
 
             <div className="flex flex-col">
-              <DRow label="Tx ONU" value={dbm(d.tx_power_dbm)} />
-              <DRow label="Suhu / tegangan" value={
-                <>
-                  {d.temperature_c === null ? "—" : `${Number(d.temperature_c).toFixed(1)} °C`}
-                  {" / "}
-                  {d.voltage_v === null ? "—" : `${Number(d.voltage_v).toFixed(2)} V`}
-                </>
-              } />
               <DRow label="Bias laser" value={
                 d.bias_current_ma === null ? "—" : `${Number(d.bias_current_ma).toFixed(2)} mA`
               } />
               <DRow label="Terakhir online" value={fmtDateTime(d.last_seen_at)} />
               <DRow label="Last down" value={d.last_down_at
                 ? `${dash(d.last_down_reason)} · ${fmtDateTime(d.last_down_at)}` : "—"} />
-              <DRow label="MAC / IP" value={`${dash(d.mac_address)} / ${dash(d.ip_address)}`} />
-              <DRow label="IP manajemen" value={dash(d.mgmt_ip_mode)} />
               <DRow label="VLAN terpasang" value={
                 vlanList === null ? (
                   <>
@@ -747,11 +729,23 @@ export function OnuDetail() {
                 )
               } onEdit={vlanDialog} />
               <DRow label="Mode ONU" value={dash(d.onu_mode)} />
-              <DRow label="Mode setup WAN" value={dash(d.wan_mode)} />
+              <DRow label="Mode setup WAN" value={
+                <>
+                  <span className="uppercase">{dash(d.wan_mode)}</span>
+                  {d.ip_address && (
+                    <a className="text-fiber hover:underline" href={`http://${d.ip_address}`}
+                       target="_blank" rel="noopener noreferrer">{d.ip_address}</a>
+                  )}
+                </>
+              } />
+              {d.wan_mode === "pppoe" && (
+                <>
+                  <DRow label="Nama pengguna PPPoE" value={dash(d.pppoe_username)} />
+                  <DRow label="Kata sandi PPPoE" value={<span className="text-faint">Tersimpan terenkripsi</span>} />
+                </>
+              )}
               <DRow label="Akses remote WAN" value={<span className="text-faint">Segera</span>} />
               <DRow label="TR-069 profile" value={<span className="text-faint">Segera</span>} />
-              <DRow label="Nama pengguna PPPoE" value={dash(d.pppoe_username)} />
-              <DRow label="Kata sandi PPPoE" value={<span className="text-faint">Tidak ditampilkan</span>} />
               <DRow label="Otentikasi" value={d.auth_type === "loid" ? `LOID · ${dash(d.loid)}` : d.auth_type.toUpperCase()} />
               <DRow label="Match state" value={dash(d.match_state)} />
               <DRow label="Config state" value={dash(d.config_state)} />
