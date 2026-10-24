@@ -109,6 +109,12 @@ export type SpeedProfile = {
   line_profile_id: string | null; srv_profile_id: string | null;
 };
 
+/** Baris tabel Settings -> Speed Profile (GET /api/speed-profiles, Fase B4). */
+export type SpeedProfileRow = SpeedProfile & {
+  olt_name: string | null; vlan_db_id: number | null; vlan_id: number | null;
+  vlan_name: string | null; description: string | null; is_active: boolean; onu_count: number;
+};
+
 export type Job = {
   id: number; job_type: string; status: string; olt_id: number | null; onu_id: number | null;
   created_at: string; started_at: string | null; finished_at: string | null;
