@@ -9,6 +9,7 @@ import { pageTitle } from "./lib/nav";
 import { Dashboard } from "./pages/Dashboard";
 import { Lainnya } from "./pages/Lainnya";
 import { Login } from "./pages/Login";
+import { OltDetail } from "./pages/OltDetail";
 import { OnuTypes } from "./pages/settings/OnuTypes";
 import { OltManagement } from "./pages/settings/OltManagement";
 import { Splitters } from "./pages/settings/Splitters";
@@ -44,7 +45,7 @@ function Placeholder() {
 }
 
 const LATER = [
-  "/unconfigured", "/unconfigured/authorize/:oltId/:serial", "/configured", "/onu/:id", "/olt/:id",
+  "/unconfigured", "/unconfigured/authorize/:oltId/:serial", "/configured", "/onu/:id",
   "/settings/*", "/logs", "/akun/password",
 ];
 
@@ -58,6 +59,7 @@ createRoot(document.getElementById("root")!).render(
           <Route element={<RequireAuth><Layout /></RequireAuth>}>
             <Route index element={<Dashboard />} />
             <Route path="/lainnya" element={<Lainnya />} />
+            <Route path="/olt/:id" element={<OltDetail />} />
             <Route path="/settings/olts" element={<OltManagement />} />
             <Route path="/settings/users" element={<UserManagement />} />
             <Route path="/settings/onu-types" element={<OnuTypes />} />

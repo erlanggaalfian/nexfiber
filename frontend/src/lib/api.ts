@@ -68,21 +68,53 @@ export type PonPort = {
   onu_count: number; capacity: number; last_sync_at: string | null;
 };
 
+/** Satu kartu/board OLT (olts.cards JSONB), tab Konfigurasi Detail OLT. */
+export type OltCard = {
+  slot: number; cfg_type: string | null; real_type: string | null; port_count: number | null;
+  hardware_version: string | null; software_version: string | null; status: string | null;
+  cpu_pct: number | null; ram_pct: number | null;
+};
+
+/** GET /api/olts/{id}/detail — seluruh halaman Detail OLT dalam satu panggilan (PRD 3.4.7). */
+export type OltDetail = Olt & {
+  owner_id: number; owner_name: string; onu_count: number;
+  onu_by_status: Record<string, number>;
+  cpu_pct: number | null; ram_pct: number | null; temperature_c: number | null;
+  uptime_seconds: number | null; software_version: string | null;
+  cards: OltCard[]; pon_ports: PonPort[]; uplink_ports: string[];
+};
+
+export type RxBucketFilter = "good" | "fair" | "weak" | "critical" | "los";
+
 export type OnuRow = {
   id: number; serial_number: string; name: string | null; customer_name: string | null;
   customer_id: string | null; olt_id: number; olt_name: string; slot: number; port: number;
   onu_index: number | null; onu_type: string | null; status: string; config_state: string;
   admin_state: string; rx_power_dbm: number | null; olt_rx_power_dbm: number | null;
-  speed_profile_name: string | null; last_seen_at: string | null; last_down_at: string | null;
+  speed_profile_name: string | null; vlan_number: number | null; zone_name: string | null;
+  splitter_name: string | null; last_seen_at: string | null; last_down_at: string | null;
   last_down_reason: string | null;
 };
 
 export type OnuDetail = OnuRow & {
   pon_port_id: number; description: string | null; address: string | null; phone: string | null;
-  tx_power_dbm: number | null; temperature_c: number | null; distance_m: number | null;
-  mac_address: string | null; ip_address: string | null; vlan_id: number | null;
+  contact: string | null; external_id: string | null;
+  tx_power_dbm: number | null; temperature_c: number | null; voltage_v: number | null;
+  distance_m: number | null; mac_address: string | null; ip_address: string | null;
+  vlan_id: number | null; zone_id: number | null; splitter_id: number | null;
+  splitter_port: number | null;
   speed_profile_id: number | null; line_profile_id: string | null; srv_profile_id: string | null;
-  software_version: string | null; registered_at: string | null;
+  software_version: string | null; hardware_version: string | null;
+  onu_mode: string | null; wan_mode: string | null; mgmt_ip_mode: string | null;
+  pppoe_username: string | null; latitude: number | null; longitude: number | null;
+  registered_at: string | null;
+};
+
+/** Hasil POST /api/onus/bulk — satu job per ONU, jadi hasilnya per serial. */
+export type BulkActionResult = {
+  items: { serial_number: string; job_id: number | null; error: string | null }[];
+  queued: number;
+  failed: number;
 };
 
 export type Page<T> = { items: T[]; total: number; page: number; size: number };
@@ -102,7 +134,12 @@ export type OnuLog = {
   job_id: number | null; raw_command: string | null; raw_output: string | null;
 };
 
-export type Vlan = { id: number; olt_id: number | null; vlan_id: number; name: string; type: string; description: string | null };
+export type Vlan = {
+  id: number; olt_id: number | null; vlan_id: number; name: string; type: string;
+  description: string | null; gemport: number | null; tag_action: string;
+  user_vlan: number | null; uplink_ports: Record<string, "tagged" | "untagged">;
+  is_active: boolean;
+};
 
 export type SpeedProfile = {
   id: number; name: string; download_kbps: number; upload_kbps: number; olt_id: number | null;
@@ -157,4 +194,12 @@ export type Splitter = {
 
 export type SplitterDetail = Splitter & {
   onus: { id: number; serial_number: string; name: string | null; customer_name: string | null; splitter_port: number | null }[];
+};
+
+/** Preset Form Otorisasi (PRD 3.4.4 "Gunakan preset"). */
+export type OnuPreset = {
+  id: number; owner_id: number; name: string; onu_type_id: number; vlan: number | null;
+  download_profile: string | null; upload_profile: string | null;
+  onu_mode: "routing" | "bridging"; wan_mode: "webpage" | "dhcp" | "static" | "pppoe";
+  zone_id: number | null; splitter_id: number | null;
 };
