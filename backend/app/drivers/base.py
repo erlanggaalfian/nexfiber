@@ -97,10 +97,10 @@ class OltDriver(ABC):
     async def delete_vlan(self, vlan_id: int) -> DriverResult: ...
 
     @abstractmethod
-    async def create_traffic_profiles(
-        self, name: str, download_kbps: int, upload_kbps: int
+    async def create_traffic_profile(
+        self, name: str, direction: str, kbps: int
     ) -> DriverResult:
-        """Upload (T-CONT) + download (traffic) profile pair that one speed profile maps to."""
+        """Satu profile T-CONT (upload) atau traffic (download) di device, per arah."""
 
     @abstractmethod
     async def list_traffic_profiles(self) -> list[TrafficProfile]: ...

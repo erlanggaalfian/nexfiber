@@ -79,7 +79,11 @@ class Onu(TimestampMixin, Base):
     distance_m: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     vlan_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("vlans.id"), nullable=True)
-    speed_profile_id: Mapped[int | None] = mapped_column(
+    # TODO Speed Profile pisah Download/Upload (Opsi A): 1 FK gabungan -> 2 FK per arah.
+    download_speed_profile_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("speed_profiles.id"), nullable=True
+    )
+    upload_speed_profile_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("speed_profiles.id"), nullable=True
     )
     splitter_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("splitters.id"), nullable=True)

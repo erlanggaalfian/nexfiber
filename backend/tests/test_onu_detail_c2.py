@@ -97,7 +97,8 @@ def _row(**over) -> OnuRow:
         id=1, serial_number="ZTEGC1234567", name="Rumah A", customer_name="Budi",
         customer_id="C-001", olt_id=8, olt_name="OLT-TEST", slot=4, port=1, onu_index=11,
         onu_type="F660", status="online", config_state="success", admin_state="enabled",
-        rx_power_dbm=-26.5, olt_rx_power_dbm=-18.2, speed_profile_name="PAKET20",
+        rx_power_dbm=-26.5, olt_rx_power_dbm=-18.2, download_profile_name="PAKET20_DN",
+        upload_profile_name="PAKET20_UP",
         vlan_number=100, zone_name="Zona 1", splitter_name="SPL-01",
         last_seen_at=None, last_down_at=None, last_down_reason=None,
     )

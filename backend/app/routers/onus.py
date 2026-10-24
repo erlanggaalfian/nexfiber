@@ -37,7 +37,8 @@ async def list_onus(
     olt_id: int | None = None,
     pon_port_id: int | None = None,
     state: Literal["online", "down", "rx_warn", "not_configured"] | None = None,
-    speed_profile_id: int | None = None,
+    download_speed_profile_id: int | None = None,
+    upload_speed_profile_id: int | None = None,
     signal: list[SignalBucket] | None = Query(None, description="Filter bucket RX, bisa banyak"),
     onu_status: list[OnuStatus] | None = Query(None, alias="status"),
     vlan_id: int | None = None,
@@ -52,7 +53,8 @@ async def list_onus(
 ):
     items, total = await onu_service.search_onus(
         db, user, q=q, olt_id=olt_id, pon_port_id=pon_port_id, state=state,
-        speed_profile_id=speed_profile_id, sort=sort, page=page, size=size,
+        download_speed_profile_id=download_speed_profile_id,
+        upload_speed_profile_id=upload_speed_profile_id, sort=sort, page=page, size=size,
         signal=signal, status=onu_status, vlan_id=vlan_id, zone_id=zone_id,
         splitter_id=splitter_id, onu_type=onu_type,
     )
@@ -64,7 +66,8 @@ async def export_csv(
     olt_id: int | None = None,
     pon_port_id: int | None = None,
     state: Literal["online", "down", "rx_warn", "not_configured"] | None = None,
-    speed_profile_id: int | None = None,
+    download_speed_profile_id: int | None = None,
+    upload_speed_profile_id: int | None = None,
     signal: list[SignalBucket] | None = Query(None),
     onu_status: list[OnuStatus] | None = Query(None, alias="status"),
     vlan_id: int | None = None,
@@ -80,7 +83,9 @@ async def export_csv(
     """
     items, _ = await onu_service.search_onus(
         db, user, q=q, olt_id=olt_id, pon_port_id=pon_port_id, state=state,
-        speed_profile_id=speed_profile_id, sort=sort, page=1, size=onu_service.CSV_MAX,
+        download_speed_profile_id=download_speed_profile_id,
+        upload_speed_profile_id=upload_speed_profile_id, sort=sort, page=1,
+        size=onu_service.CSV_MAX,
         signal=signal, status=onu_status, vlan_id=vlan_id, zone_id=zone_id,
         splitter_id=splitter_id, onu_type=onu_type,
     )

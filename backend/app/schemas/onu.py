@@ -27,7 +27,8 @@ class OnuRow(BaseModel):
     admin_state: str
     rx_power_dbm: float | None
     olt_rx_power_dbm: float | None
-    speed_profile_name: str | None
+    download_profile_name: str | None
+    upload_profile_name: str | None
     vlan_number: int | None
     zone_name: str | None
     splitter_name: str | None
@@ -52,7 +53,8 @@ class OnuDetail(OnuRow):
     zone_id: int | None
     splitter_id: int | None
     splitter_port: int | None
-    speed_profile_id: int | None
+    download_speed_profile_id: int | None
+    upload_speed_profile_id: int | None
     line_profile_id: str | None
     srv_profile_id: str | None
     software_version: str | None
@@ -104,7 +106,8 @@ class AuthorizeBody(BaseModel):
     onu_type: str | None = Field(None, max_length=50)
     onu_type_id: int | None = None
     vlan_id: int | None = None
-    speed_profile_id: int | None = None
+    download_speed_profile_id: int | None = None
+    upload_speed_profile_id: int | None = None
     line_profile_id: str | None = Field(None, max_length=50)
     srv_profile_id: str | None = Field(None, max_length=50)
     zone_id: int | None = None
@@ -123,7 +126,11 @@ class StateBody(BaseModel):
     enabled: bool
 
 class SpeedProfileBody(BaseModel):
-    speed_profile_id: int
+    """Body endpoint "Ubah speed" (PATCH .../speed-profile) — boleh ganti satu arah saja,
+    download/upload independen, bukan paket gabungan lagi (Opsi A)."""
+
+    download_speed_profile_id: int | None = None
+    upload_speed_profile_id: int | None = None
 
 class VlanBody(BaseModel):
     """`vlan_id` = id baris tabel `vlans`, bukan nomor VLAN (konsisten dengan AuthorizeBody)."""
@@ -145,7 +152,8 @@ class BulkActionBody(BaseModel):
     serials: list[str] = Field(min_length=1, max_length=200)
     action: Literal[BULK_ACTIONS]  # type: ignore[valid-type]
     enabled: bool | None = None          # untuk set_state
-    speed_profile_id: int | None = None  # untuk apply_speed_profile
+    download_speed_profile_id: int | None = None  # untuk apply_speed_profile
+    upload_speed_profile_id: int | None = None    # untuk apply_speed_profile
     vlan_id: int | None = None           # untuk set_onu_vlan
 
 class BulkActionItem(BaseModel):
@@ -199,10 +207,9 @@ class VlanOut(BaseModel):
 class SpeedProfileOut(BaseModel):
     id: int
     name: str
-    download_kbps: int
-    upload_kbps: int
+    direction: Literal["download", "upload"]
+    speed_kbps: int
     olt_id: int | None
-    line_profile_id: str | None
-    srv_profile_id: str | None
+    device_profile_id: str | None
 
     model_config = {"from_attributes": True}

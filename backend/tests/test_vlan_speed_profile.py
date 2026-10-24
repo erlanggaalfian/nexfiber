@@ -33,8 +33,11 @@ def test_parse_traffic_profiles():
 
 def test_merge_profiles_skips_known_unpaired_and_unparsed():
     device = _parse_traffic_profiles(CLI_OUTPUT) + [TrafficProfile("ORPHAN_UP", "upload", 1000)]
-    existing = [SpeedProfile(name="PAKET20", download_kbps=20000, upload_kbps=20000)]
-    assert speed_profile_service.merge_profiles(existing, device) == [("PAKET50", 50000, 50000)]
+    existing = [SpeedProfile(name="PAKET20", direction="download", speed_kbps=20000)]
+    assert speed_profile_service.merge_profiles(existing, device) == [
+        ("PAKET20", "upload", 20000), ("PAKET50", "upload", 50000),
+        ("PAKET50", "download", 50000), ("ORPHAN", "upload", 1000),
+    ]
 
 
 # --- driver palsu: push VLAN / speed profile tanpa device nyata --------------
@@ -52,9 +55,10 @@ class FakeDriver:
         self.calls.append(("delete_vlan", vlan_id))
         return self._result(f"no vlan {vlan_id}")
 
-    async def create_traffic_profiles(self, name, download_kbps, upload_kbps):
-        self.calls.append(("create_traffic_profiles", name, download_kbps, upload_kbps))
-        return self._result(f"profile tcont {name}_UP")
+    async def create_traffic_profile(self, name, direction, kbps):
+        self.calls.append(("create_traffic_profile", name, direction, kbps))
+        suffix = "_UP" if direction == "upload" else "_DN"
+        return self._result(f"profile tcont {name}{suffix}")
 
     def _result(self, command):
         return DriverResult(
@@ -137,13 +141,13 @@ async def test_rejected_vlan_command_raises_and_keeps_row(monkeypatch):
     assert db.deleted == []
 
 
-async def test_push_speed_profile_sets_device_profile_names(monkeypatch):
-    profile = SpeedProfile(id=5, name="PAKET20", download_kbps=20000, upload_kbps=10000, olt_id=8)
+async def test_push_speed_profile_sets_device_profile_name(monkeypatch):
+    profile = SpeedProfile(id=5, name="PAKET20", direction="upload", speed_kbps=10000, olt_id=8)
     db, driver = FakeDb(profile), FakeDriver()
     monkeypatch.setattr(speed_profile_service, "log_activity", _noop_log)
     await speed_profile_service.push_to_olt(db, FakeJob({"speed_profile_id": 5}), driver)
-    assert driver.calls == [("create_traffic_profiles", "PAKET20", 20000, 10000)]
-    assert (profile.srv_profile_id, profile.line_profile_id) == ("PAKET20_UP", "PAKET20_DN")
+    assert driver.calls == [("create_traffic_profile", "PAKET20", "upload", 10000)]
+    assert profile.device_profile_id == "PAKET20_UP"
 
 
 async def _noop_log(*_a, **_kw):

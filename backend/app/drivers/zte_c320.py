@@ -384,16 +384,14 @@ class ZteC320Driver(OltDriver):
             output = await cli.send_config_set(commands)
         return self._result(" ; ".join(commands), output)
 
-    async def create_traffic_profiles(
-        self, name: str, download_kbps: int, upload_kbps: int
+    async def create_traffic_profile(
+        self, name: str, direction: str, kbps: int
     ) -> DriverResult:
         # NEXFIBER-CLI-REFERENCE "Ubah — Profile kecepatan / Buat profile baru".
-        commands = [
-            "gpon",
-            f"profile tcont {name}_UP type 5 fixed 64 assured 64 maximum {upload_kbps}",
-            f"profile traffic {name}_DN sir {download_kbps} pir {download_kbps}",
-            "exit",
-        ]
+        if direction == "upload":
+            commands = ["gpon", f"profile tcont {name}_UP type 5 fixed 64 assured 64 maximum {kbps}", "exit"]
+        else:
+            commands = ["gpon", f"profile traffic {name}_DN sir {kbps} pir {kbps}", "exit"]
         async with self._open_cli() as cli:
             output = await cli.send_config_set(commands)
         return self._result(" ; ".join(commands), output)

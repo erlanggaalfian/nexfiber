@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.rbac import Scope, scoped
 from app.core.signal import bucket_filter
@@ -28,19 +29,23 @@ SORT_COLUMNS = {
 }
 
 def _onu_rows() -> Select:
+    DownProfile = aliased(SpeedProfile)
+    UpProfile = aliased(SpeedProfile)
     return (
-        select(Onu, Olt.name, PonPort.slot, PonPort.port, SpeedProfile.name,
+        select(Onu, Olt.name, PonPort.slot, PonPort.port, DownProfile.name, UpProfile.name,
                Vlan.vlan_id, Zone.name, Splitter.name)
         .join(Olt, Olt.id == Onu.olt_id)
         .join(PonPort, PonPort.id == Onu.pon_port_id)
-        .outerjoin(SpeedProfile, SpeedProfile.id == Onu.speed_profile_id)
+        .outerjoin(DownProfile, DownProfile.id == Onu.download_speed_profile_id)
+        .outerjoin(UpProfile, UpProfile.id == Onu.upload_speed_profile_id)
         .outerjoin(Vlan, Vlan.id == Onu.vlan_id)
         .outerjoin(Zone, Zone.id == Onu.zone_id)
         .outerjoin(Splitter, Splitter.id == Onu.splitter_id)
         .where(Onu.deleted_at.is_(None))
     )
 
-def _apply_filters(stmt: Select, *, q, olt_id, pon_port_id, state, speed_profile_id,
+def _apply_filters(stmt: Select, *, q, olt_id, pon_port_id, state,
+                   download_speed_profile_id, upload_speed_profile_id,
                    rx_warn_dbm: float, signal=None, status=None, vlan_id=None, zone_id=None,
                    splitter_id=None, onu_type=None) -> Select:
     if q:
@@ -54,8 +59,10 @@ def _apply_filters(stmt: Select, *, q, olt_id, pon_port_id, state, speed_profile
         stmt = stmt.where(Onu.olt_id == olt_id)
     if pon_port_id:
         stmt = stmt.where(Onu.pon_port_id == pon_port_id)
-    if speed_profile_id:
-        stmt = stmt.where(Onu.speed_profile_id == speed_profile_id)
+    if download_speed_profile_id:
+        stmt = stmt.where(Onu.download_speed_profile_id == download_speed_profile_id)
+    if upload_speed_profile_id:
+        stmt = stmt.where(Onu.upload_speed_profile_id == upload_speed_profile_id)
     if vlan_id:
         stmt = stmt.where(Onu.vlan_id == vlan_id)
     if zone_id:
@@ -79,11 +86,14 @@ def _apply_filters(stmt: Select, *, q, olt_id, pon_port_id, state, speed_profile
         stmt = stmt.where(Onu.config_state != "success")
     return stmt
 
-async def search(db: AsyncSession, scope: Scope, *, q, olt_id, pon_port_id, state, speed_profile_id,
+async def search(db: AsyncSession, scope: Scope, *, q, olt_id, pon_port_id, state,
+                 download_speed_profile_id, upload_speed_profile_id,
                  rx_warn_dbm: float, sort: str, page: int, size: int, signal=None, status=None,
                  vlan_id=None, zone_id=None, splitter_id=None, onu_type=None) -> tuple[list, int]:
     filters = dict(q=q, olt_id=olt_id, pon_port_id=pon_port_id, state=state,
-                   speed_profile_id=speed_profile_id, rx_warn_dbm=rx_warn_dbm, signal=signal,
+                   download_speed_profile_id=download_speed_profile_id,
+                   upload_speed_profile_id=upload_speed_profile_id,
+                   rx_warn_dbm=rx_warn_dbm, signal=signal,
                    status=status, vlan_id=vlan_id, zone_id=zone_id, splitter_id=splitter_id,
                    onu_type=onu_type)
     total = await db.scalar(scoped(_apply_filters(

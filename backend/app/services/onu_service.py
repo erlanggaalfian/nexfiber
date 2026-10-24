@@ -47,17 +47,20 @@ async def rx_thresholds(db: AsyncSession) -> dict[str, float]:
     row = await db.get(Setting, "rx_threshold")
     return {**RX_DEFAULTS, **(row.value if row else {})}
 
-def _row(onu: Onu, olt_name: str, slot: int, port: int, profile_name: str | None,
-         vlan_number: int | None = None, zone_name: str | None = None,
-         splitter_name: str | None = None) -> dict:
+def _row(onu: Onu, olt_name: str, slot: int, port: int, download_profile_name: str | None,
+         upload_profile_name: str | None = None, vlan_number: int | None = None,
+         zone_name: str | None = None, splitter_name: str | None = None) -> dict:
     data = {c: getattr(onu, c) for c in OnuDetail.model_fields if hasattr(onu, c)}
     data["ip_address"] = str(onu.ip_address) if onu.ip_address else None
     return {**data, "olt_name": olt_name, "slot": slot, "port": port,
-            "speed_profile_name": profile_name, "vlan_number": vlan_number,
+            "download_profile_name": download_profile_name,
+            "upload_profile_name": upload_profile_name, "vlan_number": vlan_number,
             "zone_name": zone_name, "splitter_name": splitter_name}
 
 async def search_onus(db: AsyncSession, user: User, *, q: str | None, olt_id: int | None,
-                      pon_port_id: int | None, state: str | None, speed_profile_id: int | None,
+                      pon_port_id: int | None, state: str | None,
+                      download_speed_profile_id: int | None = None,
+                      upload_speed_profile_id: int | None = None,
                       sort: str, page: int, size: int | None,
                       signal: list[str] | None = None, status: list[str] | None = None,
                       vlan_id: int | None = None, zone_id: int | None = None,
@@ -70,7 +73,9 @@ async def search_onus(db: AsyncSession, user: User, *, q: str | None, olt_id: in
             raise ValidationAppError(f"Unknown rx bucket '{bucket}'")
     rows, total = await onu_repo.search(
         db, scope_olt_ids(user), q=q, olt_id=olt_id, pon_port_id=pon_port_id, state=state,
-        speed_profile_id=speed_profile_id, rx_warn_dbm=(await rx_thresholds(db))["warn"],
+        download_speed_profile_id=download_speed_profile_id,
+        upload_speed_profile_id=upload_speed_profile_id,
+        rx_warn_dbm=(await rx_thresholds(db))["warn"],
         sort=sort, page=page, size=size, signal=signal, status=status, vlan_id=vlan_id,
         zone_id=zone_id, splitter_id=splitter_id, onu_type=onu_type,
     )
@@ -127,8 +132,12 @@ async def _check_authorize(db: AsyncSession, body: AuthorizeBody, user: User) ->
             raise ConflictError(f"ONU ID {body.onu_index} is already used on this PON")
     if body.vlan_id and await db.get(Vlan, body.vlan_id) is None:
         raise NotFoundError(f"VLAN {body.vlan_id} not found")
-    if body.speed_profile_id and await db.get(SpeedProfile, body.speed_profile_id) is None:
-        raise NotFoundError(f"Speed profile {body.speed_profile_id} not found")
+    if body.download_speed_profile_id and \
+            await db.get(SpeedProfile, body.download_speed_profile_id) is None:
+        raise NotFoundError(f"Speed profile {body.download_speed_profile_id} not found")
+    if body.upload_speed_profile_id and \
+            await db.get(SpeedProfile, body.upload_speed_profile_id) is None:
+        raise NotFoundError(f"Speed profile {body.upload_speed_profile_id} not found")
     if body.wan_mode == "pppoe" and not body.pppoe_username:
         raise ValidationAppError("Mode WAN PPPoE butuh username PPPoE")
     return pending
@@ -158,8 +167,12 @@ async def _validate_job_payload(db: AsyncSession, onu: Onu, job_type: str,
     """Validasi di sisi API supaya kesalahan input ketahuan sebelum jadi job gagal."""
     payload = payload or {}
     if job_type == "apply_speed_profile":
-        if await db.get(SpeedProfile, payload["speed_profile_id"]) is None:
-            raise NotFoundError(f"Speed profile {payload['speed_profile_id']} not found")
+        for key in ("download_speed_profile_id", "upload_speed_profile_id"):
+            pid = payload.get(key)
+            if pid and await db.get(SpeedProfile, pid) is None:
+                raise NotFoundError(f"Speed profile {pid} not found")
+        if not payload.get("download_speed_profile_id") and not payload.get("upload_speed_profile_id"):
+            raise ValidationAppError("Pilih minimal satu profile (download/upload)")
     elif job_type == "set_onu_vlan":
         vlan = await db.get(Vlan, payload["vlan_id"])
         if vlan is None:
@@ -228,7 +241,8 @@ CSV_COLUMNS = [
     ("onu_index", "ONU ID"), ("onu_type", "Tipe"), ("status", "Status"),
     ("admin_state", "Admin"), ("rx_power_dbm", "RX ONU (dBm)"),
     ("olt_rx_power_dbm", "RX OLT (dBm)"), ("signal", "Sinyal"),
-    ("speed_profile_name", "Paket"), ("vlan_number", "VLAN"), ("zone_name", "Zona"),
+    ("download_profile_name", "Paket Download"), ("upload_profile_name", "Paket Upload"),
+    ("vlan_number", "VLAN"), ("zone_name", "Zona"),
     ("splitter_name", "Splitter"), ("last_seen_at", "Terakhir Online"),
     ("last_down_reason", "Alasan Down"),
 ]
@@ -299,13 +313,16 @@ async def authorize_onu(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
             raise CommandRejectedError(f"PON {pon.slot}/{pon.port} full")
     # vlan_id di tabel onus = FK ke baris vlans; device butuh nomor VLAN-nya.
     vlan = await db.get(Vlan, onu.vlan_id) if onu.vlan_id else None
-    profile = await db.get(SpeedProfile, onu.speed_profile_id) if onu.speed_profile_id else None
+    dn_profile = await db.get(SpeedProfile, onu.download_speed_profile_id) \
+        if onu.download_speed_profile_id else None
+    up_profile = await db.get(SpeedProfile, onu.upload_speed_profile_id) \
+        if onu.upload_speed_profile_id else None
     req = AuthorizeRequest(
         slot=pon.slot, port=pon.port, onu_id=onu.onu_index, serial_number=onu.serial_number,
         auth_type=onu.auth_type, onu_type=onu.onu_type or "ALL-ONT", name=onu.name or "",
         description=onu.description, loid=onu.loid,
-        upload_profile=(profile.srv_profile_id if profile else None) or onu.srv_profile_id,
-        download_profile=(profile.line_profile_id if profile else None) or onu.line_profile_id,
+        upload_profile=(up_profile.device_profile_id if up_profile else None) or onu.srv_profile_id,
+        download_profile=(dn_profile.device_profile_id if dn_profile else None) or onu.line_profile_id,
         vlan_id=vlan.vlan_id if vlan else None,
     )
     result = await driver.authorize(req)
@@ -345,18 +362,26 @@ async def set_state(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
 async def apply_speed_profile(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
     ensure_writes_allowed()
     onu, pon = await _load(db, job)
-    profile = await db.get(SpeedProfile, job.payload["speed_profile_id"])
-    if profile is None:
-        raise NotFoundError(f"Speed profile {job.payload['speed_profile_id']} not found")
+    dn_id, up_id = job.payload.get("download_speed_profile_id"), job.payload.get("upload_speed_profile_id")
+    dn_profile = await db.get(SpeedProfile, dn_id) if dn_id else None
+    up_profile = await db.get(SpeedProfile, up_id) if up_id else None
+    if dn_id and dn_profile is None:
+        raise NotFoundError(f"Speed profile {dn_id} not found")
+    if up_id and up_profile is None:
+        raise NotFoundError(f"Speed profile {up_id} not found")
     req = ModifyRequest(
         slot=pon.slot, port=pon.port, onu_id=onu.onu_index,
-        line_profile_id=profile.line_profile_id, srv_profile_id=profile.srv_profile_id,
+        line_profile_id=dn_profile.device_profile_id if dn_profile else None,
+        srv_profile_id=up_profile.device_profile_id if up_profile else None,
     )
     result = await driver.modify(req)
     await _record(db, job, onu, "onu.apply_speed_profile", result)
-    onu.speed_profile_id = profile.id
-    onu.line_profile_id = profile.line_profile_id or onu.line_profile_id
-    onu.srv_profile_id = profile.srv_profile_id or onu.srv_profile_id
+    if dn_profile:
+        onu.download_speed_profile_id = dn_profile.id
+        onu.line_profile_id = dn_profile.device_profile_id or onu.line_profile_id
+    if up_profile:
+        onu.upload_speed_profile_id = up_profile.id
+        onu.srv_profile_id = up_profile.device_profile_id or onu.srv_profile_id
     return _result(result)
 
 # --- Aksi Detail ONU (PRD 3.4.6) ---------------------------------------------------
