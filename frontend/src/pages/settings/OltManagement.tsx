@@ -266,7 +266,7 @@ export function OltManagement() {
             <td className={cell}>{o.model}</td>
             {isSuper && <td className={cell}>{o.owner_name}</td>}
             <td className={cell}>
-              <StatusBadge status={o.status} />
+              <StatusBadge status={o.status} withLabel />
               {o.last_error && <span className="ml-2 text-xs text-muted">{o.last_error}</span>}
             </td>
             <td className={`${cell} font-mono`}>{o.onu_count}</td>

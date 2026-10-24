@@ -106,6 +106,14 @@ async def sync_onu_optical(db: AsyncSession, olt: Olt, driver: OltDriver) -> dic
     _mark_olt_ok(olt, now)
     return {"updated": updated}
 
+def _clip(value: str | None, limit: int) -> str | None:
+    """Teks bebas dari perangkat bisa lebih panjang dari kolomnya; potong, jangan gagalkan
+    seluruh job sync karena satu description panjang."""
+    if value is None:
+        return None
+    value = value.strip()
+    return value[:limit] or None
+
 async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: datetime) -> dict:
     """Adopsi isi NYATA OLT ke DB dari pembacaan read-only (PRD 3.1 poin 7: ONU existing
     masuk lewat discovery, metadata pelanggan diisi manual kemudian).
@@ -114,6 +122,18 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
     PERNAH dipanggil job apa pun, jadi 39 ONU terdaftar dan 6 VLAN di perangkat tidak
     pernah masuk DB; Detail OLT selalu "Belum ada ...". sync_onu_status hanya meng-update
     baris yang sudah ada, tidak pernah membuat.
+
+    Metadata yang ADA di perangkat cuma dua baris teks bebas per interface ONU:
+    `name` dan `description` (39/39 ONU di OLT SBI punya keduanya). Keduanya diisi ke
+    kolom `onus.name` / `onus.description` HANYA kalau kolomnya masih kosong — isian
+    operator tidak pernah ditimpa. Nama pelanggan tetap dirender dari
+    `customer_name ?? name`, jadi label perangkat langsung terlihat tanpa mengarang.
+
+    TIDAK ADA di perangkat: zone dan splitter/ODP. ZTE C300/C320 tidak punya field untuk
+    itu dan `description` di OLT ini bukan format terstruktur (35/39 teks alamat bebas,
+    hanya 3 memuat token `zone_`, 0 memuat ODB/ODP). Karena itu `zone_id`/`splitter_id`
+    DIBIARKAN NULL — relasinya harus dibuat operator lewat Detail ONU > Pelanggan > Ubah,
+    bukan ditebak dari teks.
 
     Hanya INSERT/UPDATE: tidak ada delete ONU/VLAN supaya data pelanggan aman kalau suatu
     saat perangkat membalas sebagian.
@@ -125,7 +145,12 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
         select(Onu).where(Onu.olt_id == olt.id, Onu.deleted_at.is_(None))
     )).scalars()}
     added = updated = skipped = 0
+    with_name = with_descr = 0
     for snap in inv.onus:
+        if snap.name:
+            with_name += 1
+        if snap.description:
+            with_descr += 1
         pon_port_id = pon_ports.get((snap.slot, snap.port))
         if pon_port_id is None:
             skipped += 1
@@ -135,6 +160,7 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
             db.add(Onu(
                 olt_id=olt.id, pon_port_id=pon_port_id, onu_index=snap.onu_id,
                 serial_number=snap.serial_number, auth_type="sn", onu_type=snap.onu_type,
+                name=_clip(snap.name, 100), description=_clip(snap.description, 128),
                 status=snap.status, config_state="success",
                 admin_state=snap.admin_state or "enabled",
                 last_seen_at=now if snap.status == "online" else None,
@@ -145,6 +171,9 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
         onu.pon_port_id, onu.onu_index = pon_port_id, snap.onu_id
         onu.status, onu.last_sync_at = snap.status, now
         onu.onu_type = onu.onu_type or snap.onu_type
+        # Isian operator menang: hanya tulis kalau kolomnya masih kosong.
+        onu.name = onu.name or _clip(snap.name, 100)
+        onu.description = onu.description or _clip(snap.description, 128)
         if snap.admin_state:
             onu.admin_state = snap.admin_state
         if snap.status == "online":
@@ -158,7 +187,9 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
         vlans_added += res.rowcount or 0
     return {"onus_added": added, "onus_updated": updated,
             "onus_skipped_unknown_port": skipped, "vlans_added": vlans_added,
-            "vlans_on_device": len(inv.vlan_ids)}
+            "vlans_on_device": len(inv.vlan_ids),
+            # Bukti seberapa banyak metadata yang MEMANG dibaca dari perangkat (bukan tebakan).
+            "onus_with_device_name": with_name, "onus_with_device_description": with_descr}
 
 async def sync_olt_metrics(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict:
     """Optical ONU + kesehatan OLT + adopsi inventory dalam SATU job per OLT

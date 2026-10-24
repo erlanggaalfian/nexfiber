@@ -265,7 +265,8 @@ export function Configured() {
               />
             </td>
             <td className={cell}>
-              <StatusBadge status={o.admin_state === "disabled" ? "unknown" : o.status} />
+              <StatusBadge status={o.admin_state === "disabled" ? "disabled" : o.status}
+                           reason={o.last_down_reason} />
             </td>
             <td className={cell}>{o.customer_name ?? o.name ?? "—"}</td>
             <td className={`${cell} font-mono`}>{o.serial_number}</td>

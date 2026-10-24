@@ -1,0 +1,33 @@
+show running-config
+Building configuration...
+
+interface gpon-olt_1/6/1
+  onu 1 type ALL-ONT sn TESTSN00000001
+  onu 2 type HG8145V5 sn TESTSN00000002
+  onu 7 type ALL-ONT sn TESTSN00000007
+!
+interface gpon-onu_1/6/1:1
+  name Pelanggan Satu
+  description Alamat bebas tanpa pemisah
+  tcont 1 profile PAKET-A-UP
+  gemport 1 tcont 1
+  service-port 1 vport 1 user-vlan 15 vlan 15
+!
+interface gpon-onu_1/6/1:2
+  name Pelanggan Dua
+  description zone_WILAYAHA_descr_Alamat_Dua_authd_20260901
+  tcont 1 profile PAKET-B-UP
+!
+interface gpon-onu_1/6/1:7
+  description zone_WILAYAHB
+  tcont 1 profile PAKET-B-UP
+!
+interface gpon-onu_1/6/2:1
+  name Pelanggan Empat
+!
+interface gpon-onu_1/6/2:5
+  name Pelanggan Lima
+  description Alamat bebas lain_authd_20260425
+!
+end
+OLT_C300_SBI_01#

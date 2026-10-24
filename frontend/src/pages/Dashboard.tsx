@@ -79,7 +79,7 @@ function OltTable({ olts }: { olts: OltRow[] }) {
           {olts.map((o) => (
             <tr key={o.id} className="border-b last:border-0 hover:bg-sunken">
               <td className="px-3 py-2"><Link to={`/settings/olts/${o.id}`} className="hover:underline">{o.name}</Link></td>
-              <td className="px-3 py-2"><StatusBadge status={o.status} /></td>
+              <td className="px-3 py-2"><StatusBadge status={o.status} withLabel /></td>
               <td className="px-3 py-2 font-mono">{o.onu_online}/{o.onu_count}</td>
               <td className="px-3 py-2 font-mono">{o.cpu_pct == null ? "—" : `${o.cpu_pct.toFixed(0)}%`}</td>
               <td className="px-3 py-2 font-mono">{o.ram_pct == null ? "—" : `${o.ram_pct.toFixed(0)}%`}</td>

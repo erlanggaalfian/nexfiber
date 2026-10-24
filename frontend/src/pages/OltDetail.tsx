@@ -103,7 +103,7 @@ function Monitoring({ d, oltId }: { d: Detail; oltId: number }) {
             row={(p) => (
               <tr key={p.id} className="border-b last:border-0">
                 <td className={`${cell} font-mono`}>{p.slot}/{p.port}</td>
-                <td className={cell}><StatusBadge status={p.oper_state === "up" ? "online" : "offline"} /></td>
+                <td className={cell}><StatusBadge status={p.oper_state === "up" ? "online" : "offline"} withLabel /></td>
                 <td className={cell}><UsageBar used={p.onu_count} capacity={p.capacity} /></td>
                 <td className={`${cell} text-muted`}>{fmtDateTime(p.last_sync_at)}</td>
               </tr>
@@ -442,7 +442,7 @@ function Interfaces({ oltId }: { oltId: number }) {
             <td className={cell}>{p.duplex ?? "—"}</td>
             <td className={cell}>{p.admin_status ?? "—"}</td>
             <td className={cell}>
-              <StatusBadge status={p.link === "up" ? "online" : "offline"} />
+              <StatusBadge status={p.link === "up" ? "online" : "offline"} withLabel />
             </td>
             <td className={`${cell} text-right`}>
               <Button size="sm" variant="quiet" onClick={() => setEdit(p)}>Edit</Button>
@@ -535,7 +535,7 @@ function DaftarOnu({ oltId }: { oltId: number }) {
           </td>
           <td className={cell}>{o.customer_name ?? o.name ?? "—"}</td>
           <td className={`${cell} font-mono`}>{o.slot}/{o.port}:{o.onu_index ?? "—"}</td>
-          <td className={cell}><StatusBadge status={o.status} /></td>
+          <td className={cell}><StatusBadge status={o.status} reason={o.last_down_reason} /></td>
           <td className={`${cell} font-mono`}>{o.rx_power_dbm === null ? "LOS" : o.rx_power_dbm.toFixed(1)}</td>
         </tr>
       )}
@@ -571,7 +571,7 @@ export function OltDetail() {
         </Link>
       </PageTitle>
       <div className="entrance mb-3 flex flex-wrap items-center gap-3 rounded-md border bg-surface px-4 py-3">
-        <StatusBadge status={d.status} />
+        <StatusBadge status={d.status} withLabel />
         <span className="font-mono text-sm">{d.host}</span>
         <span className="text-sm text-muted">{d.vendor} {d.model}</span>
         <span className="ml-auto text-sm">

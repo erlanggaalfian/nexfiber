@@ -164,6 +164,10 @@ class OnuSnapshot:
     onu_id: int
     serial_number: str
     status: str
+    # `name`/`description` = dua field metadata yang MEMANG ada di interface ONU perangkat
+    # (ZTE: baris `name ...` dan `description ...` di running-config). Diteruskan apa adanya;
+    # pemetaan ke nama pelanggan/alamat/zone TIDAK ditebak di driver.
+    name: str | None = None
     description: str | None = None
     onu_type: str | None = None
     admin_state: str | None = None  # "enabled" | "disabled" (nilai enum onus.admin_state)

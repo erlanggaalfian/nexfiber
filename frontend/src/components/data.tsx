@@ -1,22 +1,36 @@
+import { Globe, GlobeX, LinkBreak, Plug, Prohibit, Question } from "@phosphor-icons/react";
+import type { Icon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { Button } from "./ui/button";
 
-const ONU_STATUS: Record<string, [string, string]> = {
-  online: ["Online", "bg-up"],
-  offline: ["Offline", "bg-down"],
-  los: ["LOS", "bg-down"],
-  dying_gasp: ["Dying Gasp", "bg-down"],
-  power_off: ["Mati listrik", "bg-down"],
-  unknown: ["Belum diketahui", "bg-idle"],
-  unreachable: ["Tak terjangkau", "bg-down"],
+/** Satu-satunya peta status -> ikon/warna/label untuk seluruh aplikasi (AGENTS "DRY").
+ *  Kunci = nilai enum backend: onus.status (online/offline/los/dying_gasp/power_off/
+ *  unknown), onus.admin_state "disabled", dan olts.status (online/offline/unreachable).
+ *  Warna BUKAN satu-satunya pembeda: bentuk ikon berbeda per status, plus label teks
+ *  di `title` (tooltip) dan di span sr-only (pembaca layar). */
+const ONU_STATUS: Record<string, [label: string, icon: Icon, color: string]> = {
+  online: ["Online", Globe, "text-up"],
+  offline: ["Offline", GlobeX, "text-down"],
+  los: ["LOS — kabel/serat putus", LinkBreak, "text-down"],
+  dying_gasp: ["Dying Gasp — listrik pelanggan mati", Plug, "text-down"],
+  power_off: ["Mati listrik", Plug, "text-down"],
+  disabled: ["Dinonaktifkan operator", Prohibit, "text-idle"],
+  unknown: ["Belum diketahui", Question, "text-idle"],
+  unreachable: ["Tak terjangkau", GlobeX, "text-down"],
 };
 
-export function StatusBadge({ status, compact = false }: { status: string; compact?: boolean }) {
-  const [label, dot] = ONU_STATUS[status] ?? [status, "bg-idle"];
+/** `reason` dipakai saat ada keterangan tambahan dari perangkat (mis. last_down_reason):
+ *  ikut masuk tooltip + label pembaca layar, tidak mengubah ikon. */
+export function StatusBadge(
+  { status, reason, withLabel = false }:
+  { status: string; reason?: string | null; withLabel?: boolean },
+) {
+  const [label, Ikon, color] = ONU_STATUS[status] ?? ["Belum diketahui", Question, "text-idle"];
+  const full = reason ? `${label} (${reason})` : label;
   return (
-    <span className="inline-flex items-center gap-1.5" title={label}>
-      <span className={`size-1.5 shrink-0 ${dot}`} aria-hidden />
-      <span className={compact ? "sr-only" : ""}>{label}</span>
+    <span className={`inline-flex items-center gap-1.5 ${color}`} title={full}>
+      <Ikon size={18} aria-hidden />
+      <span className={withLabel ? "" : "sr-only"}>{full}</span>
     </span>
   );
 }

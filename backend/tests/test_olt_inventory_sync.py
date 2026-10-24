@@ -16,6 +16,7 @@ from pathlib import Path
 from app.drivers.types import OltInventory, OnuSnapshot
 from app.drivers.zte_c320 import (
     _parse_onu_baseinfo,
+    _parse_onu_metadata,
     _parse_onu_state,
     _parse_vlan_summary,
     decode_optical_ifindex,
@@ -61,6 +62,26 @@ def test_parse_onu_baseinfo_gives_serials():
     rows = _parse_onu_baseinfo(_fixture("zte_show_gpon_onu_baseinfo.txt"))
     assert rows[(6, 1, 2)] == ("TESTSN00000002", "HG8145V5")
     assert len(rows) == 3
+
+
+def test_parse_onu_metadata_reads_name_and_description():
+    """Satu-satunya metadata pelanggan yang ADA di perangkat: baris `name`/`description`
+    di stanza `interface gpon-onu_...` pada `show running-config`."""
+    rows = _parse_onu_metadata(_fixture("zte_show_running_config_inventory.txt"))
+    assert rows[(6, 1, 1)] == ("Pelanggan Satu", "Alamat bebas tanpa pemisah")
+    # ONU tanpa baris name -> None, bukan string kosong dan bukan tebakan dari description.
+    assert rows[(6, 1, 7)] == (None, "zone_WILAYAHB")
+    # ONU tanpa description -> None.
+    assert rows[(6, 2, 1)] == ("Pelanggan Empat", None)
+    # stanza `interface gpon-olt_...` (bukan ONU) tidak boleh ikut terparsing
+    assert len(rows) == 5
+
+
+def test_parse_onu_metadata_does_not_invent_zone_or_splitter():
+    """`description` di perangkat nyata adalah teks bebas: 35/39 ONU OLT SBI tidak punya
+    pemisah apa pun. Parser SENGAJA tidak memecah token zone_/odb_ jadi relasi."""
+    rows = _parse_onu_metadata(_fixture("zte_show_running_config_inventory.txt"))
+    assert rows[(6, 1, 2)][1] == "zone_WILAYAHA_descr_Alamat_Dua_authd_20260901"
 
 
 def test_parse_vlan_summary():
@@ -158,6 +179,71 @@ async def test_adopt_inventory_creates_onu_rows_and_vlans():
     assert serials == ["TESTSN00000001", "TESTSN00000007"]
     assert {o.status for o in db.added} == {"online", "dying_gasp"}
     assert all(o.config_state == "success" and o.onu_index in (1, 7) for o in db.added)
+
+
+async def test_adopt_inventory_fills_device_metadata_without_guessing_zone():
+    """Nama/deskripsi perangkat masuk kolom onus.name/description; zone & splitter tetap
+    NULL karena perangkat tidak punya field itu (dan description = teks bebas)."""
+    from datetime import UTC, datetime
+
+    inv = OltInventory(
+        onus=[OnuSnapshot(slot=6, port=1, onu_id=1, serial_number="TESTSN00000001",
+                          status="online", name="Pelanggan Satu",
+                          description="zone_WILAYAHA_descr_Alamat")],
+        vlan_ids=[],
+    )
+    db = _Db()
+    out = await sync_service._adopt_inventory(db, _Olt(), _InventoryDriver(inv),
+                                              datetime.now(UTC))
+    row = db.added[0]
+    assert row.name == "Pelanggan Satu"
+    assert row.description == "zone_WILAYAHA_descr_Alamat"  # apa adanya, tidak dipecah
+    assert getattr(row, "zone_id", None) is None
+    assert getattr(row, "splitter_id", None) is None
+    assert getattr(row, "customer_name", None) is None  # nama pelanggan tetap milik operator
+    assert out["onus_with_device_name"] == 1
+    assert out["onus_with_device_description"] == 1
+
+
+async def test_adopt_inventory_never_overwrites_operator_metadata():
+    from datetime import UTC, datetime
+
+    class _ExistingOnu:
+        serial_number = "TESTSN00000001"
+        pon_port_id = onu_index = None
+        status = "unknown"
+        last_sync_at = last_seen_at = None
+        onu_type = None
+        admin_state = "enabled"
+        name = "Label diisi operator"
+        description = "Alamat diisi operator"
+
+    existing = _ExistingOnu()
+
+    class _DbWithRow(_Db):
+        async def execute(self, stmt):
+            text = str(stmt)
+            if "pon_ports" in text and text.strip().lower().startswith("select"):
+                return iter(self.pon_rows)
+
+            class _R(_Result):
+                def scalars(self_inner):
+                    return iter([existing])
+
+            return _R()
+
+    inv = OltInventory(
+        onus=[OnuSnapshot(slot=6, port=1, onu_id=1, serial_number="TESTSN00000001",
+                          status="online", name="Nama dari OLT",
+                          description="Deskripsi dari OLT")],
+        vlan_ids=[],
+    )
+    out = await sync_service._adopt_inventory(_DbWithRow(), _Olt(), _InventoryDriver(inv),
+                                              datetime.now(UTC))
+    assert out["onus_updated"] == 1
+    assert existing.name == "Label diisi operator"
+    assert existing.description == "Alamat diisi operator"
+    assert existing.status == "online"  # status tetap ikut perangkat
 
 
 async def test_adopt_inventory_skips_unknown_pon_port():

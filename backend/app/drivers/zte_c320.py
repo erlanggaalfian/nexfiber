@@ -440,10 +440,15 @@ class ZteC320Driver(OltDriver):
         - `show gpon onu baseinfo` tanpa argumen DITOLAK (`%Error 20203: Incomplete
           command`), jadi SN/tipe harus diambil per PON yang benar-benar punya ONU.
         - `show vlan summary` memberi daftar VLAN id perangkat.
+        - `show running-config` (satu kali, ~11 detik, 83 KB) memuat stanza
+          `interface gpon-onu_<pon>:<id>` dengan baris `name` dan `description` —
+          SATU-SATUNYA metadata pelanggan yang ada di perangkat ini (39/39 ONU punya
+          keduanya). Dibaca massal supaya tidak ada 39 perintah per-ONU.
         """
         async with self._open_cli() as cli:
             state_out = await cli.send_command("show gpon onu state")
             vlan_out = await cli.send_command("show vlan summary")
+            config_out = await cli.send_command("show running-config")
             states = _parse_onu_state(state_out)
             baseinfo: dict[tuple[int, int, int], tuple[str | None, str | None]] = {}
             for slot, port in sorted({(s.slot, s.port) for s in states}):
@@ -451,12 +456,16 @@ class ZteC320Driver(OltDriver):
                     f"show gpon onu baseinfo gpon-olt_1/{slot}/{port}"
                 )
                 baseinfo.update(_parse_onu_baseinfo(out))
+        metadata = _parse_onu_metadata(config_out)
         onus = []
         for snap in states:
             serial, onu_type = baseinfo.get((snap.slot, snap.port, snap.onu_id), (None, None))
             if not serial:
                 continue  # tanpa SN tidak bisa jadi baris onus (kunci uq_onu_olt_serial)
             snap.serial_number, snap.onu_type = serial, onu_type
+            snap.name, snap.description = metadata.get(
+                (snap.slot, snap.port, snap.onu_id), (None, None)
+            )
             onus.append(snap)
         return OltInventory(onus=onus, vlan_ids=_parse_vlan_summary(vlan_out))
 
@@ -757,6 +766,14 @@ _ONU_STATE_ROW_RE = re.compile(
 _ONU_BASEINFO_ROW_RE = re.compile(
     r"^\s*gpon-onu_(\d+)/(\d+)/(\d+):(\d+)\s+(\S+)\s+\S+\s+SN:(\S+)", re.M
 )
+# Stanza `interface gpon-onu_<rack>/<slot>/<port>:<id>` di `show running-config`, isinya
+# baris-baris berindentasi sampai baris tak berindentasi berikutnya (transkrip nyata
+# OLT SBI C300, read-only 2026-10-24).
+_ONU_IFACE_STANZA_RE = re.compile(
+    r"^interface gpon-onu_(\d+)/(\d+)/(\d+):(\d+)[ \t]*\n((?:[ \t]+.*\n)*)", re.M
+)
+_ONU_CFG_NAME_RE = re.compile(r"^[ \t]+name[ \t]+(\S.*)$", re.M)
+_ONU_CFG_DESCR_RE = re.compile(r"^[ \t]+description[ \t]+(\S.*)$", re.M)
 
 def _parse_onu_state(output: str) -> list[OnuSnapshot]:
     """`show gpon onu state` (semua PON atau satu PON) -> posisi + status + admin state.
@@ -778,6 +795,31 @@ def _parse_onu_baseinfo(output: str) -> dict[tuple[int, int, int], tuple[str, st
     for m in _ONU_BASEINFO_ROW_RE.finditer(output):
         _rack, slot, port, onu_id, onu_type, serial = m.groups()
         rows[(int(slot), int(port), int(onu_id))] = (serial, onu_type)
+    return rows
+
+def _parse_onu_metadata(output: str) -> dict[tuple[int, int, int], tuple[str | None, str | None]]:
+    """`show running-config` -> {(slot, port, onu_id): (name, description)}.
+
+    Stanza nyata (OLT SBI C300, read-only 2026-10-24; 39/39 ONU punya kedua baris):
+
+        interface gpon-onu_1/6/2:1
+          name <teks bebas>
+          description <teks bebas>
+          tcont 1 profile ...
+
+    Keduanya teks bebas yang diisi operator — TIDAK diparsing lebih jauh di sini.
+    Pemetaan ke nama pelanggan/alamat ditentukan di layer sync, dan zone/splitter TIDAK
+    diturunkan dari sini karena perangkat tidak punya field itu (lihat sync_service).
+    """
+    rows: dict[tuple[int, int, int], tuple[str | None, str | None]] = {}
+    for m in _ONU_IFACE_STANZA_RE.finditer(output):
+        _rack, slot, port, onu_id, body = m.groups()
+        name = _ONU_CFG_NAME_RE.search(body)
+        desc = _ONU_CFG_DESCR_RE.search(body)
+        rows[(int(slot), int(port), int(onu_id))] = (
+            name.group(1).strip() if name else None,
+            desc.group(1).strip() if desc else None,
+        )
     return rows
 
 def _parse_vlan_summary(output: str) -> list[int]:
