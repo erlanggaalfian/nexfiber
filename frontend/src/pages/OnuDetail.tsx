@@ -1,28 +1,31 @@
 /** Detail ONU — PRD 3.4.6. Satu halaman (tidak ada halaman detail kedua).
  *
- *  Tata letak mengikuti aplikasi referensi milik pemilik (permintaan user: "biar sama dengan
- *  aplikasi ... untuk tampilan nya"), urutan blok: grid teks dua kolom (identitas | status &
- *  koneksi) → baris Status (tombol baca live + output CLI) → Trafik/Sinyal → Profil Kecepatan →
- *  Port Ethernet → WiFi → VoIP/CATV → baris aksi. Inventaris sumber-vs-Nexfiber dan daftar
- *  menu yang belum bisa disamakan ada di ONU-DETAIL-PARITY.md. Tidak ada nama/branding
- *  aplikasi referensi di kode maupun UI; token warna/komponen tetap milik Nexfiber.
+ *  Tata letak mengikuti desain Google Stitch yang dikirim pemilik (screen "ONU Diagnostic &
+ *  Telemetry Detail"): satu kartu atas dua kolom (identitas | sinyal Rx + konfigurasi WAN) →
+ *  toolbar Diagnostik ONU + panel output → dua kartu grafik sejajar (Trafik | Sinyal) →
+ *  tabel Profil Kecepatan → tabel Port Ethernet → tabel WiFi → strip layanan (VoIP/IPTV/CATV)
+ *  → toolbar aksi. Struktur, urutan, kepadatan, dan hierarki diambil dari desain itu; warna
+ *  memakai token Nexfiber sendiri (`bg-surface`, `text-fiber`, dst. — tema gelap teal sudah
+ *  sama dengan desain). Tidak ada nama/branding aplikasi referensi, dan tidak ada data contoh
+ *  dari desain (nama pelanggan, SSID, IP) yang disalin: semua nilai dari API.
  *
- *  Penyimpangan sadar dari DESIGN 12.6: tab horizontal dan dropdown "Aksi ▾" diganti blok
- *  bertumpuk + baris tombol, karena user meminta kesetaraan tampilan dengan referensi.
+ *  Satu markup untuk desktop & mobile: kartu dua kolom menumpuk di bawah `lg`, label baris
+ *  pindah ke atas di bawah `sm`, tabel dibungkus `overflow-x-auto`, toolbar `flex-wrap`.
  *
- *  Komponen bersama saja: Confirm/Drawer/TableCard dari components/crud.tsx, SignalBar/
- *  StatusBadge/Panel dari components/data.tsx. Bucket sinyal tidak dihitung di halaman ini.
+ *  Komponen bersama dipakai apa adanya (tidak diubah): Confirm/Drawer/TableCard/Field dari
+ *  components/crud.tsx, SignalBar/StatusBadge/Panel dari components/data.tsx. Bucket sinyal
+ *  tidak pernah dihitung ulang di halaman ini.
  *
  *  Semua aksi ke perangkat = job: tombol hanya membuat job lalu menunggu statusnya. TANPA
  *  optimistic update (AGENTS.md).
  */
 import { ArrowLeft, Pencil } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Confirm, Drawer, Field, TableCard, cell, input } from "../components/crud";
 import {
-  ErrorState, Panel, Skeleton, SignalBar, StatusBadge, fmtDateTime, nf,
+  ErrorState, Panel, Skeleton, StatusBadge, fmtDateTime, nf, rxBucket, RX_BUCKETS,
 } from "../components/data";
 import { Button } from "../components/ui/button";
 import {
@@ -31,69 +34,78 @@ import {
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useJob } from "../lib/jobs";
+import { deltaMbps, type TrafficPoint, type TrafficSample } from "../lib/traffic";
 
 const RANGES = [["24h", "24 jam"], ["7d", "7 hari"], ["30d", "30 hari"]] as const;
-/** Interval auto-refresh tombol LIVE — sama dengan siklus status referensi (15 detik). */
+/** Interval auto-refresh detail ONU dari database saat LIVE aktif. */
 const LIVE_MS = 15_000;
+/** Interval sampel counter trafik saat LIVE aktif (proposal §5: 5 detik, bukan 3). */
+const TRAFFIC_MS = 5_000;
+/** LIVE mati sendiri setelah ini supaya tab yang ditinggal terbuka tidak memolling OLT terus. */
+const LIVE_MAX_MS = 10 * 60_000;
+/** Titik grafik yang disimpan (10 menit @5s = 120). */
+const TRAFFIC_KEEP = 120;
 
 const dash = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
 const dbm = (v: number | null) => (v === null ? "—" : `${Number(v).toFixed(2)} dBm`);
+const mbps = (v: number) => `${v < 10 ? v.toFixed(2) : v.toFixed(1)} Mbps`;
 
-/** Baris label/nilai grid atas: label kanan-align lebar tetap di ≥600px, menumpuk di bawahnya
- *  (mengikuti breakpoint referensi). `onEdit` membuat seluruh baris bisa diklik. */
+/** Kartu bagian: judul di kolom kiri sempit (desain Stitch) yang pindah ke atas di < md. */
+function Section(
+  { label, note, children, className = "" }:
+  { label: string; note?: string; children: React.ReactNode; className?: string },
+) {
+  return (
+    <section className={`rounded-md border bg-surface p-3.5 ${className}`}>
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:gap-4">
+        <div className="md:w-[130px] md:shrink-0 md:pt-1 md:text-right">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.05em] text-fiber">{label}</h2>
+          {note && <p className="font-mono text-xs text-faint md:mt-0.5">{note}</p>}
+        </div>
+        <div className="min-w-0 grow">{children}</div>
+      </div>
+    </section>
+  );
+}
+
+/** Baris label/nilai di kartu atas: label kiri lebar tetap (desain Stitch 145px), menumpuk
+ *  di bawah `sm`. `onEdit` membuat seluruh baris bisa diklik. */
 function DRow(
   { label, value, onEdit }: { label: string; value: React.ReactNode; onEdit?: () => void },
 ) {
   const content = (
     <>
-      <span className="text-xs font-semibold text-muted sm:w-[190px] sm:shrink-0 sm:text-right">
-        {label}
-      </span>
-      <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <span className="text-xs text-muted sm:w-[145px] sm:shrink-0 sm:text-left">{label}</span>
+      <span className="flex min-w-0 flex-wrap items-center gap-1.5 font-mono text-xs">
         {onEdit && <Pencil size={12} aria-hidden className="text-muted" />}
         {value}
       </span>
     </>
   );
+  const shape = "flex w-full flex-col gap-0.5 border-b py-1.5 last:border-0 sm:flex-row sm:items-start sm:gap-4";
   return onEdit ? (
-    <button type="button" onClick={onEdit}
-      className="flex w-full flex-col gap-0.5 py-0.5 text-left hover:text-fiber sm:flex-row sm:items-baseline sm:gap-5">
+    <button type="button" onClick={onEdit} className={`${shape} text-left hover:text-fiber`}>
       {content}
     </button>
   ) : (
-    <div className="flex flex-col gap-0.5 py-0.5 sm:flex-row sm:items-baseline sm:gap-5">
-      {content}
-    </div>
+    <div className={shape}>{content}</div>
   );
 }
 
-/** Baris blok bawah: label kiri (160px) + konten, menumpuk di < 768px seperti referensi. */
-function Section(
-  { label, children, tight = false }:
-  { label: string; children: React.ReactNode; tight?: boolean },
-) {
+/** Header kartu: judul kecil + keterangan, pola berulang di desain Stitch. */
+function CardHead({ title, note, action }: { title: string; note?: string; action?: React.ReactNode }) {
   return (
-    <section className={`flex flex-col gap-2.5 border-b py-4 last:border-0 md:flex-row md:items-start md:gap-4
-      ${tight ? "py-2" : ""}`}>
-      <h2 className="text-xs font-semibold uppercase tracking-[0.02em] text-muted md:w-40 md:shrink-0 md:pt-1">
-        {label}
-      </h2>
-      <div className="min-w-0 grow">{children}</div>
-    </section>
+    <div className="mb-2.5 flex flex-wrap items-center gap-2 border-b pb-2">
+      <h3 className="font-mono text-xs font-semibold uppercase tracking-[0.05em]">{title}</h3>
+      {note && <span className="font-mono text-xs text-faint">{note}</span>}
+      {action && <span className="ml-auto">{action}</span>}
+    </div>
   );
 }
 
 function fmtDistance(m: number | null) {
   if (m === null) return "—";
   return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${nf.format(m)} m`;
-}
-
-function fmtUptime(seconds: number | null | undefined) {
-  if (seconds === null || seconds === undefined) return "—";
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  return d > 0 ? `${d}h ${h}j` : h > 0 ? `${h}j ${m}m` : `${m}m`;
 }
 
 /** Ringkasan histori Rx: terendah / rata-rata / tertinggi + jumlah bacaan tidak online. */
@@ -108,6 +120,32 @@ function rxStats(points: SignalPoint[]) {
     downs,
     count: values.length,
   };
+}
+
+/** Kotak satu arah sinyal Rx (ONU 1490nm / OLT 1310nm) seperti dua kotak di desain:
+ *  nilai besar + label bucket + bar. Bucket & warna dari RX_BUCKETS bersama. */
+function RxBox({ title, value }: { title: string; value: number | null }) {
+  const b = rxBucket(value);
+  const meta = b ? RX_BUCKETS[b] : null;
+  /** Posisi bar: -8 dBm (kuat) .. -30 dBm (lemah), dipakai hanya sebagai indikator visual. */
+  const pct = value === null ? 0 : Math.max(0, Math.min(100, ((value + 30) / 22) * 100));
+  return (
+    <div className="flex flex-col gap-1.5 rounded-sm border bg-sunken p-2.5">
+      <div className="flex items-center justify-between gap-2 font-mono text-xs">
+        <span className="text-muted">{title}</span>
+        <span className={meta ? `font-semibold ${meta.color.replace("bg-", "text-")}` : "text-muted"}>
+          {meta ? meta.label : "LOS"}
+        </span>
+      </div>
+      <div className="flex items-baseline gap-1">
+        <span className="font-mono text-lg font-semibold">{value === null ? "LOS" : value.toFixed(2)}</span>
+        {value !== null && <span className="font-mono text-xs text-faint">dBm</span>}
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-sm bg-app">
+        <div className={`h-full ${meta ? meta.color : "bg-sunken"}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
 }
 
 /** Grafik Rx: sparkline SVG dari histori, ambang sebagai garis putus.
@@ -126,7 +164,7 @@ function RxChart({ points }: { points: SignalPoint[] }) {
     .filter((s): s is string => s !== null)
     .join(" ");
   return (
-    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-28 w-full" role="img"
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-32 w-full" role="img"
          aria-label={`Grafik Rx ONU, ${values.length} titik, terendah ${min.toFixed(1)} dBm`}>
       {[-25, -27].map((t) => (
         <line key={t} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
@@ -138,16 +176,43 @@ function RxChart({ points }: { points: SignalPoint[] }) {
   );
 }
 
-/** Kartu grafik: judul + isi + legenda, posisi sama dengan dua kartu sejajar di referensi. */
+/** Grafik trafik LIVE: dua polyline dari delta counter nyata. Tidak pernah menggambar nilai
+ *  karangan — selama sampel belum cukup yang tampil adalah keterangan, bukan garis nol. */
+function TrafficChart({ points }: { points: TrafficPoint[] }) {
+  if (points.length < 2) {
+    return (
+      <p className="py-10 text-center text-muted">
+        Aktifkan LIVE untuk mengambil sampel counter dari OLT. Butuh dua sampel sebelum
+        laju bisa dihitung.
+      </p>
+    );
+  }
+  const peak = Math.max(...points.flatMap((p) => [p.inMbps, p.outMbps]), 0.1);
+  const x = (i: number) => (i / (points.length - 1)) * 100;
+  const y = (v: number) => 100 - (v / peak) * 100;
+  const path = (pick: (p: TrafficPoint) => number) =>
+    points.map((p, i) => `${x(i)},${y(pick(p))}`).join(" ");
+  return (
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-32 w-full" role="img"
+         aria-label={`Grafik trafik, ${points.length} sampel, puncak ${peak.toFixed(1)} Mbps`}>
+      <polyline points={path((p) => p.inMbps)} fill="none" stroke="currentColor" strokeWidth="1"
+                className="text-fiber" vectorEffect="non-scaling-stroke" />
+      <polyline points={path((p) => p.outMbps)} fill="none" stroke="currentColor" strokeWidth="1"
+                className="text-amber" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+/** Kartu grafik: judul + isi + legenda, dua kartu sejajar seperti desain. */
 function ChartCard(
-  { title, children, legend }:
-  { title: string; children: React.ReactNode; legend?: React.ReactNode },
+  { title, note, children, legend }:
+  { title: string; note?: string; children: React.ReactNode; legend?: React.ReactNode },
 ) {
   return (
-    <div className="min-w-0 flex-1 rounded-md border bg-surface p-4">
-      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.02em] text-muted">{title}</p>
+    <div className="min-w-0 flex-1 rounded-sm border bg-sunken p-3">
+      <CardHead title={title} note={note} />
       {children}
-      {legend && <div className="mt-3 grid gap-1 text-xs text-muted">{legend}</div>}
+      {legend && <div className="mt-2 grid gap-1 border-t pt-2 text-xs text-muted">{legend}</div>}
     </div>
   );
 }
@@ -160,6 +225,16 @@ function LegendRow({ color, label, value }: { color: string; label: string; valu
         {label}
       </span>
       <span className="font-mono text-ink">{value}</span>
+    </div>
+  );
+}
+
+/** Satu sel strip layanan (VoIP / IPTV / CATV / web user) di dasar desain. */
+function ServiceCell({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 rounded-sm border bg-sunken px-3 py-1.5 text-xs">
+      <span className="text-muted">{label}</span>
+      <span className="font-mono">{children}</span>
     </div>
   );
 }
@@ -199,8 +274,152 @@ const PON_LABEL: Record<string, string> = {
   gpon: "GPON", epon: "EPON", xgpon: "XG-PON", xgspon: "XGS-PON",
 };
 
+/** VLAN terpasang = DAFTAR, bukan satu nilai. Sumbernya seluruh `service-port` ONU di
+ *  running-config (mis. 15 dan 100 sekaligus). Backend mengirimnya sebagai
+ *  `service_vlans` pada detail ONU — kontrak milik track metadata ONU
+ *  (`ONU-METADATA-VLAN-SOURCE-PROPOSAL.md` §4), bukan tebakan halaman ini.
+ *
+ *  Baris dengan penanda management DISEMBUNYIKAN. Penandanya `is_management` dari backend
+ *  (yang menurunkannya dari `vlans.type == "management"` di master), **tidak pernah** dari
+ *  nomor VLAN — tidak ada 100 atau angka lain yang di-hardcode di sini.
+ *
+ *  Daftar kosong ditampilkan apa adanya ("—"): semua VLAN-nya management atau ONU memang
+ *  tidak punya service-port. Tidak ada fallback ke `vlan_number`.
+ *
+ *  `vlan_number` lama tetap dipakai HANYA oleh dialog "Ubah VLAN" (menulis satu VLAN
+ *  primer) dan sebagai tampilan sementara selagi `service_vlans` belum dikirim backend —
+ *  dengan keterangan eksplisit bahwa daftarnya belum tersedia, bukan daftar karangan.
+ *  Semua field dibuat opsional supaya bentuk final kontrak sibling tidak memaksa
+ *  perubahan tipe bersama di `lib/api.ts`. */
+type OnuServiceVlan = {
+  vlan_id?: number | null;
+  name?: string | null;
+  is_management?: boolean | null;
+  /** `false` = ada di perangkat tapi belum terdaftar di master VLAN; tetap ditampilkan. */
+  in_master?: boolean | null;
+};
+
+type DetailWithVlans = Detail & {
+  service_vlans?: OnuServiceVlan[] | null;
+  /** Hasil parse `description` ONU di perangkat (read-only; belum tentu = kolom operator).
+   *  Dipakai hanya sebagai sumber kedua saat kolom master kosong, dan selalu ditandai
+   *  asalnya — placeholder master yang kosong tidak boleh menutupi nilai nyata yang memang
+   *  ada di description perangkat. `authorized_on` murni dari penanda `_authd_`: kalau
+   *  backend mengirim null, barisnya "—" dan TIDAK diturunkan dari registered_at. */
+  device_metadata?: {
+    zone?: string | null;
+    address?: string | null;
+    splitter?: string | null;
+    authorized_on?: string | null;
+    structured?: boolean | null;
+  } | null;
+};
+
+/** Nilai + penanda asal: kolom master dulu; kalau kosong pakai hasil parse `description`
+ *  perangkat dan beri label asalnya. `null` di keduanya = "—". Keduanya tidak pernah
+ *  ditampilkan sebagai hal yang sama. */
+function fromMasterOrDescription(master: unknown, parsed: string | null | undefined) {
+  const m = master === null || master === undefined || master === "" ? null : String(master);
+  if (m !== null) return <>{m}</>;
+  const p = parsed === null || parsed === undefined || parsed === "" ? null : parsed;
+  if (p === null) return <>—</>;
+  return (
+    <>
+      <span>{p}</span>
+      <span className="text-faint">dari description perangkat</span>
+    </>
+  );
+}
+
+const isManagementVlan = (v: OnuServiceVlan) => v.is_management === true;
+
+/** VLAN layanan yang boleh tampil: punya nomor, bukan VLAN management, tanpa duplikat.
+ *  `null` = backend belum mengirim `service_vlans` (beda dari daftar kosong yang nyata). */
+function serviceVlans(d: DetailWithVlans): OnuServiceVlan[] | null {
+  if (!Array.isArray(d.service_vlans)) return null;
+  const rows = d.service_vlans;
+  const seen = new Set<number>();
+  return rows.filter((v) => {
+    if (typeof v.vlan_id !== "number" || isManagementVlan(v)) return false;
+    if (seen.has(v.vlan_id)) return false;
+    seen.add(v.vlan_id);
+    return true;
+  });
+}
+
+/** View diagnostik = isi body `POST /api/onus/{sn}/diagnostics` (kontrak backend sibling). */
+type DiagView = "status" | "running" | "software";
+
+const DIAG_LABEL: Record<DiagView, string> = {
+  status: "Get status",
+  running: "Show running-config",
+  software: "Info SW",
+};
+
+/** LIVE trafik: ambil satu snapshot counter per interval, ubah jadi titik Mbps.
+ *
+ *  - berhenti total saat `enabled` false dan saat komponen unmount (interval di-clear,
+ *    hasil fetch yang datang terlambat diabaikan lewat flag `alive`);
+ *  - dijeda saat tab tidak terlihat (`document.hidden`) — tanpa menutup LIVE;
+ *  - sampel pertama hanya baseline (tidak ada titik), delta dihitung di lib/traffic.ts;
+ *  - sampel yang tidak bisa dipercaya (counter reset / wrap tak wajar) membuang baseline
+ *    dan mulai lagi, bukan menggambar lonjakan palsu.
+ */
+function useLiveTraffic(serial: string, enabled: boolean) {
+  const [points, setPoints] = useState<TrafficPoint[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [last, setLast] = useState<TrafficSample | null>(null);
+  const prev = useRef<TrafficSample | null>(null);
+
+  useEffect(() => {
+    if (!enabled) {
+      prev.current = null;
+      return;
+    }
+    let alive = true;
+    const tick = async () => {
+      if (document.hidden) return;
+      try {
+        const s = await api<TrafficSample>(`/api/onus/${serial}/traffic`);
+        if (!alive) return;
+        setError(null);
+        setLast(s);
+        const before = prev.current;
+        prev.current = s;
+        if (!before) return;
+        const point = deltaMbps(before, s);
+        if (point === null) return; // counter reset/jump: baseline baru, tanpa titik palsu
+        setPoints((p) => [...p, point].slice(-TRAFFIC_KEEP));
+      } catch (e) {
+        if (alive) setError(e instanceof Error ? e.message : "Gagal membaca counter trafik");
+      }
+    };
+    void tick();
+    const id = setInterval(() => void tick(), TRAFFIC_MS);
+    return () => {
+      alive = false;
+      clearInterval(id);
+      prev.current = null;
+    };
+  }, [serial, enabled]);
+
+  return { points, error, last };
+}
+
+/** Param URL `/onu/:id` boleh berupa **ID numerik** (tautan dari Detail OLT) atau serial
+ *  number (tautan dari Configured/Form Otorisasi). Detail diambil lewat endpoint yang sesuai;
+ *  seluruh operasi per-ONU tetap memakai `d.serial_number` dari respons, bukan nilai URL —
+ *  jadi tidak ada tebakan bahwa angka di URL sama dengan serial.
+ *
+ *  Kontrak yang dipakai untuk bentuk numerik: `GET /api/onus/by-id/{onu_id}` -> OnuDetail
+ *  (dimiliki track backend resolver). Selama endpoint itu belum ada, bentuk numerik gagal
+ *  dengan pesan API apa adanya — tidak ada fallback yang menebak serial dari ID. */
+const isNumericId = (v: string) => /^\d+$/.test(v);
+const detailPath = (param: string) =>
+  isNumericId(param) ? `/api/onus/by-id/${param}` : `/api/onus/${encodeURIComponent(param)}`;
+
 export function OnuDetail() {
-  const { id: serial = "" } = useParams();
+  const { id: routeKey = "" } = useParams();
   const [params, setParams] = useSearchParams();
   const qc = useQueryClient();
   const { isManager } = useAuth();
@@ -214,22 +433,27 @@ export function OnuDetail() {
   const [dnForm, setDnForm] = useState("");
   const [upForm, setUpForm] = useState("");
   const [note, setNote] = useState("");
-  /** Panel output CLI di bawah baris tombol Status (satu panel, tiga pilihan isi). */
-  const [cliView, setCliView] = useState<null | "status" | "running" | "software">(null);
+  /** Panel output diagnostik: satu panel, isi = hasil job view yang terakhir diminta. */
+  const [diagView, setDiagView] = useState<DiagView | null>(null);
+  const [diagJobId, setDiagJobId] = useState<number | null>(null);
   const [live, setLive] = useState(false);
 
   const onu = useQuery({
-    queryKey: ["onu", serial],
-    queryFn: () => api<Detail>(`/api/onus/${serial}`),
+    queryKey: ["onu", routeKey],
+    queryFn: () => api<DetailWithVlans>(detailPath(routeKey)),
     refetchInterval: live ? LIVE_MS : false,
   });
+  /** Satu-satunya identitas untuk semua operasi: serial dari respons detail. */
+  const serial = onu.data?.serial_number ?? "";
   const signal = useQuery({
     queryKey: ["onu", serial, "signal", range],
     queryFn: () => api<SignalPoint[]>(`/api/onus/${serial}/signal?range=${range}`),
+    enabled: serial !== "",
   });
   const logs = useQuery({
     queryKey: ["onu", serial, "logs"],
     queryFn: () => api<OnuLog[]>(`/api/onus/${serial}/logs?limit=50`),
+    enabled: serial !== "",
   });
   const profiles = useQuery({
     queryKey: ["speed-profiles"], queryFn: () => api<SpeedProfile[]>("/api/speed-profiles"),
@@ -245,6 +469,16 @@ export function OnuDetail() {
     queryKey: ["onu-types"], queryFn: () => api<OnuType[]>("/api/onu-types"),
   });
   const job = useJob(jobId);
+  const diagJob = useJob(diagJobId);
+  const traffic = useLiveTraffic(serial, live && serial !== "");
+
+  /** LIVE mati sendiri setelah LIVE_MAX_MS; mati juga saat halaman ditinggalkan. */
+  useEffect(() => {
+    if (!live) return;
+    const id = setTimeout(() => setLive(false), LIVE_MAX_MS);
+    return () => clearTimeout(id);
+  }, [live]);
+  useEffect(() => () => setLive(false), []);
 
   /** Edit data pelanggan/lokasi: kolom database saja, jadi langsung PATCH (bukan job). */
   const saveInfo = useMutation({
@@ -253,7 +487,7 @@ export function OnuDetail() {
     onSuccess: () => {
       setEditing(null);
       setNote("Data pelanggan disimpan.");
-      qc.invalidateQueries({ queryKey: ["onu", serial] });
+      qc.invalidateQueries({ queryKey: ["onu"] });
       qc.invalidateQueries({ queryKey: ["onus"] });
     },
   });
@@ -268,8 +502,16 @@ export function OnuDetail() {
       setConfirm(null);
       setEditing(null);
       setTyped("");
-      qc.invalidateQueries({ queryKey: ["onu", serial] });
+      qc.invalidateQueries({ queryKey: ["onu"] });
     },
+    onError: (e: Error) => setNote(e.message),
+  });
+
+  /** Diagnostik baca-saja: satu job per tombol (backend sibling), hasilnya string output. */
+  const diag = useMutation({
+    mutationFn: (view: DiagView) =>
+      api<{ job_id: number }>(`/api/onus/${serial}/diagnostics`, { method: "POST", json: { view } }),
+    onSuccess: (r) => setDiagJobId(r.job_id),
     onError: (e: Error) => setNote(e.message),
   });
 
@@ -279,20 +521,33 @@ export function OnuDetail() {
   }
   const d = onu.data;
   const stats = rxStats(signal.data ?? []);
-  const result = (job.data?.result ?? {}) as Record<string, unknown>;
-  const runningConfig = typeof result.running_config === "string" ? result.running_config : "";
   const specs = (onuTypes.data ?? []).find(
     (t) => t.id === d.onu_type_id || t.name.toLowerCase() === (d.onu_type ?? "").toLowerCase(),
   );
   const statusKey = d.admin_state === "disabled" ? "disabled" : d.status;
+  /** `null` = backend belum mengirim daftar VLAN (field `vlans`), bukan "tidak ada VLAN". */
+  const vlanList = serviceVlans(d);
+  const meta = d.device_metadata ?? null;
+  const onuIf = `gpon-onu_${d.slot}/${d.port}${d.onu_index === null ? "" : `:${d.onu_index}`}`;
+  const latest = traffic.points.at(-1) ?? null;
 
-  /** Tombol baris Status: baca live lewat job refresh (read-only ke OLT), lalu tampilkan
-   *  potongan hasilnya di panel output. Job dibuat sekali; klik tombol lain cuma ganti isi. */
-  const readLive = (view: "status" | "running" | "software") => {
-    setCliView(view);
-    if (!job.data || job.data.status === "success" || job.data.status === "failed") {
-      act.mutate({ path: "/refresh" });
+  const runDiag = (view: DiagView) => {
+    setDiagView(view);
+    diag.mutate(view);
+  };
+
+  /** Isi panel output: hanya string yang dikirim backend. Tidak ada rakitan teks di frontend
+   *  (satu formatter saja, di backend), tidak ada nilai contoh saat job belum selesai. */
+  const diagResult = (diagJob.data?.result ?? {}) as Record<string, unknown>;
+  const diagOutput = typeof diagResult.output === "string" ? diagResult.output : "";
+  const diagOutputView = typeof diagResult.view === "string" ? diagResult.view : null;
+  const diagStatus = diagJob.data?.status ?? (diag.isPending ? "pending" : null);
+  const diagText = () => {
+    if (diagOutput && (diagOutputView === null || diagOutputView === diagView)) return diagOutput;
+    if (diagJob.data?.status === "failed") {
+      return `Job #${diagJob.data.id} gagal: ${diagJob.data.error_message ?? "tanpa keterangan"}`;
     }
+    return `Menunggu hasil job pembacaan "${DIAG_LABEL[diagView ?? "status"]}" dari OLT ...`;
   };
 
   const infoDialog = () => { setInfo(infoFrom(d)); setEditing("info"); };
@@ -301,174 +556,246 @@ export function OnuDetail() {
     setUpForm(String(d.upload_speed_profile_id ?? ""));
     setEditing("speed");
   };
-
-  const cliText = () => {
-    if (cliView === "running") {
-      return runningConfig || "Menunggu hasil job pembacaan running-config dari OLT ...";
-    }
-    if (cliView === "software") {
-      return [
-        `Software aktif   : ${dash(result.software_version ?? d.software_version)}`,
-        `Software standby : ${dash(result.software_version_standby)}`,
-        `Hardware         : ${dash(result.hardware_version ?? d.hardware_version)}`,
-      ].join("\n");
-    }
-    return [
-      `Fase            : ${dash(result.phase_state)}`,
-      `Rx ONU          : ${dbm((result.rx_power_dbm as number | null) ?? d.rx_power_dbm)}`,
-      `Tx ONU          : ${dbm((result.tx_power_dbm as number | null) ?? d.tx_power_dbm)}`,
-      `Rx OLT          : ${dbm((result.olt_rx_power_dbm as number | null) ?? d.olt_rx_power_dbm)}`,
-      `Jarak           : ${fmtDistance((result.distance_m as number | null) ?? d.distance_m)}`,
-      `Uptime          : ${fmtUptime(result.online_duration_s as number | null)}`,
-      `Config state    : ${d.config_state}`,
-      `Admin state     : ${d.admin_state}`,
-      `Perintah        : ${dash(result.raw_command)}`,
-    ].join("\n");
-  };
+  const vlanDialog = () => { setForm(String(d.vlan_id ?? "")); setEditing("vlan"); };
+  const replaceDialog = () => { setForm(""); setEditing("replace"); };
 
   return (
-    <>
-      <Link to="/configured" className="mb-1 inline-flex items-center gap-1 text-fiber hover:underline">
-        <ArrowLeft size={14} aria-hidden /> Configured
-      </Link>
-      <h1 className="mb-4 text-xl font-semibold">
-        Detail ONU — {d.customer_name ?? d.name ?? d.serial_number}
-      </h1>
+    <div className="space-y-4">
+      {/* Breadcrumb halaman (desain Stitch): kembali + identitas ONU dalam satu baris padat.
+          Header aplikasi & navigasi tidak disentuh — ini milik halaman ini saja. */}
+      <div className="flex flex-wrap items-center gap-2 border-b pb-2.5 text-xs">
+        <Link to="/configured" className="inline-flex items-center gap-1 text-fiber hover:underline">
+          <ArrowLeft size={14} aria-hidden /> Kembali ke Configured
+        </Link>
+        <span className="text-faint">/</span>
+        <span className="font-mono text-muted">{onuIf}</span>
+        <span className="text-faint">•</span>
+        <span className="text-muted">OLT:</span>
+        <Link to={`/olt/${d.olt_id}`} className="font-mono font-semibold text-fiber hover:underline">
+          {d.olt_name}
+        </Link>
+        <span className="text-faint">•</span>
+        <h1 className="text-sm font-semibold">{d.customer_name ?? d.name ?? d.serial_number}</h1>
+        <span className="rounded-sm border border-fiber/40 bg-sunken px-2 py-0.5 font-mono text-xs font-semibold text-fiber">
+          SN: {d.serial_number}
+        </span>
+        {d.onu_type && (
+          <span className="rounded-sm bg-sunken px-1.5 py-0.5 font-mono text-xs text-muted">{d.onu_type}</span>
+        )}
+      </div>
 
       {(note || job.data) && (
-        <p className="mb-3 text-muted" role="status">
+        <p className="text-muted" role="status">
           {note}{job.data ? ` Status job: ${job.data.status}${job.data.error_message ? ` — ${job.data.error_message}` : ""}` : ""}
         </p>
       )}
 
-      {/* Blok 1: grid teks dua kolom, tanpa kartu/garis (urutan field sama dengan referensi) */}
-      <div className="mb-5 grid gap-x-16 gap-y-0 lg:grid-cols-2">
-        <div className="flex flex-col">
-          <DRow label="OLT" value={
-            <Link className="text-fiber hover:underline" to={`/olt/${d.olt_id}`}>{d.olt_name}</Link>
-          } />
-          <DRow label="Shelf" value="1" />
-          <DRow label="Slot" value={d.slot} />
-          <DRow label="Port" value={d.port} />
-          <DRow label="ONU" value={
-            <Link className="font-mono text-fiber hover:underline" to={`/configured?olt_id=${d.olt_id}`}>
-              gpon-onu_{d.slot}/{d.port}{d.onu_index === null ? "" : `:${d.onu_index}`}
-            </Link>
-          } />
-          <DRow label="Kanal" value={specs ? PON_LABEL[specs.pon_type] ?? specs.pon_type.toUpperCase() : "—"} />
-          <DRow label="SN" value={<span className="font-mono">{d.serial_number}</span>}
-                onEdit={isManager ? () => { setForm(""); setEditing("replace"); } : undefined} />
-          <DRow label="Tipe ONU" value={dash(d.onu_type)} />
-          <DRow label="Preset konfigurasi" value={dash(d.preset_name)} />
-          <DRow label="Zone" value={dash(d.zone_name)} onEdit={infoDialog} />
-          <DRow label="Splitter" onEdit={infoDialog}
-                value={d.splitter_name ? `${d.splitter_name}${d.splitter_port ? ` · port ${d.splitter_port}` : ""}` : "—"} />
-          <DRow label="Nama" value={dash(d.customer_name ?? d.name)} onEdit={infoDialog} />
-          <DRow label="Alamat atau keterangan" value={dash(d.address ?? d.description)} onEdit={infoDialog} />
-          <DRow label="Kontak" value={dash(d.contact ?? d.phone)} onEdit={infoDialog} />
-          <DRow label="Tanggal otorisasi" value={fmtDateTime(d.registered_at)} />
-          <DRow label="Diotorisasi oleh" value={dash(d.registered_by_name)} />
-          <DRow label="Port splitter" value={dash(d.splitter_port)} onEdit={infoDialog} />
-          <DRow label="ONU external ID" value={dash(d.external_id)} onEdit={infoDialog} />
-          <DRow label="Lokasi" value={d.latitude !== null && d.longitude !== null
-            ? <a className="text-fiber hover:underline" target="_blank" rel="noreferrer"
-                 href={`https://www.openstreetmap.org/?mlat=${d.latitude}&mlon=${d.longitude}#map=17/${d.latitude}/${d.longitude}`}>
-                {Number(d.latitude).toFixed(5)}, {Number(d.longitude).toFixed(5)}
-              </a>
-            : "—"} />
-        </div>
+      {/* Kartu atas: kiri identitas, kanan sinyal Rx + konfigurasi WAN (menumpuk di < lg) */}
+      <div className="overflow-hidden rounded-md border bg-surface">
+        <div className="grid divide-y lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+          <div className="p-4">
+            <CardHead title="Informasi & status ONU" note={`Sinkron terakhir ${fmtDateTime(d.last_sync_at)}`} />
+            <div className="flex flex-col">
+              <DRow label="OLT" value={
+                <Link className="text-fiber hover:underline" to={`/olt/${d.olt_id}`}>{d.olt_name}</Link>
+              } />
+              <DRow label="Shelf" value="1" />
+              <DRow label="Slot" value={d.slot} />
+              <DRow label="Port" value={d.port} />
+              <DRow label="ONU" value={
+                <Link className="text-fiber hover:underline" to={`/configured?olt_id=${d.olt_id}`}>
+                  {onuIf}
+                </Link>
+              } />
+              <DRow label="Kanal" value={specs ? PON_LABEL[specs.pon_type] ?? specs.pon_type.toUpperCase() : "—"} />
+              <DRow label="SN" value={<span className="font-semibold text-fiber">{d.serial_number}</span>}
+                    onEdit={isManager ? replaceDialog : undefined} />
+              <DRow label="Tipe ONU" value={dash(d.onu_type)} />
+              <DRow label="Preset konfigurasi" value={dash(d.preset_name)} />
+              <DRow label="Zone" value={fromMasterOrDescription(d.zone_name, meta?.zone)} onEdit={infoDialog} />
+              <DRow label="Splitter / ODP" onEdit={infoDialog} value={
+                d.splitter_name
+                  ? `${d.splitter_name}${d.splitter_port ? ` · port ${d.splitter_port}` : ""}`
+                  : fromMasterOrDescription(null, meta?.splitter)
+              } />
+              <DRow label="Nama" value={dash(d.customer_name ?? d.name)} onEdit={infoDialog} />
+              <DRow label="Alamat atau keterangan"
+                    value={fromMasterOrDescription(d.address, meta?.address ?? d.description)}
+                    onEdit={infoDialog} />
+              <DRow label="Kontak" value={dash(d.contact ?? d.phone)} onEdit={infoDialog} />
+              <DRow label="Tanggal otorisasi" value={
+                <>
+                  {fromMasterOrDescription(
+                    d.registered_at ? fmtDateTime(d.registered_at) : null,
+                    meta?.authorized_on,
+                  )}
+                  {d.registered_by_name && (
+                    <span className="text-muted">oleh {d.registered_by_name}</span>
+                  )}
+                </>
+              } />
+              <DRow label="ONU external ID" value={dash(d.external_id)} onEdit={infoDialog} />
+              <DRow label="Lokasi" value={d.latitude !== null && d.longitude !== null
+                ? <a className="text-fiber hover:underline" target="_blank" rel="noreferrer"
+                     href={`https://www.openstreetmap.org/?mlat=${d.latitude}&mlon=${d.longitude}#map=17/${d.latitude}/${d.longitude}`}>
+                    {Number(d.latitude).toFixed(5)}, {Number(d.longitude).toFixed(5)}
+                  </a>
+                : "—"} />
+            </div>
+          </div>
 
-        <div className="flex flex-col">
-          <DRow label="Status" value={
-            <>
+          <div className="flex flex-col gap-4 p-4">
+            <div className="flex flex-wrap items-center gap-3 border-b pb-2.5">
               <StatusBadge status={statusKey} reason={d.last_down_reason} withLabel />
-              {live && <span className="text-xs text-muted">auto-refresh {LIVE_MS / 1000}s</span>}
-            </>
-          } />
-          <DRow label="Terakhir online" value={fmtDateTime(d.last_seen_at)} />
-          <DRow label="Last down" value={d.last_down_at
-            ? `${dash(d.last_down_reason)} · ${fmtDateTime(d.last_down_at)}` : "—"} />
-          <DRow label="Sinyal Rx" value={
-            <>
-              <SignalBar dbm={d.rx_power_dbm} />
-              <span className="font-mono">{dbm(d.rx_power_dbm)}</span>
-              <span className="text-muted">/</span>
-              <span className="font-mono">{dbm(d.olt_rx_power_dbm)}</span>
-              <span className="text-muted">{fmtDistance(d.distance_m)}</span>
-            </>
-          } />
-          <DRow label="Tx ONU" value={<span className="font-mono">{dbm(d.tx_power_dbm)}</span>} />
-          <DRow label="Suhu / tegangan" value={
-            <span className="font-mono">
-              {d.temperature_c === null ? "—" : `${Number(d.temperature_c).toFixed(1)} °C`}
-              {" / "}
-              {d.voltage_v === null ? "—" : `${Number(d.voltage_v).toFixed(2)} V`}
-            </span>
-          } />
-          <DRow label="Bias laser" value={
-            <span className="font-mono">
-              {d.bias_current_ma === null ? "—" : `${Number(d.bias_current_ma).toFixed(2)} mA`}
-            </span>
-          } />
-          <DRow label="MAC / IP" value={
-            <span className="font-mono">{dash(d.mac_address)} / {dash(d.ip_address)}</span>
-          } />
-          <DRow label="IP manajemen" value={dash(d.mgmt_ip_mode)} />
-          <DRow label="TR-069 profile" value={<span className="text-faint">Segera</span>} />
-          <DRow label="VLAN terpasang" value={dash(d.vlan_number)}
-                onEdit={() => { setForm(String(d.vlan_id ?? "")); setEditing("vlan"); }} />
-          <DRow label="Akses remote WAN" value={<span className="text-faint">Segera</span>} />
-          <DRow label="Mode ONU" value={`${dash(d.onu_mode)}${d.vlan_number ? ` — WAN ${d.vlan_number}` : ""}`} />
-          <DRow label="Mode setup WAN" value={dash(d.wan_mode)} />
-          <DRow label="Nama pengguna PPPoE" value={<span className="font-mono">{dash(d.pppoe_username)}</span>} />
-          <DRow label="Kata sandi PPPoE" value={
-            <span className="text-faint">Tidak ditampilkan</span>
-          } />
-          <DRow label="Otentikasi" value={d.auth_type === "loid" ? `LOID · ${dash(d.loid)}` : d.auth_type.toUpperCase()} />
-          <DRow label="Match state" value={dash(d.match_state)} />
-          <DRow label="Sinkron terakhir" value={fmtDateTime(d.last_sync_at)} />
+              <span className="font-mono text-xs text-muted">{fmtDistance(d.distance_m)}</span>
+              <Button size="sm" variant="quiet" onClick={() => onu.refetch()} disabled={onu.isFetching}>
+                {onu.isFetching ? "Memuat ..." : "Muat ulang"}
+              </Button>
+              {live && (
+                <span className="font-mono text-xs text-fiber">auto-refresh {LIVE_MS / 1000}s</span>
+              )}
+            </div>
+
+            <div className="rounded-sm border bg-app p-3">
+              <CardHead title="Level sinyal Rx" note="Normal −8,0 s/d −27,0 dBm" />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <RxBox title="Rx ONU 1490nm" value={d.rx_power_dbm} />
+                <RxBox title="Rx OLT 1310nm" value={d.olt_rx_power_dbm} />
+              </div>
+            </div>
+
+            <div className="flex flex-col">
+              <DRow label="Tx ONU" value={dbm(d.tx_power_dbm)} />
+              <DRow label="Suhu / tegangan" value={
+                <>
+                  {d.temperature_c === null ? "—" : `${Number(d.temperature_c).toFixed(1)} °C`}
+                  {" / "}
+                  {d.voltage_v === null ? "—" : `${Number(d.voltage_v).toFixed(2)} V`}
+                </>
+              } />
+              <DRow label="Bias laser" value={
+                d.bias_current_ma === null ? "—" : `${Number(d.bias_current_ma).toFixed(2)} mA`
+              } />
+              <DRow label="Terakhir online" value={fmtDateTime(d.last_seen_at)} />
+              <DRow label="Last down" value={d.last_down_at
+                ? `${dash(d.last_down_reason)} · ${fmtDateTime(d.last_down_at)}` : "—"} />
+              <DRow label="MAC / IP" value={`${dash(d.mac_address)} / ${dash(d.ip_address)}`} />
+              <DRow label="IP manajemen" value={dash(d.mgmt_ip_mode)} />
+              <DRow label="VLAN terpasang" value={
+                vlanList === null ? (
+                  <>
+                    <span>{dash(d.vlan_number)}</span>
+                    <span className="text-faint">daftar lengkap belum dikirim backend</span>
+                  </>
+                ) : vlanList.length === 0 ? (
+                  <span className="text-muted">—</span>
+                ) : (
+                  <>
+                    {vlanList.map((v) => (
+                      <span key={v.vlan_id} className="rounded-sm bg-sunken px-1.5 py-0.5"
+                            title={v.name ?? undefined}>
+                        {v.vlan_id}
+                        {v.in_master === false && <span className="ml-0.5 text-warn">*</span>}
+                      </span>
+                    ))}
+                    {vlanList.some((v) => v.in_master === false) && (
+                      <span className="text-faint">* belum terdaftar di master VLAN</span>
+                    )}
+                  </>
+                )
+              } onEdit={vlanDialog} />
+              <DRow label="Mode ONU" value={dash(d.onu_mode)} />
+              <DRow label="Mode setup WAN" value={dash(d.wan_mode)} />
+              <DRow label="Akses remote WAN" value={<span className="text-faint">Segera</span>} />
+              <DRow label="TR-069 profile" value={<span className="text-faint">Segera</span>} />
+              <DRow label="Nama pengguna PPPoE" value={dash(d.pppoe_username)} />
+              <DRow label="Kata sandi PPPoE" value={<span className="text-faint">Tidak ditampilkan</span>} />
+              <DRow label="Otentikasi" value={d.auth_type === "loid" ? `LOID · ${dash(d.loid)}` : d.auth_type.toUpperCase()} />
+              <DRow label="Match state" value={dash(d.match_state)} />
+              <DRow label="Config state" value={dash(d.config_state)} />
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Blok 2: baris Status — tombol baca live + panel output CLI di bawahnya */}
-      <Section label="Status">
+      {/* Toolbar diagnostik (desain Stitch: satu baris tombol + LIVE di ujung kanan) */}
+      <div className="rounded-md border bg-surface px-4 py-2">
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => readLive("status")} disabled={act.isPending}>Status</Button>
-          <Button onClick={() => readLive("running")} disabled={act.isPending}>Show running-config</Button>
-          <Button onClick={() => readLive("software")} disabled={act.isPending}>Info SW</Button>
-          {/* Tombol status TR-069 di aplikasi referensi hanya muncul saat profil TR-069 ONU
-              menunjuk server ACS internal aplikasi. Nexfiber belum punya server ACS internal
-              maupun katalog profil TR-069 (Phase 2, DECISIONS.md), jadi kondisinya tidak pernah
-              benar dan tombolnya tidak dirender sama sekali — bukan placeholder "Segera". */}
-          <Button variant={live ? "fiber" : "secondary"} aria-pressed={live}
-                  onClick={() => setLive(!live)}>
-            {live ? "LIVE aktif" : "LIVE!"}
+          <span className="font-mono text-xs font-semibold uppercase tracking-[0.05em] text-muted">
+            Diagnostik ONU:
+          </span>
+          <Button size="sm" onClick={() => runDiag("status")} disabled={diag.isPending}>
+            {DIAG_LABEL.status}
           </Button>
-          {cliView && runningConfig && cliView === "running" && (
-            <Button size="sm" onClick={() => navigator.clipboard?.writeText(runningConfig)}>Salin</Button>
+          {/* Running-config utuh memuat nilai konfigurasi sensitif: tombolnya hanya dirender
+              untuk admin/superadmin, dan backend tetap menolak role lain (403). */}
+          {isManager && (
+            <Button size="sm" onClick={() => runDiag("running")} disabled={diag.isPending}>
+              {DIAG_LABEL.running}
+            </Button>
           )}
+          <Button size="sm" onClick={() => runDiag("software")} disabled={diag.isPending}>
+            {DIAG_LABEL.software}
+          </Button>
+          {/* Penanda status TR-069 tidak dirender sampai ada profil ACS internal (Phase 2,
+              DECISIONS.md) — bukan placeholder "Segera", karena kondisinya tidak pernah benar. */}
+          <span className="ml-auto flex items-center gap-2">
+            {diagView && diagOutput && (
+              <Button size="sm" variant="quiet"
+                      onClick={() => navigator.clipboard?.writeText(diagOutput)}>
+                Salin
+              </Button>
+            )}
+            <Button size="sm" variant={live ? "fiber" : "secondary"} aria-pressed={live}
+                    onClick={() => setLive(!live)}>
+              {live ? "LIVE aktif" : "LIVE!"}
+            </Button>
+          </span>
         </div>
-        {cliView && (
-          <pre className="mt-3 overflow-x-auto rounded-md bg-sunken p-4 font-mono text-xs whitespace-pre">
-            {cliText()}
-          </pre>
-        )}
-      </Section>
-
-      {/* Blok 3: Trafik/Sinyal — dua kartu sejajar, menumpuk di layar kecil */}
-      <Section label="Trafik/Sinyal">
-        <div className="flex flex-col gap-4 lg:flex-row">
-          <ChartCard title={`gpon-onu_${d.slot}/${d.port}${d.onu_index === null ? "" : `:${d.onu_index}`} trafik`}>
-            <p className="py-10 text-center text-muted">
-              Grafik trafik per ONU: Phase 2 — belum ada sumber counter per ONU.
+        {diagView && (
+          <>
+            <p className="mt-2 font-mono text-xs text-muted">
+              {DIAG_LABEL[diagView]}
+              {diagJobId !== null && ` · job #${diagJobId}`}
+              {diagStatus && ` · ${diagStatus}`}
             </p>
-          </ChartCard>
+            <pre className="mt-1.5 max-h-[32rem] overflow-auto rounded-sm bg-sunken p-3 font-mono text-xs whitespace-pre">
+              {diagText()}
+            </pre>
+          </>
+        )}
+      </div>
+
+      {/* Trafik & sinyal: dua kartu sejajar, menumpuk di layar kecil */}
+      <Section label="Trafik / Sinyal" note={live ? `LIVE ${TRAFFIC_MS / 1000}s` : "LIVE mati"}>
+        <div className="flex flex-col gap-4 lg:flex-row">
           <ChartCard
-            title={`gpon-onu_${d.slot}/${d.port}${d.onu_index === null ? "" : `:${d.onu_index}`} sinyal`}
+            title="Histori trafik"
+            note={live ? `${traffic.points.length} sampel` : "butuh LIVE"}
             legend={
               <>
-                <LegendRow color="bg-fiber" label="Rx ONU" value={dbm(d.rx_power_dbm)} />
-                <LegendRow color="bg-amber" label="Rx OLT" value={dbm(d.olt_rx_power_dbm)} />
+                <LegendRow color="bg-fiber" label="In (counter OLT)"
+                  value={latest ? mbps(latest.inMbps) : "—"} />
+                <LegendRow color="bg-amber" label="Out (counter OLT)"
+                  value={latest ? mbps(latest.outMbps) : "—"} />
+                <LegendRow color="bg-sunken" label="Sampel terakhir"
+                  value={traffic.last ? fmtDateTime(traffic.last.sampled_at) : "—"} />
+                <LegendRow color="bg-sunken" label="Lebar counter"
+                  value={traffic.last ? `${traffic.last.counter_bits} bit` : "—"} />
+              </>
+            }>
+            <TrafficChart points={traffic.points} />
+            {traffic.error && <p className="mt-2 text-xs text-down">{traffic.error}</p>}
+            <p className="mt-2 text-xs text-faint">
+              Arah in/out mengikuti dokumentasi counter backend; laju dihitung dari selisih
+              dua sampel (tahan wrap/reset counter), bukan angka contoh.
+            </p>
+          </ChartCard>
+          <ChartCard title="Histori sinyal & status" note={`Rentang ${range}`}
+            legend={
+              <>
+                <LegendRow color="bg-fiber" label="Rx ONU 1490nm" value={dbm(d.rx_power_dbm)} />
+                <LegendRow color="bg-amber" label="Rx OLT 1310nm" value={dbm(d.olt_rx_power_dbm)} />
                 {stats && (
                   <LegendRow color="bg-sunken" label={`Rx ${range} min · rata-rata · maks`}
                     value={`${stats.min.toFixed(1)} · ${stats.avg.toFixed(1)} · ${stats.max.toFixed(1)}`} />
@@ -483,7 +810,7 @@ export function OnuDetail() {
               {RANGES.map(([value, label]) => (
                 <button key={value} type="button" role="tab" aria-selected={range === value}
                   onClick={() => { const p = new URLSearchParams(params); p.set("range", value); setParams(p, { replace: true }); }}
-                  className={`border-b-2 px-2 py-1 ${range === value ? "border-fiber font-semibold text-fiber" : "border-transparent text-muted hover:text-ink"}`}>
+                  className={`border-b-2 px-2 py-1 text-xs ${range === value ? "border-fiber font-semibold text-fiber" : "border-transparent text-muted hover:text-ink"}`}>
                   {label}
                 </button>
               ))}
@@ -495,29 +822,29 @@ export function OnuDetail() {
         </div>
       </Section>
 
-      {/* Blok 4: Profil Kecepatan */}
+      {/* Profil kecepatan */}
       <Section label="Profil Kecepatan">
-        <div className="overflow-x-auto">
-          <table className="w-full">
+        <div className="overflow-x-auto rounded-sm border">
+          <table className="w-full min-w-[32rem] text-xs">
             <thead>
-              <tr className="border-b text-xs text-muted">
-                <th className={`${cell} w-[45%]`}>Download</th>
-                <th className={`${cell} w-[45%]`}>Upload</th>
+              <tr className="border-b bg-sunken font-mono text-xs uppercase text-muted">
+                <th className={`${cell} w-[36%]`}>Download</th>
+                <th className={`${cell} w-[36%]`}>Upload</th>
                 <th className={cell}>Aksi</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td className={cell}>
+                <td className={`${cell} font-mono text-fiber`}>
                   {dash(d.download_profile_name)}
-                  <span className="ml-2 font-mono text-xs text-muted">{dash(d.line_profile_id)}</span>
+                  <span className="ml-2 text-muted">{dash(d.line_profile_id)}</span>
                 </td>
-                <td className={cell}>
+                <td className={`${cell} font-mono text-fiber`}>
                   {dash(d.upload_profile_name)}
-                  <span className="ml-2 font-mono text-xs text-muted">{dash(d.srv_profile_id)}</span>
+                  <span className="ml-2 text-muted">{dash(d.srv_profile_id)}</span>
                 </td>
                 <td className={cell}>
-                  <Button size="sm" onClick={speedDialog}>Konfigurasi</Button>
+                  <Button size="sm" onClick={speedDialog}>Konfigurasi profil</Button>
                 </td>
               </tr>
             </tbody>
@@ -525,31 +852,27 @@ export function OnuDetail() {
         </div>
       </Section>
 
-      {/* Blok 5: Port Ethernet — jumlah port dari katalog ONU Types */}
-      <Section label="Port Ethernet">
+      {/* Port Ethernet — jumlah port dari katalog ONU Types */}
+      <Section label="Port Ethernet" note={specs ? specs.name : undefined}>
         {specs && specs.eth_ports > 0 ? (
           <>
-            <p className="mb-1">
-              <span className="font-semibold">{specs.eth_ports} port</span>{" "}
-              <span className="text-muted">({specs.name})</span>
-            </p>
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="overflow-x-auto rounded-sm border">
+              <table className="w-full min-w-[34rem] text-xs">
                 <thead>
-                  <tr className="border-b text-xs text-muted">
+                  <tr className="border-b bg-sunken font-mono text-xs uppercase text-muted">
                     <th className={cell}>Port</th>
                     <th className={cell}>Admin state</th>
                     <th className={cell}>Mode</th>
-                    <th className={cell}>DHCP</th>
+                    <th className={cell}>Sumber DHCP</th>
                     <th className={cell}>Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
                   {Array.from({ length: specs.eth_ports }, (_, i) => (
                     <tr key={i} className="border-b last:border-0">
-                      <td className={`${cell} font-mono`}>eth_0/{i + 1}</td>
+                      <td className={`${cell} font-mono text-fiber`}>eth_0/{i + 1}</td>
                       <td className={`${cell} text-muted`}>—</td>
-                      <td className={cell}>LAN</td>
+                      <td className={`${cell} font-mono`}>LAN</td>
                       <td className={`${cell} text-muted`}>—</td>
                       <td className={`${cell} text-faint`}>Segera</td>
                     </tr>
@@ -557,7 +880,7 @@ export function OnuDetail() {
                 </tbody>
               </table>
             </div>
-            <p className="mt-1 text-xs text-muted">
+            <p className="mt-1.5 text-xs text-muted">
               Status dan konfigurasi port per ONU belum dibaca dari OLT — belum ada transkrip CLI
               nyata untuk port Ethernet ONU.
             </p>
@@ -569,16 +892,34 @@ export function OnuDetail() {
         )}
       </Section>
 
-      {/* Blok 6: WiFi */}
-      <Section label="WiFi">
+      {/* WiFi */}
+      <Section label="WiFi" note={specs ? `${specs.wifi_ssids} SSID` : undefined}>
         {specs && specs.wifi_ssids > 0 ? (
           <>
-            <p>
-              <span className="font-semibold">{specs.wifi_ssids} SSID</span>{" "}
-              <span className="text-muted">({specs.name})</span>
-            </p>
-            <p className="mt-1 text-xs text-muted">
-              Pengaturan SSID/password lewat TR-069: Phase 2.
+            <div className="overflow-x-auto rounded-sm border">
+              <table className="w-full min-w-[34rem] text-xs">
+                <thead>
+                  <tr className="border-b bg-sunken font-mono text-xs uppercase text-muted">
+                    <th className={cell}>Radio</th>
+                    <th className={cell}>Admin state</th>
+                    <th className={cell}>SSID</th>
+                    <th className={cell}>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: specs.wifi_ssids }, (_, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className={`${cell} font-mono text-fiber`}>wifi_0/{i + 1}</td>
+                      <td className={`${cell} text-muted`}>—</td>
+                      <td className={`${cell} text-muted`}>—</td>
+                      <td className={`${cell} text-faint`}>Segera</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-1.5 text-xs text-muted">
+              SSID dan password WiFi hanya bisa dibaca/diubah lewat TR-069: Phase 2.
             </p>
           </>
         ) : (
@@ -586,40 +927,38 @@ export function OnuDetail() {
         )}
       </Section>
 
-      {/* Blok 7: VoIP & CATV */}
-      <Section label="Layanan VoIP" tight>
-        {specs && specs.voip_ports > 0
-          ? <span className="font-semibold">{specs.voip_ports} port</span>
-          : <span className="text-muted">Nonaktif</span>}
-      </Section>
-      <Section label="CATV" tight>
-        {specs?.catv
-          ? <span className="font-semibold text-up">Didukung</span>
-          : <span className="text-muted">Tidak didukung</span>}
-      </Section>
-
-      {/* Blok 8: baris aksi (semua lewat konfirmasi + job; RBAC sama seperti sebelumnya) */}
-      <section className="flex flex-wrap gap-2 border-t py-4">
-        <Button onClick={() => setConfirm("reboot")}>Reboot</Button>
-        <Button onClick={() => setConfirm("resync")}>Resync config</Button>
-        <Button onClick={infoDialog}>Ubah data pelanggan</Button>
-        <Button onClick={speedDialog}>Ubah speed</Button>
-        <Button onClick={() => { setForm(String(d.vlan_id ?? "")); setEditing("vlan"); }}>Ubah VLAN</Button>
-        {isManager && (
-          <Button onClick={() => { setForm(""); setEditing("replace"); }}>Replace ONU / ganti SN</Button>
-        )}
-        <Button onClick={() => setConfirm("state")}>
-          {d.admin_state === "disabled" ? "Aktifkan ONU" : "Nonaktifkan ONU"}
-        </Button>
-        {isManager && (
-          <Button variant="danger" onClick={() => setConfirm("restore-factory")}>Restore factory</Button>
-        )}
-        {isManager && (
-          <Button variant="danger" onClick={() => setConfirm("delete")}>Hapus</Button>
-        )}
+      {/* Strip layanan + toolbar aksi (satu kartu, seperti blok dasar desain) */}
+      <section className="rounded-md border bg-surface p-3.5">
+        <div className="grid gap-3 border-b pb-3 sm:grid-cols-2 lg:grid-cols-4">
+          <ServiceCell label="Layanan VoIP:">
+            {specs && specs.voip_ports > 0 ? `${specs.voip_ports} port` : "Nonaktif"}
+          </ServiceCell>
+          <ServiceCell label="IPTV:"><span className="text-faint">Segera</span></ServiceCell>
+          <ServiceCell label="CATV:">
+            {specs?.catv ? <span className="text-up">Didukung</span> : "Tidak didukung"}
+          </ServiceCell>
+          <ServiceCell label="Mode setup WAN:">{dash(d.wan_mode)}</ServiceCell>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 pt-3">
+          <Button onClick={() => setConfirm("reboot")}>Reboot</Button>
+          <Button onClick={() => setConfirm("resync")}>Resync config</Button>
+          <Button onClick={infoDialog}>Ubah data pelanggan</Button>
+          <Button onClick={speedDialog}>Ubah speed</Button>
+          <Button onClick={vlanDialog}>Ubah VLAN</Button>
+          {isManager && <Button onClick={replaceDialog}>Replace ONU / ganti SN</Button>}
+          <Button onClick={() => setConfirm("state")}>
+            {d.admin_state === "disabled" ? "Aktifkan ONU" : "Nonaktifkan ONU"}
+          </Button>
+          {isManager && (
+            <Button variant="danger" onClick={() => setConfirm("restore-factory")}>Restore factory</Button>
+          )}
+          {isManager && (
+            <Button variant="danger" onClick={() => setConfirm("delete")}>Hapus</Button>
+          )}
+        </div>
       </section>
 
-      <Panel title="Log aksi terakhir" className="mt-3"
+      <Panel title="Log aksi terakhir"
         action={<Link className="text-fiber hover:underline" to={`/logs?q=${d.serial_number}`}>
           Buka di Logs
         </Link>}>
@@ -819,6 +1158,6 @@ export function OnuDetail() {
           </p>
         </Drawer>
       )}
-    </>
+    </div>
   );
 }
