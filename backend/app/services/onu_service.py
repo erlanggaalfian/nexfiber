@@ -420,8 +420,19 @@ async def refresh_onu_detail(db: AsyncSession, job: Job, driver: OltDriver) -> d
     """
     onu, pon = await _load(db, job)
     detail = await driver.fetch_onu_detail(pon.slot, pon.port, onu.onu_index)
+    # ONU tidak online tidak punya nilai optik: kolomnya DIKOSONGKAN apa adanya (termasuk
+    # None), jangan biarkan angka lama hidup di baris ONU — itu yang membuat UI menampilkan
+    # "Rx -30 dBm" palsu untuk ONU dying-gasp/LOS. Angka terakhir tetap ada di
+    # onu_signal_history. phase_state kosong = parser gagal, bukan bukti ONU mati, jadi
+    # nilai lama dipertahankan (sama seperti versi software/hardware).
+    phase = (detail.phase_state or "").strip().lower()
+    offline = phase != "" and phase not in ("working", "online")
     for field in ("rx_power_dbm", "tx_power_dbm", "olt_rx_power_dbm", "temperature_c",
-                  "voltage_v", "distance_m", "software_version", "hardware_version"):
+                  "voltage_v", "bias_current_ma"):
+        value = getattr(detail, field, None)
+        if value is not None or offline:
+            setattr(onu, field, value)
+    for field in ("distance_m", "software_version", "hardware_version"):
         value = getattr(detail, field)
         if value is not None:
             setattr(onu, field, value)
