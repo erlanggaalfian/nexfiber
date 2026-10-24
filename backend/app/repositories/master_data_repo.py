@@ -8,6 +8,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.onu import Onu
+from app.models.onu_preset import OnuPreset
 from app.models.onu_type import OnuType
 from app.models.splitter import Splitter
 from app.models.zone import Zone
@@ -128,3 +129,18 @@ async def count_rows(db: AsyncSession, model, where) -> int:
 
 async def count_onus(db: AsyncSession, col) -> int:
     return await db.scalar(select(func.count(Onu.id)).where(col, Onu.deleted_at.is_(None)))
+
+
+# --- onu presets -------------------------------------------------------------
+
+async def list_presets(db: AsyncSession, owner_id: int | None) -> list[OnuPreset]:
+    stmt = select(OnuPreset).order_by(OnuPreset.name)
+    if owner_id is not None:
+        stmt = stmt.where(OnuPreset.owner_id == owner_id)
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def preset_name_taken(db: AsyncSession, owner_id: int, name: str) -> bool:
+    stmt = select(OnuPreset.id).where(OnuPreset.owner_id == owner_id,
+                                      func.lower(OnuPreset.name) == name.lower())
+    return await db.scalar(stmt) is not None

@@ -22,6 +22,7 @@ from app.routers import (
     jobs,
     master_data,
     olts,
+    onu_presets,
     onu_types,
     onus,
     speed_profiles,
@@ -71,7 +72,7 @@ async def system_status(
 
 
 for module in (auth, olts, onus, jobs, master_data, users, zones, onu_types, splitters,
-               vlans, speed_profiles):
+               vlans, speed_profiles, onu_presets):
     app.include_router(module.router)
 
 # ponytail: sajikan frontend build dari API sendiri, satu port saja, no nginx/caddy.

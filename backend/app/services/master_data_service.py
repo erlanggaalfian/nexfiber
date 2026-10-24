@@ -19,6 +19,8 @@ from app.models.zone import Zone
 from app.repositories import master_data_repo as repo
 from app.repositories.activity_log_repo import log_activity
 from app.schemas.master_data import (
+    OnuPresetCreate,
+    OnuPresetOut,
     OnuTypeCreate,
     OnuTypeOut,
     OnuTypeUpdate,
@@ -261,4 +263,41 @@ async def delete_splitter(db: AsyncSession, splitter_id: int, user: User) -> Non
     await db.delete(row[0])
     await log_activity(db, action="splitter.delete", entity_type="splitter",
                        entity_id=str(splitter_id), success=True, user_id=user.id)
+    await db.commit()
+
+
+# --- onu presets -------------------------------------------------------------
+# "Gunakan preset" + "Simpan sebagai preset" di Form Otorisasi (PRD 3.4.4). Scope ikut
+# pola zone/splitter: owner-scoped lewat rbac.owner_of, Superadmin lihat semua.
+
+async def list_presets(db: AsyncSession, user: User) -> list[OnuPresetOut]:
+    return [OnuPresetOut.model_validate(p) for p in await repo.list_presets(db, owner_of(user))]
+
+
+async def create_preset(db: AsyncSession, body: OnuPresetCreate, user: User) -> OnuPresetOut:
+    owner_id = _writer_owner(user)
+    if await repo.preset_name_taken(db, owner_id, body.name):
+        raise ConflictError(f"Preset '{body.name}' sudah ada")
+    if await db.get(OnuType, body.onu_type_id) is None:
+        raise NotFoundError(f"Tipe ONU {body.onu_type_id} tidak ditemukan")
+    if body.zone_id is not None:
+        await _zone_for_write(db, body.zone_id, user)
+    if body.splitter_id is not None and await repo.get_splitter_row(
+        db, body.splitter_id, owner_of(user)
+    ) is None:
+        raise NotFoundError(f"Splitter {body.splitter_id} tidak ditemukan")
+    preset = OnuPreset(owner_id=owner_id, **body.model_dump())
+    await _save(db, preset, action="onu_preset.create", entity="onu_preset", user=user,
+                after=body.model_dump(mode="json"))
+    return OnuPresetOut.model_validate(preset)
+
+
+async def delete_preset(db: AsyncSession, preset_id: int, user: User) -> None:
+    preset = await db.get(OnuPreset, preset_id)
+    owner = owner_of(user)
+    if preset is None or (owner is not None and preset.owner_id != owner):
+        raise NotFoundError(f"Preset {preset_id} tidak ditemukan")
+    await db.delete(preset)
+    await log_activity(db, action="onu_preset.delete", entity_type="onu_preset",
+                       entity_id=str(preset_id), success=True, user_id=user.id)
     await db.commit()

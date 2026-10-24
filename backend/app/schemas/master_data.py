@@ -140,3 +140,27 @@ class SplitterOnu(BaseModel):
 
 class SplitterDetail(SplitterOut):
     onus: list[SplitterOnu]
+
+
+# --- onu presets (PRD 3.4.4 "Gunakan preset" / 4.6 onu_presets) ---------------
+
+class OnuPresetCreate(BaseModel):
+    """Isi form Otorisasi yang disimpan ulang. `vlan` + nama profile disimpan sebagai
+    nilai, bukan FK ke baris OLT tertentu — dicocokkan per OLT saat preset dipakai (PRD 4.6)."""
+
+    name: str = Field(min_length=1, max_length=100)
+    onu_type_id: int
+    vlan: int | None = Field(None, ge=1, le=4094)
+    download_profile: str | None = Field(None, max_length=50)
+    upload_profile: str | None = Field(None, max_length=50)
+    onu_mode: str = Field("routing", pattern="^(routing|bridging)$")
+    wan_mode: str = Field("dhcp", pattern="^(webpage|dhcp|static|pppoe)$")
+    zone_id: int | None = None
+    splitter_id: int | None = None
+
+
+class OnuPresetOut(OnuPresetCreate):
+    id: int
+    owner_id: int
+
+    model_config = {"from_attributes": True}
