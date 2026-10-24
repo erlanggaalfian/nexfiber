@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.rbac import Scope, scoped
-from app.core.signal import bucket_filter
+from app.core.signal import BUCKETS, bucket_filter, rx_bucket
 from app.models.activity_log import ActivityLog
 from app.models.olt import Olt, PonPort
 from app.models.onu import Onu, OnuSignalHistory
@@ -170,6 +170,15 @@ async def logs(db: AsyncSession, onu_id: int, limit: int) -> list:
 async def count_by_status(db: AsyncSession, scope: Scope) -> dict[str, int]:
     stmt = select(Onu.status, func.count()).where(Onu.deleted_at.is_(None)).group_by(Onu.status)
     return {status: n for status, n in await db.execute(scoped(stmt, Onu.olt_id, scope))}
+
+async def count_by_signal(db: AsyncSession, scope: Scope) -> dict[str, int]:
+    """Baris bucket sinyal Dashboard (PRD 3.4.2) — pakai bucket_filter() dari core.signal,
+    jangan tulis ulang batas dBm di sini."""
+    counts = {b: 0 for b in BUCKETS}
+    stmt = scoped(select(Onu.rx_power_dbm).where(Onu.deleted_at.is_(None)), Onu.olt_id, scope)
+    for (rx,) in await db.execute(stmt):
+        counts[rx_bucket(rx)] += 1
+    return counts
 
 def _global_or_scoped(stmt: Select, col, olt_id: int | None, scope: Scope) -> Select:
     """Rows with olt_id NULL are global; per-OLT rows follow the OLT scope."""

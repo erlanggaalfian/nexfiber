@@ -203,11 +203,19 @@ export type LogRow = {
 };
 export type LogPage = { items: LogRow[]; total: number; page: number; size: number };
 
+export type OltRow = Olt & {
+  owner_id: number; owner_name: string; onu_count: number; onu_online: number;
+  cpu_pct: number | null; ram_pct: number | null; temperature_c: number | null;
+};
+
 export type Dashboard = {
   olt_by_status: Record<string, number>;
   onu_by_status: Record<string, number>;
+  onu_by_signal: Record<string, number>;
   unconfigured: number;
   last_poll_at: string | null;
+  olts: OltRow[];
+  recent_activity: LogRow[];
 };
 
 export type SystemStatus = {

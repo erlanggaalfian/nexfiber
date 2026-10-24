@@ -8,12 +8,9 @@ import * as z from "zod";
 import { PageTitle, StatusBadge, fmtDateTime } from "../../components/data";
 import { Drawer, Field, TableCard, cell, filterInput, input } from "../../components/crud";
 import { Button } from "../../components/ui/button";
-import { api, qs, type Olt } from "../../lib/api";
+import { api, qs, type Olt, type OltRow } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import type { UserRow } from "./UserManagement";
-
-/** Row of GET /api/olts/rows (PRD 3.4.8): OLT + nama pemilik + jumlah ONU. */
-type OltRow = Olt & { owner_id: number; owner_name: string; onu_count: number };
 
 const schema = z.object({
   name: z.string().min(1).max(100),

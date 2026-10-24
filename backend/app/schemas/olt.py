@@ -78,10 +78,15 @@ class OltOut(BaseModel):
     model_config = {"from_attributes": True}
 
 class OltRow(OltOut):
-    """List row for OLT Management (PRD 3.4.8): adds owner name + ONU count."""
+    """List row for OLT Management (PRD 3.4.8) + Dashboard baris 3 (PRD 3.4.2) — satu
+    query/skema dipakai dua halaman, jangan buat baris OLT kedua yang terpisah."""
 
     owner_name: str
     onu_count: int
+    onu_online: int
+    cpu_pct: float | None = None
+    ram_pct: float | None = None
+    temperature_c: float | None = None
 
 class PonPortOut(BaseModel):
     id: int

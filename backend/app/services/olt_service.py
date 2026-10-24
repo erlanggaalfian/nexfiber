@@ -51,8 +51,9 @@ async def list_rows(db: AsyncSession, user: User, search: str | None = None) -> 
     rows = await olt_repo.list_rows(db, scope_olt_ids(user), search)
     return [
         OltRow(**OltOut.model_validate(olt).model_dump(), owner_name=owner_name,
-               onu_count=onu_count)
-        for olt, owner_name, onu_count in rows
+               onu_count=onu_count, onu_online=onu_online,
+               cpu_pct=olt.cpu_pct, ram_pct=olt.ram_pct, temperature_c=olt.temperature_c)
+        for olt, owner_name, onu_count, onu_online in rows
     ]
 
 async def _owner_id(db: AsyncSession, owner_id: int | None, user: User) -> int:

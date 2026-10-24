@@ -26,11 +26,20 @@ def _olt_onu_count():
         .scalar_subquery()
     )
 
+def _olt_onu_online_count():
+    return (
+        select(func.count(Onu.id))
+        .join(PonPort, Onu.pon_port_id == PonPort.id)
+        .where(PonPort.olt_id == Olt.id, Onu.deleted_at.is_(None), Onu.status == "online")
+        .scalar_subquery()
+    )
+
 async def list_rows(db: AsyncSession, scope: Scope, search: str | None = None):
-    """Rows for the OLT Management table (PRD 3.4.8): OLT + owner name + ONU count."""
+    """Rows for OLT Management (PRD 3.4.8) + Dashboard baris 3 (PRD 3.4.2): OLT + owner
+    name + jumlah ONU total/online + kesehatan (cpu/ram/suhu), satu query dipakai dua halaman."""
     owner = aliased(User)
     stmt = (
-        select(Olt, owner.full_name, _olt_onu_count())
+        select(Olt, owner.full_name, _olt_onu_count(), _olt_onu_online_count())
         .join(owner, Olt.owner_id == owner.id)
         .where(Olt.deleted_at.is_(None))
         .order_by(Olt.name)

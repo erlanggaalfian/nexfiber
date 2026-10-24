@@ -11,7 +11,7 @@ import { PageTitle, fmtAgo, nf } from "../components/data";
 import { Button } from "../components/ui/button";
 import { api, qs, type LogPage, type LogRow, type Olt } from "../lib/api";
 
-const CATEGORIES: { value: string; label: string }[] = [
+export const LOG_CATEGORIES: { value: string; label: string }[] = [
   { value: "", label: "Semua kategori" },
   { value: "authorize", label: "Otorisasi" },
   { value: "reboot", label: "Reboot" },
@@ -21,6 +21,7 @@ const CATEGORIES: { value: string; label: string }[] = [
   { value: "user", label: "User" },
   { value: "login", label: "Login" },
 ];
+const CATEGORIES = LOG_CATEGORIES;
 const SIZE = 50;
 
 function Detail({ log, onClose }: { log: LogRow; onClose: () => void }) {
