@@ -57,6 +57,13 @@ async def count_owned_olts(db: AsyncSession, owner_id: int) -> int:
     )
 
 
+async def count_children(db: AsyncSession, admin_id: int) -> int:
+    """Live Users under an Admin; a parent is not removed while they exist."""
+    return await db.scalar(
+        select(func.count(User.id)).where(User.admin_id == admin_id, User.deleted_at.is_(None))
+    )
+
+
 async def count_active_superadmins(db: AsyncSession) -> int:
     return await db.scalar(
         select(func.count(User.id)).where(

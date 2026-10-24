@@ -1,8 +1,9 @@
-"""User CRUD scoped per role (PRD 3.4.9 + 3.7). Users are never deleted, only deactivated,
-so Logs keep pointing at a real row.
+"""User CRUD scoped per role (PRD 3.4.9 + 3.7). Delete is a soft-delete (`deleted_at`),
+never a row removal, so Logs and `olts.owner_id` keep pointing at a real row.
 """
 
 import secrets
+from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,8 +59,19 @@ async def _parent_id(db: AsyncSession, role: str, admin_id: int | None, actor: U
 
 
 def _may_set_role(role: str, actor: User) -> None:
-    if role == ADMIN and actor.role != SUPERADMIN:
-        raise ValidationAppError("Hanya Superadmin yang bisa membuat Admin")
+    """Superadmin may create any role (peers included); an Admin may create Admins and
+    Users, never a Superadmin. Role "user" never reaches here (router gate, PRD 3.7).
+    ponytail: an Admin-created Admin is not visible to its creator (visibility is still
+    `admin_id`-based per PRD 3.7); add a `created_by` column if that becomes a problem.
+    """
+    if role == SUPERADMIN and actor.role != SUPERADMIN:
+        raise ValidationAppError("Hanya Superadmin yang bisa membuat Superadmin")
+
+
+def _not_self(user: User, actor: User, what: str) -> None:
+    """Nobody locks itself out of the app."""
+    if user.id == actor.id:
+        raise ValidationAppError(f"Anda tidak bisa {what} akun Anda sendiri")
 
 
 async def _save(db: AsyncSession) -> None:
@@ -84,7 +96,12 @@ async def create_user(db: AsyncSession, body: UserCreate, actor: User) -> UserOu
                        after={"username": user.username, "role": user.role,
                               "admin_id": user.admin_id})
     await db.commit()
-    return await get_user(db, user.id, actor)
+    await db.refresh(user)
+    # Read back from the row itself, not through the visibility filter: an Admin creating an
+    # Admin peer may not see it afterwards (visibility is admin_id-based, PRD 3.7) and a
+    # scoped re-read would answer 404 on a creation that did succeed.
+    parent = await db.get(User, user.admin_id) if user.admin_id else None
+    return _out((user, parent.username if parent else None, 0))
 
 
 async def update_user(db: AsyncSession, user_id: int, body: UserUpdate, actor: User) -> UserOut:
@@ -94,6 +111,7 @@ async def update_user(db: AsyncSession, user_id: int, body: UserUpdate, actor: U
     if {"role", "admin_id"} & values.keys() and actor.role != SUPERADMIN:
         raise ValidationAppError("Hanya Superadmin yang bisa mengubah peran atau Admin induk")
     if values.get("is_active") is False:
+        _not_self(user, actor, "menonaktifkan")
         await _check_deactivable(db, user, olt_count)
 
     role = values.get("role", user.role)
@@ -129,6 +147,23 @@ async def _check_deactivable(db: AsyncSession, user: User, olt_count: int) -> No
         )
     if user.role == SUPERADMIN and await user_repo.count_active_superadmins(db) <= 1:
         raise ValidationAppError("Superadmin terakhir tidak bisa dinonaktifkan")
+
+
+async def delete_user(db: AsyncSession, user_id: int, actor: User) -> None:
+    """Soft-delete only (`deleted_at` + is_active=False), same as OLT/ONU: Logs and
+    olts.owner_id keep pointing at a real row (PRD 3.4.9).
+    """
+    user, _, olt_count = await _get(db, user_id, actor)
+    _not_self(user, actor, "menghapus")
+    await _check_deactivable(db, user, olt_count)
+    if await user_repo.count_children(db, user.id):
+        raise ValidationAppError("User ini masih punya User di bawahnya. Hapus atau pindahkan dulu")
+    user.deleted_at = datetime.now(UTC)
+    user.is_active = False
+    await log_activity(db, action="user.delete", entity_type="user", entity_id=str(user.id),
+                       success=True, user_id=actor.id,
+                       before={"username": user.username, "role": user.role})
+    await db.commit()
 
 
 async def reset_password(db: AsyncSession, user_id: int, actor: User) -> str:

@@ -24,7 +24,7 @@ const schema = z.object({
   username: z.string().min(3).max(64).regex(/^[a-zA-Z0-9_.-]+$/, "Hanya huruf, angka, . _ -"),
   full_name: z.string().min(1).max(255),
   password: z.string().max(128).refine((v) => v === "" || v.length >= 12, "Minimal 12 karakter"),
-  role: z.enum(["admin", "user"]),
+  role: z.enum(["superadmin", "admin", "user"]),
   admin_id: z.string(),
 });
 type Form = z.infer<typeof schema>;
@@ -42,11 +42,14 @@ function Field({ label, error, children }: { label: string; error?: string; chil
   );
 }
 
-/** PRD 3.4.9 add/edit. Superadmin picks role + parent Admin; an Admin only creates Users. */
+/** PRD 3.4.9 add/edit. Role options follow PRD 3.7: Superadmin may create any role,
+ *  an Admin may create Admin/User (its Users land under itself). Changing the role of an
+ *  existing user stays Superadmin-only. */
 function UserDrawer({ edit, onClose }: { edit: UserRow | null; onClose: () => void }) {
   const { me } = useAuth();
   const qc = useQueryClient();
   const isSuper = me.role === "superadmin";
+  const mayPickRole = isSuper || !edit;
   const admins = useQuery({
     queryKey: ["users", "admin"],
     queryFn: () => api<UserRow[]>("/api/users?role=admin"),
@@ -58,7 +61,7 @@ function UserDrawer({ edit, onClose }: { edit: UserRow | null; onClose: () => vo
       username: edit?.username ?? "",
       full_name: edit?.full_name ?? "",
       password: "",
-      role: (edit?.role === "admin" ? "admin" : "user") as "admin" | "user",
+      role: edit?.role ?? "user",
       admin_id: edit?.admin_id ? String(edit.admin_id) : "",
     },
   });
@@ -105,11 +108,12 @@ function UserDrawer({ edit, onClose }: { edit: UserRow | null; onClose: () => vo
               >
                 <input className={input} type="password" autoComplete="new-password" {...register("password")} />
               </Field>
-              {isSuper && (
+              {mayPickRole && (
                 <Field label="Peran">
                   <select className={input} {...register("role")}>
                     <option value="user">User</option>
                     <option value="admin">Admin</option>
+                    {isSuper && <option value="superadmin">Superadmin</option>}
                   </select>
                 </Field>
               )}
@@ -167,14 +171,20 @@ export function UserManagement() {
   const [q, setQ] = useState("");
   const [drawer, setDrawer] = useState<{ edit: UserRow | null } | null>(null);
   const [off, setOff] = useState<UserRow | null>(null);
+  const [del, setDel] = useState<UserRow | null>(null);
   const [reset, setReset] = useState<UserRow | null>(null);
   const [temp, setTemp] = useState("");
   const users = useUsers(role, isManager);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["users"] });
-  const deactivate = useMutation({
-    mutationFn: (u: UserRow) => api<UserRow>(`/api/users/${u.id}`, { method: "PATCH", json: { is_active: false } }),
+  const setActive = useMutation({
+    mutationFn: ({ u, is_active }: { u: UserRow; is_active: boolean }) =>
+      api<UserRow>(`/api/users/${u.id}`, { method: "PATCH", json: { is_active } }),
     onSuccess: () => { invalidate(); setOff(null); },
+  });
+  const remove = useMutation({
+    mutationFn: (u: UserRow) => api<void>(`/api/users/${u.id}`, { method: "DELETE" }),
+    onSuccess: () => { invalidate(); setDel(null); },
   });
   const resetPw = useMutation({
     mutationFn: (u: UserRow) => api<{ password: string }>(`/api/users/${u.id}/reset-password`, { method: "POST" }),
@@ -259,8 +269,21 @@ export function UserManagement() {
                       <div className="flex gap-2">
                         <Button size="sm" onClick={() => setDrawer({ edit: u })}>Edit</Button>
                         <Button size="sm" onClick={() => setReset(u)}>Reset password</Button>
-                        {u.is_active && u.id !== me.id && (
-                          <Button size="sm" variant="danger" onClick={() => setOff(u)}>Nonaktifkan</Button>
+                        {u.id !== me.id && (
+                          u.is_active ? (
+                            <Button size="sm" variant="danger" onClick={() => setOff(u)}>Nonaktifkan</Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              disabled={setActive.isPending}
+                              onClick={() => setActive.mutate({ u, is_active: true })}
+                            >
+                              Aktifkan
+                            </Button>
+                          )
+                        )}
+                        {u.id !== me.id && (
+                          <Button size="sm" variant="danger" onClick={() => setDel(u)}>Hapus</Button>
                         )}
                       </div>
                     </td>
@@ -278,10 +301,21 @@ export function UserManagement() {
           title={`Nonaktifkan ${off.username}?`}
           body="User tidak dihapus, hanya tidak bisa login lagi."
           action="Nonaktifkan"
-          busy={deactivate.isPending}
-          error={deactivate.error?.message}
-          onConfirm={() => deactivate.mutate(off)}
-          onClose={() => { deactivate.reset(); setOff(null); }}
+          busy={setActive.isPending}
+          error={setActive.error?.message}
+          onConfirm={() => setActive.mutate({ u: off, is_active: false })}
+          onClose={() => { setActive.reset(); setOff(null); }}
+        />
+      )}
+      {del && (
+        <Confirm
+          title={`Hapus ${del.username}?`}
+          body="User hilang dari daftar tapi tetap tersimpan (soft-delete) supaya Logs dan kepemilikan OLT lama tetap utuh. Tidak bisa login lagi."
+          action="Hapus"
+          busy={remove.isPending}
+          error={remove.error?.message}
+          onConfirm={() => remove.mutate(del)}
+          onClose={() => { remove.reset(); setDel(null); }}
         />
       )}
       {reset && (

@@ -15,6 +15,23 @@ sudah tercatat di sini.
   masuk git repo.
 - `scripts/create_admin.py` dihapus — melanggar aturan "no default password",
   diganti alur `/setup` (404 setelah user pertama ada).
+- **Pembuatan user (menang atas PRD §3.4.9):** Superadmin boleh membuat
+  Superadmin / Admin / User; Admin boleh membuat Admin dan User (User otomatis
+  di bawah dirinya), TIDAK boleh membuat Superadmin. PRD §3.4.9 lama menulis
+  "Superadmin bisa membuat Admin/User; Admin hanya bisa membuat User" — itu
+  bukan keputusan keamanan, hanya penyempitan awal. PRD §3.7 aturan 5 tetap
+  berlaku: Superadmin **pertama** hanya lewat `/setup`.
+- Visibilitas user tetap berbasis `admin_id` (§3.7): Admin yang membuat Admin
+  lain tidak melihat Admin itu di daftarnya. Kalau nanti perlu, tambah kolom
+  `created_by` — jangan melebarkan `_visible()`.
+- **Hapus user = soft-delete** (`deleted_at` + `is_active=False`), pola sama
+  seperti OLT/ONU. Tidak pernah hard-delete: `activity_logs.user_id` dan
+  `olts.owner_id` harus tetap menunjuk baris nyata. Nonaktifkan/aktifkan lewat
+  `PATCH /api/users/{id}` `{"is_active": ...}`.
+- Seseorang **tidak bisa menonaktifkan atau menghapus akunnya sendiri**
+  (dicek di backend, bukan cuma disembunyikan di UI), ditambah aturan lama:
+  Admin yang masih punya OLT dan Superadmin aktif terakhir tidak bisa
+  dinonaktifkan/dihapus; parent yang masih punya User di bawahnya juga tidak.
 
 ## Sinyal / RX
 - 4 bucket dipakai di **SEMUA** tempat (tabel, kartu, filter, signal bar) —

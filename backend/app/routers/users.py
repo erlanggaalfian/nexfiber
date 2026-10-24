@@ -32,6 +32,12 @@ async def update_user(user_id: int, body: UserUpdate, db: AsyncSession = Depends
                       actor: User = Depends(manager)):
     return await user_service.update_user(db, user_id, body, actor)
 
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(user_id: int, db: AsyncSession = Depends(get_db),
+                      actor: User = Depends(manager)) -> None:
+    """Soft-delete; activate/deactivate goes through PATCH {"is_active": true|false}."""
+    await user_service.delete_user(db, user_id, actor)
+
 @router.post("/{user_id}/reset-password", response_model=TempPassword)
 async def reset_password(user_id: int, db: AsyncSession = Depends(get_db),
                          actor: User = Depends(manager)):

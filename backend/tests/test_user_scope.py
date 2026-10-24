@@ -62,9 +62,13 @@ async def test_user_management_scope() -> None:
             r_new = await c.post("/api/users", headers=a_h, json={
                 "username": f"t_{tag}_new", "full_name": "New", "password": "abcdefghijkl",
                 "role": "user"})
+            # PRD 3.7: an Admin may now create Admins too (never a Superadmin).
             r_new_admin = await c.post("/api/users", headers=a_h, json={
-                "username": f"t_{tag}_bad", "full_name": "Bad", "password": "abcdefghijkl",
+                "username": f"t_{tag}_adm2", "full_name": "Admin2", "password": "abcdefghijkl",
                 "role": "admin"})
+            r_new_super_by_admin = await c.post("/api/users", headers=a_h, json={
+                "username": f"t_{tag}_bad", "full_name": "Bad", "password": "abcdefghijkl",
+                "role": "superadmin"})
             r_reset = await c.post(f"/api/users/{user_a_id}/reset-password", headers=a_h)
             r_role = await c.patch(f"/api/users/{user_a_id}", headers=a_h, json={"role": "admin"})
             # Admin B still owns an OLT -> deactivation blocked.
@@ -82,7 +86,9 @@ async def test_user_management_scope() -> None:
         print("?role=admin roles:   ", {u["role"] for u in r_filter.json()})
         print("admin A creates user:", r_new.status_code, r_new.json().get("admin_id"), "==",
               admin_a_id)
-        print("admin A creates admin:", r_new_admin.status_code, r_new_admin.json())
+        print("admin A creates admin:", r_new_admin.status_code)
+        print("admin A creates super:", r_new_super_by_admin.status_code,
+              r_new_super_by_admin.json())
         print("reset-password:      ", r_reset.status_code, len(r_reset.json()["password"]),
               "chars (not echoed)")
         print("admin A changes role:", r_role.status_code, r_role.json())
@@ -95,7 +101,8 @@ async def test_user_management_scope() -> None:
         assert r_cross.status_code == 404
         assert {u["role"] for u in r_filter.json()} == {"admin"}
         assert r_new.status_code == 201 and r_new.json()["admin_id"] == admin_a_id
-        assert r_new_admin.status_code == 422
+        assert r_new_admin.status_code == 201 and r_new_admin.json()["role"] == "admin"
+        assert r_new_super_by_admin.status_code == 422
         assert r_role.status_code == 422
         assert r_block.status_code == 422
         assert r_ok_off.status_code == 200 and r_ok_off.json()["is_active"] is False

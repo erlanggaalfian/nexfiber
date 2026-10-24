@@ -7,8 +7,9 @@ class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
     full_name: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=12, max_length=128)
-    # Superadmin is only created by /setup (PRD 3.7 rule 5), so it is not a choice here.
-    role: str = Field(pattern="^(admin|user)$")
+    # PRD 3.7 rule 5 only fixes how the *first* Superadmin is made (/setup). Later on a
+    # Superadmin may create peers; who may set which role is enforced in user_service.
+    role: str = Field(pattern="^(superadmin|admin|user)$")
     admin_id: int | None = None  # required for role=user; an Admin always gets itself
 
 
@@ -17,7 +18,7 @@ class UserUpdate(BaseModel):
 
     full_name: str | None = Field(None, min_length=1, max_length=255)
     password: str | None = Field(None, min_length=12, max_length=128)
-    role: str | None = Field(None, pattern="^(admin|user)$")
+    role: str | None = Field(None, pattern="^(superadmin|admin|user)$")
     admin_id: int | None = None
     is_active: bool | None = None
 
