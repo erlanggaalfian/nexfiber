@@ -31,7 +31,9 @@ from app.drivers.types import (
     OltCard,
     OltHealth,
     OltInventory,
+    OltProvisioning,
     OnuLiveDetail,
+    OnuProvisioning,
     OnuReport,
     OnuSnapshot,
     OnuStatusSample,
@@ -83,6 +85,35 @@ OID_OLT_RX_POWER = "1.3.6.1.4.1.3902.1082.500.1.2.4.2.1.2"
 #     working = SNMP 3.
 #   - logging/syncMib/authFailed transisional -> "unknown".
 OID_ONU_PHASE_STATE = "1.3.6.1.4.1.3902.1012.3.28.2.1.4"
+# --- Provisioning per ONU lewat SNMP (profil kecepatan + VLAN service-port) ---------
+# TERVERIFIKASI read-only di OLT WNG (C320, 246 ONU, 2026-10-25) dengan silang CLI
+# `show running-config interface gpon-onu_1/2/1:2|:3`, `1/2/5:1`, `1/2/9:10`,
+# `1/2/2:13`: nama profil, arah, dan nomor VLAN tiap service-port sama persis.
+#
+# Katalog profil perangkat (index = id profil internal, mis. 1879048203):
+#   T-CONT (upload):  .26.1.1.2 nama, .26.1.1.5 maximum kbps
+#   traffic (download): .26.2.1.2 nama, .26.2.1.3 sir, .26.2.1.4 pir kbps
+# Pemakaian per ONU (index = <pon_ifindex>.<onu_id>.<n>):
+#   .30.1.1.3 id profil T-CONT yang dipakai tcont <n>
+#   .30.2.1.7 id profil traffic (downstream) yang dipakai gemport <n>
+# VLAN service-port (index = <pon_ifindex>.<onu_id>.<service_port>.<vlan_raw>):
+#   .50.13.3.1.1 nilainya = vlan_raw itu sendiri.
+OID_TCONT_PROFILE_NAME = "1.3.6.1.4.1.3902.1012.3.26.1.1.2"
+OID_TCONT_PROFILE_MAX_KBPS = "1.3.6.1.4.1.3902.1012.3.26.1.1.5"
+OID_TRAFFIC_PROFILE_NAME = "1.3.6.1.4.1.3902.1012.3.26.2.1.2"
+OID_TRAFFIC_PROFILE_PIR_KBPS = "1.3.6.1.4.1.3902.1012.3.26.2.1.4"
+OID_ONU_TCONT_PROFILE_REF = "1.3.6.1.4.1.3902.1012.3.30.1.1.3"
+OID_ONU_GEMPORT_DOWN_PROFILE_REF = "1.3.6.1.4.1.3902.1012.3.30.2.1.7"
+OID_ONU_SERVICE_PORT_VLAN = "1.3.6.1.4.1.3902.1012.3.50.13.3.1.1"
+# Jarak ONU (meter) — NEXFIBER-SNMP-OID.md, index skema 2 (tabel 1082.500.*).
+OID_ONU_DISTANCE = "1.3.6.1.4.1.3902.1082.500.10.2.3.10.1.2"
+
+# Satu-satunya nilai > 4095 yang dibalas tabel VLAN service-port WNG adalah 16484
+# (= 0x4064, 185 ONU) dan CLI membuktikan service-port itu `vlan 100`: 12 bit bawah =
+# nomor VLAN, bit atas = flag internal perangkat. Nomor di luar 1..4094 setelah masking
+# DIBUANG, bukan ditebak.
+VLAN_ID_MASK = 0xFFF
+
 PON_IFINDEX_BASE = 268435456
 PON_IFINDEX_SLOT_MUL = 65536
 PON_IFINDEX_PORT_MUL = 256
@@ -118,15 +149,27 @@ def phase_state_to_status(value: object) -> str:
         return "unknown"
 
 def _decode_onu_rx_dbm(value: object) -> float | None:
+    """Rx ONU (dBm) dari raw tabel 1082.500; sentinel "tidak tersedia" -> None.
+
+    BUG NYATA (OLT WNG, read-only 2026-10-25): ONU mati melaporkan raw 65535, yang
+    setelah konversi signed 16-bit jadi -1 -> -30.02 dBm, lalu dibulatkan tampil
+    sebagai angka Rx yang kelihatan sah. Semua 32 ONU phase 1 (los) dan 4 (dyingGasp)
+    di WNG raw-nya TEPAT 65535; 214 ONU working raw-nya nilai nyata. Jadi sentinel
+    ditolak SEBELUM konversi signed.
+
+    Ambang bawah -40 (bukan -30): ada ONU working nyata di -30.46 dBm.
+    """
     try:
         raw = int(value)
     except (TypeError, ValueError):
         return None
-    if raw == 2147483647:  # SNMP "not available" sentinel
+    # 2147483647 = sentinel SNMP umum, 65535 = "tidak ada sinyal" ONU ZTE, 0 = belum diukur.
+    if raw in {2147483647, 65535, 0}:
         return None
     if raw >= 32768:
         raw -= 65536
-    return round(raw * 0.002 - 30.0, 2)
+    dbm = round(raw * 0.002 - 30.0, 2)
+    return dbm if -40 <= dbm <= 10 else None
 
 def _decode_olt_rx_dbm(value: object) -> float | None:
     """Tabel 1082.500 melaporkan dBm * 1000 (nilai NEGATIF apa adanya).
@@ -134,15 +177,43 @@ def _decode_olt_rx_dbm(value: object) -> float | None:
     BUG NYATA (OLT SBI, read-only 2026-10-24): rumus lama `(10000 - raw//10)/100`
     mengubah raw -23768 menjadi +337.68 lalu ditolak batas -60..10 -> olt_rx SELALU NULL.
     Silang CLI `show pon power olt-rx gpon-olt_1/6/1`: 1/6/1:1 = -23.768 dBm, raw = -23768.
+
+    Sentinel ditolak eksplisit: -80000 (= -80 dBm, "tidak ada sinyal") dan 0 (belum
+    diukur) bukan pengukuran, jadi jangan ditampilkan sebagai angka.
     """
     try:
         raw = int(value)
     except (TypeError, ValueError):
         return None
-    if raw == 2147483647:
+    if raw in {2147483647, -80000, 0}:
         return None
     dbm = round(raw / 1000, 2)
-    return dbm if -60 <= dbm <= 10 else None
+    return dbm if -40 <= dbm <= 10 else None
+
+def decode_service_port_vlan(raw: object) -> int | None:
+    """Nilai tabel VLAN service-port -> nomor VLAN 1..4094, atau None kalau tak masuk akal.
+
+    Perangkat menambahkan flag di bit atas (16484 = 0x4064 -> VLAN 100, dibuktikan CLI).
+    """
+    try:
+        value = int(raw) & VLAN_ID_MASK
+    except (TypeError, ValueError):
+        return None
+    return value if 1 <= value <= 4094 else None
+
+
+def pick_profile(by_index: dict[str, str | None]) -> str | None:
+    """Profil yang dipakai ONU = milik tcont/gemport bernomor TERKECIL.
+
+    ONU multi-layanan punya tcont 1 (internet) + tcont 2 (VoIP/manajemen, mis.
+    `SMARTOLT-VOIPMNG-10M`); paket pelanggan selalu yang pertama (dibuktikan CLI di
+    1/2/1:3, 1/2/5:1, 1/2/9:10). Jangan gabung keduanya jadi satu nama karangan.
+    """
+    for key in sorted(by_index, key=lambda k: int(k) if k.isdigit() else 1 << 30):
+        if by_index[key]:
+            return by_index[key]
+    return None
+
 
 def decode_optical_ifindex(ifindex: int) -> tuple[int, int]:
     """Skema index KEDUA (NEXFIBER-SNMP-OID "Index ZTE" nomor 2), dipakai tabel
@@ -514,6 +585,84 @@ class ZteC320Driver(OltDriver):
                 olt_rx_power_dbm=olt_rx_by_index.get((pon_ifindex, onu_index)),
             ))
         return samples
+
+    async def fetch_provisioning(self) -> OltProvisioning:
+        """Profil kecepatan + VLAN service-port + jarak SEMUA ONU lewat SNMP saja.
+
+        7 bulkwalk untuk seluruh OLT (bukan per-PON, bukan per-ONU, tanpa sesi CLI) —
+        preferensi terkunci user "apapun yang mendukung via SNMP pakai SNMP".
+        Terverifikasi di WNG: 246/246 ONU dapat profil UP+DN dan VLAN, sama persis
+        dengan `show running-config interface gpon-onu_...`.
+        """
+        up_names = await self._snmp_profile_catalog(
+            OID_TCONT_PROFILE_NAME, OID_TCONT_PROFILE_MAX_KBPS, "upload"
+        )
+        dn_names = await self._snmp_profile_catalog(
+            OID_TRAFFIC_PROFILE_NAME, OID_TRAFFIC_PROFILE_PIR_KBPS, "download"
+        )
+        onus: dict[tuple[int, int, int], OnuProvisioning] = {}
+
+        def row(pon_ifindex: int, onu_id: int) -> OnuProvisioning:
+            slot, port = decode_pon_ifindex(pon_ifindex)
+            return onus.setdefault(
+                (slot, port, onu_id), OnuProvisioning(slot=slot, port=port, onu_id=onu_id)
+            )
+
+        for oid_base, catalog, field_name in (
+            (OID_ONU_TCONT_PROFILE_REF, up_names, "upload_profile"),
+            (OID_ONU_GEMPORT_DOWN_PROFILE_REF, dn_names, "download_profile"),
+        ):
+            per_onu: dict[tuple[int, int], dict[str, str | None]] = {}
+            for oid, value in await self._snmp.bulkwalk(oid_base):
+                suffix = oid[len(oid_base) + 1 :].split(".")
+                if len(suffix) != 3:
+                    continue
+                key = (int(suffix[0]), int(suffix[1]))
+                per_onu.setdefault(key, {})[suffix[2]] = catalog[0].get(str(value))
+            for (pon_ifindex, onu_id), by_index in per_onu.items():
+                setattr(row(pon_ifindex, onu_id), field_name, pick_profile(by_index))
+
+        for oid, value in await self._snmp.bulkwalk(OID_ONU_SERVICE_PORT_VLAN):
+            suffix = oid[len(OID_ONU_SERVICE_PORT_VLAN) + 1 :].split(".")
+            if len(suffix) != 4:
+                continue
+            vlan_id = decode_service_port_vlan(value)
+            entry = row(int(suffix[0]), int(suffix[1]))
+            if vlan_id is not None and vlan_id not in entry.vlan_ids:
+                entry.vlan_ids.append(vlan_id)
+
+        for oid, value in await self._snmp.bulkwalk(OID_ONU_DISTANCE):
+            suffix = oid[len(OID_ONU_DISTANCE) + 1 :].split(".")
+            if len(suffix) != 2:
+                continue
+            slot, port = decode_optical_ifindex(int(suffix[0]))
+            entry = onus.get((slot, port, int(suffix[1])))
+            if entry is not None:
+                try:
+                    entry.distance_m = int(value)
+                except (TypeError, ValueError):
+                    entry.distance_m = None
+
+        return OltProvisioning(profiles=up_names[1] + dn_names[1], onus=list(onus.values()))
+
+    async def _snmp_profile_catalog(
+        self, name_oid: str, kbps_oid: str, direction: str
+    ) -> tuple[dict[str, str], list[TrafficProfile]]:
+        """Katalog profil perangkat satu arah: ({id_profil: nama}, daftar TrafficProfile)."""
+        names = {
+            oid[len(name_oid) + 1 :]: str(value)
+            for oid, value in await self._snmp.bulkwalk(name_oid)
+        }
+        kbps: dict[str, int | None] = {}
+        for oid, value in await self._snmp.bulkwalk(kbps_oid):
+            try:
+                kbps[oid[len(kbps_oid) + 1 :]] = int(value)
+            except (TypeError, ValueError):
+                kbps[oid[len(kbps_oid) + 1 :]] = None
+        return names, [
+            TrafficProfile(name=name, direction=direction, kbps=kbps.get(index))
+            for index, name in names.items()
+        ]
 
     async def backup_config(self) -> str:
         async with self._open_cli() as cli:

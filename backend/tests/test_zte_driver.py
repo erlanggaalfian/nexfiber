@@ -141,13 +141,21 @@ def test_decode_onu_rx_dbm_handles_signed_16bit_and_sentinel():
     assert _decode_onu_rx_dbm(65536 - 1292) == pytest.approx(-32.58)  # raw 64244 -> -1292 raw units
     assert _decode_onu_rx_dbm(15000) == pytest.approx(0.0)  # (15000*0.002)-30 = 0
     assert _decode_onu_rx_dbm("not-a-number") is None
+    # Sentinel ONU mati: semua 32 ONU phase los/dyingGasp di WNG raw 65535. Dulu lolos
+    # sebagai -30.02 dBm (konversi signed -> -1) dan tampil seperti Rx sah.
+    assert _decode_onu_rx_dbm(65535) is None
+    assert _decode_onu_rx_dbm(0) is None  # belum diukur, bukan -30 dBm
+    # Ambang bawah -40, bukan -30: ONU working nyata di WNG ada yang -30.46 dBm.
+    assert _decode_onu_rx_dbm(65536 - 230) == pytest.approx(-30.46)
 
 def test_decode_olt_rx_dbm_reads_millidbm():
     # Nilai nyata OLT SBI: raw -23768 = -23.768 dBm (silang `show pon power olt-rx`).
     assert _decode_olt_rx_dbm(2147483647) is None
     assert _decode_olt_rx_dbm(-23768) == pytest.approx(-23.77)
     assert _decode_olt_rx_dbm(-23115) == pytest.approx(-23.11)  # pembulatan 2 desimal
-    assert _decode_olt_rx_dbm(120080) is None  # di luar -60..10 dBm
+    assert _decode_olt_rx_dbm(120080) is None  # di luar -40..10 dBm
+    assert _decode_olt_rx_dbm(-80000) is None  # sentinel "tidak ada sinyal"
+    assert _decode_olt_rx_dbm(0) is None  # belum diukur
 
 @pytest.mark.asyncio
 async def test_fetch_optical_decodes_and_joins_olt_rx(monkeypatch):
