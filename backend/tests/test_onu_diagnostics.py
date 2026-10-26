@@ -646,27 +646,31 @@ def test_parse_management_ip_real_dhcp_config():
   switchport-bind switch_0/1 veip 1
   ip-host 2 dhcp-enable enable ping-response enable traceroute-response enable
 """
-    assert parse_management_ip(body) == [(15, "dhcp", None), (100, "dhcp", None)]
+    assert parse_management_ip(body) == [(15, "inactive", None), (100, "dhcp", None)]
+    # `ip-host 2` berpasangan dengan `gemport 2 flow 2` -> vlan 100, bukan menyebar
+    # ke flow lain; `ip-host 1` tanpa baris konfigurasi = inactive.
 
 
 def test_parse_management_ip_static_inactive_and_unknown():
     from app.drivers.onu_report import parse_management_ip
     static = """  flow 1 pri 0 vlan 15
   gemport 1 flow 1
-  switchport-bind switch_0/1 iphost 2
-  ip-host 2 ip-address 192.0.2.9 mask 255.255.255.0
+  switchport-bind switch_0/1 iphost 1
+  ip-host 1 dhcp-enable disable ip-address 192.0.2.9 mask 255.255.255.0
 """
     assert parse_management_ip(static) == [(15, "static", "192.0.2.9")]
     assert parse_management_ip("  flow 1 pri 0 vlan 15\n  gemport 1 flow 1\n") \
         == [(15, "inactive", None)]
+    # Bentuk tidak dikenal, dan ip-host yang tak bisa dipasangkan ke gemport: None.
+    assert parse_management_ip("  flow 1 pri 0 vlan 15\n  gemport 1 flow 1\n  ip-host 1 magic on\n") is None
     assert parse_management_ip("  flow 1 pri 0 vlan 15\n  gemport 1 flow 1\n  ip-host 2 magic on\n") is None
 
 
 def test_inventory_parses_management_ip_per_onu():
     from app.drivers.zte_c320 import _parse_onu_management_ips
     cfg = ("pon-onu-mng gpon-onu_1/2/3:22\n  flow 1 pri 0 vlan 15\n"
-           "  gemport 1 flow 1\n  switchport-bind switch_0/1 iphost 2\n"
-           "  ip-host 2 dhcp-enable enable\n!\n")
+           "  gemport 1 flow 1\n  switchport-bind switch_0/1 iphost 1\n"
+           "  ip-host 1 dhcp-enable enable\n!\n")
     assert _parse_onu_management_ips(cfg) == {(2, 3, 22): [(15, "dhcp", None)]}
 
 

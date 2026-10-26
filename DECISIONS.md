@@ -193,3 +193,18 @@ pakai 1 baris = 1 pasang down+up).
 - Belum ditentukan track Fase mana — ajukan sebagai task tersendiri setelah
   Fase C selesai, JANGAN digabung diam-diam ke track C yang sedang berjalan
   (hindari migrasi skema bentrok dengan C1-C3 yang sedang paralel).
+
+## Management & VoIP IP di Detail ONU — sumber nilai
+- Nilai modal "Update Management and VoIP IP" disinkronkan dari blok
+  `pon-onu-mng` running-config perangkat (perangkat = sumber kebenaran, seperti
+  `wan_vlan`).
+- Aturan pasangan: `ip-host N` ↔ `gemport N flow F` ↔ `flow F ... vlan V`.
+  Contoh nyata: `ip-host 2 dhcp-enable enable` + `gemport 2 flow 2` +
+  `flow 2 pri 2 vlan 100` → mode DHCP, VLAN 100. Mode dari baris `ip-host`:
+  `dhcp-enable enable` = DHCP; `dhcp-enable disable ip-address <ip>` = static;
+  tanpa baris `ip-host N` = inactive; bentuk lain/tak bisa dipasangkan = None
+  (nilai lama bertahan, tidak menebak).
+- Hanya kandidat dengan VLAN bertanda `type == "management"` di master VLAN yang
+  dipakai. `onus.vlan_id` (VLAN utama, kolom "Update VLAN") TIDAK disentuh oleh
+  sinkron management — nomor VLAN management tampil dari `service_vlans`
+  (is_management).
