@@ -30,6 +30,11 @@ check("VLAN management dibuang walau terpasang", () => {
   assert.deepEqual(wanVlanChoices(master, [15, 100], 15), [{ number: 15, name: "Layanan" }]);
 });
 
+check("current yang bertanda management tidak dipertahankan: WAN bukan VLAN management", () => {
+  assert.deepEqual(wanVlanChoices(master, [15], 100), [{ number: 15, name: "Layanan" }]);
+  assert.deepEqual(wanVlanChoices(master, [], 100), []);
+});
+
 check("VLAN WAN yang sedang berlaku tetap muncul walau bukan attached", () => {
   assert.deepEqual(wanVlanChoices(master, [15], 200), [
     { number: 15, name: "Layanan" },

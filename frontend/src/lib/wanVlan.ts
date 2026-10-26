@@ -11,7 +11,9 @@ export type VlanOption = { number: number; name: string; is_management: boolean 
  *
  *  - VLAN management dibuang (penanda `is_management` dari master, bukan nomor hardcode);
  *  - `current` (VLAN WAN yang sedang berlaku di perangkat) selalu ikut walau tidak ada di
- *    daftar terpasang, supaya nilai nyata tidak hilang dari dropdown;
+ *    daftar terpasang, supaya nilai nyata tidak hilang dari dropdown — KECUALI VLAN
+ *    management: aturan WAN = VLAN yang bukan ditandai management, jadi tidak boleh
+ *    ditawarkan/dipertahankan sebagai pilihan WAN;
  *  - `name` null = VLAN ada di perangkat tapi belum terdaftar di master: tampilkan nomornya
  *    apa adanya, jangan dibuang dan jangan dikarang namanya.
  */
@@ -20,7 +22,7 @@ export function wanVlanChoices(
 ): { number: number; name: string | null }[] {
   const master = new Map((vlans ?? []).map((v) => [v.number, v]));
   const picked = new Set(attached.filter((n) => master.get(n)?.is_management !== true));
-  if (current !== null) picked.add(current);
+  if (current !== null && master.get(current)?.is_management !== true) picked.add(current);
   return [...picked].sort((a, b) => a - b)
     .map((n) => ({ number: n, name: master.get(n)?.name ?? null }));
 }

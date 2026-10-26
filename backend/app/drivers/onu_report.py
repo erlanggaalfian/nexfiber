@@ -237,6 +237,25 @@ def parse_management_ip(running: str) -> list[tuple[int, str, str | None]] | Non
     return out or None
 
 
+def wan_vlan_not_management(
+    wan: int | None,
+    candidates: list[tuple[int, str, str | None]] | None,
+    management: set[int],
+) -> int | None:
+    """Aturan: WAN = VLAN yang BUKAN ditandai management; mgmt = yang ditandai.
+
+    `wan` (biasanya `flow 1`) dipakai bila memang bukan management. Bila kena VLAN
+    management, ganti dengan kandidat non-management pertama (urutan flow); tidak
+    ada kandidat = None — VLAN management tidak boleh jadi VLAN WAN.
+    """
+    if wan is None or wan not in management:
+        return wan
+    for vlan, _mode, _ip in candidates or []:
+        if vlan not in management:
+            return vlan
+    return None
+
+
 # --- Info SW ----------------------------------------------------------------------
 
 _REGION_RE = re.compile(

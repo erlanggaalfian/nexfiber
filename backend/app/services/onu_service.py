@@ -25,7 +25,7 @@ from app.core.rbac import MANAGERS, scope_olt_ids
 from app.core.security import decrypt_secret, encrypt_secret
 from app.core.signal import BUCKETS, rx_bucket
 from app.drivers.base import OltDriver
-from app.drivers.onu_report import parse_pppoe, parse_wan_vlan
+from app.drivers.onu_report import parse_management_ip, parse_pppoe, parse_wan_vlan, wan_vlan_not_management
 from app.drivers.types import AuthorizeRequest, DriverResult, ModifyRequest
 from app.models.job import Job
 from app.models.olt import Olt, PonPort
@@ -635,19 +635,22 @@ async def _run_diagnostic(db: AsyncSession, job: Job, driver: OltDriver, view: s
         after={"lines": report.output.count("\n") + 1 if report.output else 0},
     )
     if view == "running":
-        _sync_wan_from_running(onu, report.output)
+        management = set((await db.execute(select(Vlan.vlan_id).where(
+            Vlan.type == "management", or_(Vlan.olt_id == onu.olt_id, Vlan.olt_id.is_(None))
+        ))).scalars())
+        _sync_wan_from_running(onu, report.output, management)
     return {"view": report.view, "output": report.output, "raw_command": report.raw_command}
 
 
-def _sync_wan_from_running(onu: Onu, output: str) -> None:
+def _sync_wan_from_running(onu: Onu, output: str, management: set[int]) -> None:
     """Sinkronkan kolom WAN ONU dari running-config yang baru dibaca (DB jadi cache terbaru).
 
     Dua hal yang diambil: VLAN WAN (`flow 1 ... vlan N`) dan PPPoE. Masing-masing hanya
     menulis bila perangkat memang melaporkannya; yang tidak ada dibiarkan apa adanya
-    (bukan di-NULL-kan, bukan ditebak).
+    (bukan di-NULL-kan, bukan ditebak). Aturan: WAN = VLAN yang BUKAN ditandai management.
     """
     found = parse_pppoe(output)
-    vlan = parse_wan_vlan(output)
+    vlan = wan_vlan_not_management(parse_wan_vlan(output), parse_management_ip(output), management)
     if vlan is not None:
         onu.wan_vlan = vlan
     if found is None:

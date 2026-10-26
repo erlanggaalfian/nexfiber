@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import encrypt_secret
 from app.drivers.base import OltDriver
+from app.drivers.onu_report import wan_vlan_not_management
 from app.models.olt import Olt, OltConfigBackup, PonPort
 from app.models.onu import Onu, OnuSignalHistory
 from app.models.unconfigured_onu import UnconfiguredOnu
@@ -231,7 +232,9 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
             with_pppoe += 1
         if snap.wan_vlan is not None:
             # Sama alasannya: VLAN WAN di `flow 1` perangkat menimpa kolom DB.
-            onu.wan_vlan = snap.wan_vlan
+            # Aturan: WAN = VLAN yang BUKAN ditandai management.
+            onu.wan_vlan = wan_vlan_not_management(
+                snap.wan_vlan, snap.management_ips, set(management_vlans))
             with_wan_vlan += 1
         if mgmt:
             # Perangkat + master VLAN = sumber kebenaran management; timpa hasil aksi manual.

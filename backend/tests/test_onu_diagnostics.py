@@ -382,6 +382,12 @@ class FakeDb:
     async def get(self, model, pk, **_kw):
         return self._users.get(pk) if model is User else None
 
+    async def execute(self, _stmt):
+        class _R:
+            def scalars(self):
+                return iter(())
+        return _R()
+
     async def commit(self):
         self.commits += 1
 
@@ -610,10 +616,10 @@ def test_sync_wan_from_running_sets_pppoe_and_keeps_secret_encrypted():
     from app.core.security import decrypt_secret
     from app.services.onu_service import _sync_wan_from_running
     onu = SimpleNamespace(wan_mode="dhcp", onu_mode=None, pppoe_username=None, pppoe_password_enc=None)
-    _sync_wan_from_running(onu, "  pppoe 1 nat enable user u@x.invalid password P-NOT-REAL")
+    _sync_wan_from_running(onu, "  pppoe 1 nat enable user u@x.invalid password P-NOT-REAL", set())
     assert (onu.wan_mode, onu.onu_mode, onu.pppoe_username) == ("pppoe", "routing", "u@x.invalid")
     assert decrypt_secret(onu.pppoe_password_enc) == "P-NOT-REAL"
-    _sync_wan_from_running(onu, "tanpa pppoe")
+    _sync_wan_from_running(onu, "tanpa pppoe", set())
     assert onu.wan_mode == "pppoe"
 
 
@@ -697,8 +703,14 @@ def test_sync_wan_from_running_sets_wan_vlan_and_keeps_old_when_absent():
     from app.services.onu_service import _sync_wan_from_running
     onu = SimpleNamespace(wan_mode=None, onu_mode=None, pppoe_username=None,
                           pppoe_password_enc=None, wan_vlan=None)
-    _sync_wan_from_running(onu, "  flow 1 pri 0 vlan 15\n  flow 2 pri 2 vlan 100\n")
+    _sync_wan_from_running(onu, "  flow 1 pri 0 vlan 15\n  flow 2 pri 2 vlan 100\n", set())
     assert onu.wan_vlan == 15
     # Tanpa baris `flow 1`: nilai lama dipertahankan, tidak di-NULL-kan.
-    _sync_wan_from_running(onu, "  flow 2 pri 2 vlan 100\n")
+    _sync_wan_from_running(onu, "  flow 2 pri 2 vlan 100\n", set())
     assert onu.wan_vlan == 15
+    # Aturan: WAN = VLAN yang BUKAN ditandai management. `flow 1` kena VLAN
+    # management -> WAN jatuh ke kandidat non-management berikutnya (vlan 100).
+    body = ("  flow 1 pri 0 vlan 15\n  flow 2 pri 2 vlan 100\n"
+            "  gemport 1 flow 1\n  gemport 2 flow 2\n")
+    _sync_wan_from_running(onu, body, {15})
+    assert onu.wan_vlan == 100
