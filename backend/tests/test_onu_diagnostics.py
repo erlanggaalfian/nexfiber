@@ -556,6 +556,19 @@ async def test_enqueue_debounces_while_same_job_active(enqueue_patched):
     assert enqueued == []
 
 
+async def test_enqueue_diagnostic_tidak_retry_otomatis(enqueue_patched):
+    """Pembacaan manual read-only: 1 percobaan saja.
+
+    BUG NYATA (produksi 2026-10-26): dengan max_attempts=3 satu klik yang gagal menahan
+    tombol ~90 detik (backoff 30s+60s) dan selama itu klik ulang dijawab 409 "Pembacaan
+    untuk ONU ini masih berjalan, tunggu selesai." — padahal job-nya sudah gagal.
+    """
+    _onu, enqueued, _state = enqueue_patched
+    await onu_service.enqueue_diagnostic(
+        FakeDb(), "TESTSN000011", "status", User(id=1, role="admin"))
+    assert enqueued[0]["max_attempts"] == 1
+
+
 async def test_enqueue_diagnostic_is_readonly_even_when_writes_disabled(enqueue_patched,
                                                                         monkeypatch):
     """Diagnostik read-only harus tetap jalan saat ALLOW_WRITE_COMMANDS=false."""

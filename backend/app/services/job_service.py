@@ -28,6 +28,7 @@ async def enqueue(
     payload: dict | None = None,
     priority: int = 100,
     created_by: int | None = None,
+    max_attempts: int = 3,
 ) -> Job:
     """Insert a pending job. Does not commit â€” caller's transaction decides.
 
@@ -45,6 +46,7 @@ async def enqueue(
         payload=payload or {},
         priority=priority,
         created_by=created_by,
+        max_attempts=max_attempts,
         run_after=datetime.now(UTC),
     )
     db.add(job)

@@ -555,8 +555,14 @@ async def enqueue_diagnostic(db: AsyncSession, serial: str, view: str, user: Use
     job_type = DIAGNOSTIC_JOBS[view]
     if await job_repo.exists_active_for_onu(db, onu.id, job_type):
         raise ConflictError("Permintaan sejenis untuk ONU ini masih diproses")
+    # max_attempts=1: pembacaan ini dipicu manual dan read-only, jadi retry otomatis tidak
+    # berguna — penggunanya ada di depan layar dan bisa klik lagi. Dengan 3 percobaan
+    # (backoff 30s + 60s) satu klik yang gagal menahan tombol ~90 detik dan sepanjang itu
+    # klik berikutnya dijawab 409 "Pembacaan untuk ONU ini masih berjalan" (terukur: job
+    # 6082/6085, 91 detik antre, 3 percobaan). Kegagalan nyata lebih baik tampil langsung.
     job = await job_service.enqueue(db, job_type, olt_id=onu.olt_id, onu_id=onu.id,
-                                    payload={"view": view}, created_by=user.id)
+                                    payload={"view": view}, created_by=user.id,
+                                    max_attempts=1)
     await db.commit()
     return job.id
 
