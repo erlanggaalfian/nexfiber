@@ -1000,13 +1000,9 @@ export function OnuDetail() {
 
   return (
     <div className="space-y-3">
-      {/* Judul halaman acuan: satu `h2` besar di atas isi, bukan di dalam kartu.
-          Acuan 32px pada basis 15px; diskalakan ke basis 13px Nexfiber -> 26px.
-          Di bawah `lg` judul ini DISEMBUNYIKAN karena MobileTopBar aplikasi sudah
-          menampilkan judul halaman — dua judul sama akan jadi heading ganda. */}
-      <h1 className="hidden text-[26px] leading-8 font-normal text-ink lg:block">
-        Detail ONU
-      </h1>
+      {/* Judul halaman hanya untuk pembaca layar: teksnya diminta dihapus dari tampilan
+          (desktop maupun mobile), heading dipertahankan demi hierarki aksesibilitas. */}
+      <h1 className="sr-only">Detail ONU</h1>
 
       {note && (
         <p className="text-muted" role="status">{note}</p>

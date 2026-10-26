@@ -40,7 +40,7 @@ export function pageTitle(path: string) {
   const s = SETTINGS.find((i) => path.startsWith(i.to));
   if (s) return s.label;
   if (path.startsWith("/unconfigured/authorize")) return "Otorisasi ONU";
-  if (path.startsWith("/onu/")) return "Detail ONU";
+  if (path.startsWith("/onu/")) return "";
   if (path.startsWith("/olt/")) return "Detail OLT";
   if (path === "/akun/password") return "Ganti password";
   return "Nexfiber";
