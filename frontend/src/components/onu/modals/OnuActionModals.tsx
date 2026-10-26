@@ -127,6 +127,7 @@ export function OnuActionModals(
             wan_vlan: onu.attached_vlans[0] ?? null,
             onu_mode: onu.onu_mode,
             wan_mode: onu.wan_mode,
+            pppoe_username: onu.pppoe_username,
           }}
           onSubmit={(body) => act("onu-mode", { ...body })} />
       );

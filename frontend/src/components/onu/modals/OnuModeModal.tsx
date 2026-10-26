@@ -40,7 +40,7 @@ export function OnuModeModal(
   { options, current, supported, note, busy, error, onClose, onSubmit }:
   {
     options: OnuConfigOptions | undefined;
-    current: { wan_vlan: number | null; onu_mode: string | null; wan_mode: string | null };
+    current: { wan_vlan: number | null; onu_mode: string | null; wan_mode: string | null; pppoe_username?: string | null };
     supported: boolean | null;
     note?: string | null;
     busy?: boolean;
@@ -60,7 +60,7 @@ export function OnuModeModal(
   const [cfg, setCfg] = useState<"omci" | "tr069">("omci");
   const [ipSource, setIpSource] = useState<"pool" | "manual">("pool");
   const [ip, setIp] = useState("");
-  const [user, setUser] = useState("");
+  const [user, setUser] = useState(current.pppoe_username ?? "");
   const [pass, setPass] = useState("");
   const [remote, setRemote] = useState("disabled");
 

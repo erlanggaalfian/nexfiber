@@ -166,6 +166,19 @@ def running_config_report(*, detail_info: str, onu_iface_config: str,
     return "\n!\n".join(blocks) + "\n!"
 
 
+_PPPOE_RE = re.compile(r"^\s*pppoe\s+\d+\b.*?\buser\s+(\S+)(?:.*?\bpassword\s+(\S+))?", re.I | re.M)
+
+
+def parse_pppoe(running: str) -> tuple[str, str | None] | None:
+    """(username, password) dari baris `pppoe N ... user U password P` di pon-onu-mng.
+
+    None bila running-config tidak memuat PPPoE. Hanya fakta dari perangkat; mode lain
+    (DHCP/static/bridging) sengaja tidak ditebak dari teks ini.
+    """
+    m = _PPPOE_RE.search(running or "")
+    return (m.group(1), m.group(2)) if m else None
+
+
 # --- Info SW ----------------------------------------------------------------------
 
 _REGION_RE = re.compile(

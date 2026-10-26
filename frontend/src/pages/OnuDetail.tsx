@@ -776,6 +776,12 @@ export function OnuDetail() {
     diagJobId !== null && !diagJob.isError && !(diagJob.data && DONE.has(diagJob.data.status));
   const diagRunning = diag.isPending || diagJobActive;
 
+  /** Running-config sukses = backend sudah menyinkronkan mode WAN/PPPoE ke DB: muat ulang ONU. */
+  const diagDone = diagJob.data?.status === "success" && diagView === "running" ? diagJob.data.id : null;
+  useEffect(() => {
+    if (diagDone !== null) qc.invalidateQueries({ queryKey: ["onu"] });
+  }, [diagDone, qc]);
+
   /** Penghitung detik berjalan selama pembacaan, dihitung dari waktu klik. */
   useEffect(() => {
     if (!diagRunning || diagStart === null) return;

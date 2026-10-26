@@ -596,3 +596,22 @@ def test_refresh_onu_detail_no_longer_logs_running_config(patched):
 
     source = inspect.getsource(onu_service.refresh_onu_detail)
     assert "raw_output=detail.running_config" not in source
+
+
+def test_parse_pppoe_from_running_config():
+    from app.drivers.onu_report import parse_pppoe
+    cfg = "pon-onu-mng gpon-onu_1/1/1:1\n  pppoe 1 nat enable user a@b.invalid password X-NOT-REAL\n"
+    assert parse_pppoe(cfg) == ("a@b.invalid", "X-NOT-REAL")
+    assert parse_pppoe("  ip-host 2 ip 10.0.0.2 mask 255.255.255.0") is None
+
+
+def test_sync_wan_from_running_sets_pppoe_and_keeps_secret_encrypted():
+    from types import SimpleNamespace
+    from app.core.security import decrypt_secret
+    from app.services.onu_service import _sync_wan_from_running
+    onu = SimpleNamespace(wan_mode="dhcp", onu_mode=None, pppoe_username=None, pppoe_password_enc=None)
+    _sync_wan_from_running(onu, "  pppoe 1 nat enable user u@x.invalid password P-NOT-REAL")
+    assert (onu.wan_mode, onu.onu_mode, onu.pppoe_username) == ("pppoe", "routing", "u@x.invalid")
+    assert decrypt_secret(onu.pppoe_password_enc) == "P-NOT-REAL"
+    _sync_wan_from_running(onu, "tanpa pppoe")
+    assert onu.wan_mode == "pppoe"

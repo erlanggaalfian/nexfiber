@@ -25,6 +25,7 @@ from app.core.rbac import MANAGERS, scope_olt_ids
 from app.core.security import encrypt_secret
 from app.core.signal import BUCKETS, rx_bucket
 from app.drivers.base import OltDriver
+from app.drivers.onu_report import parse_pppoe
 from app.drivers.types import AuthorizeRequest, DriverResult, ModifyRequest
 from app.models.job import Job
 from app.models.olt import Olt, PonPort
@@ -583,7 +584,24 @@ async def _run_diagnostic(db: AsyncSession, job: Job, driver: OltDriver, view: s
         raw_command=report.raw_command,
         after={"lines": report.output.count("\n") + 1 if report.output else 0},
     )
+    if view == "running":
+        _sync_wan_from_running(onu, report.output)
     return {"view": report.view, "output": report.output, "raw_command": report.raw_command}
+
+
+def _sync_wan_from_running(onu: Onu, output: str) -> None:
+    """Sinkronkan kolom WAN ONU dari running-config yang baru dibaca (DB jadi cache terbaru).
+
+    Hanya PPPoE yang terdeteksi: wan_mode=pppoe, onu_mode=routing, username, dan password
+    terenkripsi (tidak pernah masuk result job / respons API). Tanpa PPPoE: tidak diubah.
+    """
+    found = parse_pppoe(output)
+    if found is None:
+        return
+    user, password = found
+    onu.wan_mode, onu.onu_mode, onu.pppoe_username = "pppoe", "routing", user[:100]
+    if password:
+        onu.pppoe_password_enc = encrypt_secret(password)
 
 
 async def read_onu_status(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
