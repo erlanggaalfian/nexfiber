@@ -40,7 +40,7 @@
  *  optimistic update (AGENTS.md).
  */
 import {
-  ArrowDown, ArrowLeft, ArrowSquareOut, ArrowUp, CaretDown, Eye, EyeSlash, Gear, Pencil,
+  ArrowDown, ArrowSquareOut, ArrowUp, CaretDown, Eye, EyeSlash, Gear, Pencil,
   PlusCircle,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
@@ -1000,16 +1000,6 @@ export function OnuDetail() {
 
   return (
     <div className="space-y-3">
-      {/* Breadcrumb halaman: kembali + identitas ONU dalam satu baris padat.
-          Header aplikasi & navigasi tidak disentuh — ini milik halaman ini saja. */}
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <Link to="/configured" className="inline-flex items-center gap-1 text-fiber hover:underline">
-          <ArrowLeft size={14} aria-hidden /> Kembali ke Configured
-        </Link>
-        <span className="text-faint">/</span>
-        <span className="font-mono text-muted">{onuIf}</span>
-      </div>
-
       {/* Judul halaman acuan: satu `h2` besar di atas isi, bukan di dalam kartu.
           Acuan 32px pada basis 15px; diskalakan ke basis 13px Nexfiber -> 26px.
           Di bawah `lg` judul ini DISEMBUNYIKAN karena MobileTopBar aplikasi sudah
