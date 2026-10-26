@@ -54,6 +54,7 @@ export type ModalOnu = {
   port: number;
   onu_mode: string | null;
   wan_mode: string | null;
+  pppoe_username?: string | null;
   mgmt_ip_mode: string | null;
   vlan_id: number | null;
   ip_address: string | null;

@@ -860,7 +860,7 @@ export function OnuDetail() {
   const modalOnu: ModalOnu = {
     id: d.id, serial_number: d.serial_number, onu_type_id: d.onu_type_id,
     external_id: d.external_id, olt_id: d.olt_id, olt_name: d.olt_name,
-    slot: d.slot, port: d.port, onu_mode: d.onu_mode, wan_mode: d.wan_mode,
+    slot: d.slot, port: d.port, onu_mode: d.onu_mode, wan_mode: d.wan_mode, pppoe_username: d.pppoe_username,
     mgmt_ip_mode: d.mgmt_ip_mode, vlan_id: d.vlan_id, ip_address: d.ip_address,
     download_profile_name: d.download_profile_name, upload_profile_name: d.upload_profile_name,
     zone_id: d.zone_id, splitter_id: d.splitter_id, splitter_port: d.splitter_port,
