@@ -92,13 +92,13 @@ const routes = [
 
 /** [nama file, cara membuka modal, judul yang harus muncul] */
 const CASES = [
-  ["attached-vlans", (p) => p.getByRole("button", { name: /^Attached VLANs/ }).click(), "Update attached VLANs"],
-  ["onu-mode", (p) => p.getByRole("button", { name: /^ONU mode/ }).click(), "Update ONU mode"],
-  ["location", (p) => p.getByRole("button", { name: /^Zone/ }).click(), "Update location details"],
+  ["attached-vlans", (p) => p.getByRole("button", { name: /^VLAN terpasang/ }).click(), "Update attached VLANs"],
+  ["onu-mode", (p) => p.getByRole("button", { name: /^Mode ONU/ }).click(), "Update ONU mode"],
+  ["location", (p) => p.getByRole("button", { name: /^Zona/ }).click(), "Update location details"],
   ["eth-port", (p) => p.getByLabel("Konfigurasi eth_0/1").and(p.locator(":visible")).click(), "Configure ethernet port eth_0/1"],
   ["wifi-port", (p) => p.getByLabel("Konfigurasi wifi_0/1").and(p.locator(":visible")).click(), "Configure WiFi port wifi_0/1"],
-  ["onu-type", (p) => p.getByRole("button", { name: /^ONU type/ }).click(), "Change ONU type"],
-  ["external-id", (p) => p.getByRole("button", { name: /^ONU external ID/ }).click(), "Update ONU external ID"],
+  ["onu-type", (p) => p.getByRole("button", { name: /^Tipe ONU/ }).click(), "Change ONU type"],
+  ["external-id", (p) => p.getByRole("button", { name: /^ID eksternal/ }).click(), "Update ONU external ID"],
   // Titik buka "Ubah speed"/"Replace ONU / ganti SN" di blok Aksi DIBUANG (permintaan pemilik):
   // keduanya kini hanya dibuka dari tabel Profil Kecepatan dan baris identitas SN.
   ["speed-profile", (p) => p.getByLabel("Konfigurasi profil kecepatan").and(p.locator(":visible")).click(), "Configure speed profiles"],
@@ -132,9 +132,8 @@ let checks = 0;
 for (const [view, width, height] of [["desktop-1440", 1440, 1200], ["mobile-390", 390, 900]]) {
   await page.setViewportSize({ width, height });
   await page.goto(`${BASE}/onu/91`, { waitUntil: "networkidle" });
-  // Bagian atas halaman kini datar (tanpa kartu "Informasi & status ONU"): penanda
-  // siap-render yang stabil adalah salah satu label baris identitas.
-  await page.waitForSelector("text=Configuration Preset", { timeout: 15_000 });
+  // Penanda siap-render yang stabil adalah salah satu baris blok Identitas.
+  await page.waitForSelector("text=Preset konfigurasi", { timeout: 20000 });
 
   for (const [name, open, title] of CASES) {
     await open(page);

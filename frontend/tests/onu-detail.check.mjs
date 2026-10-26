@@ -88,15 +88,17 @@ check("sampel tanpa kemajuan waktu / lebar counter berubah ditolak", () => {
 
 // ------------------------------------------------------------ bentuk halaman
 
-check("urutan blok mengikuti desain: grid identitas atas, baris Status, trafik, profil, port, wifi, aksi", () => {
+check("urutan blok mengikuti desain: 3 blok atas, baris Diagnostik, trafik, profil, port, wifi, aksi", () => {
   const order = [
-    // Bagian atas kini DATAR (dua `<dl>` 50/50 seperti acuan), bukan kartu berjudul
-    // "Informasi & status ONU" — penandanya jadi baris identitas pertama.
+    // Bagian atas kini TIGA blok berjudul (Identitas | Jaringan & layanan | Status perangkat).
+    'title="Identitas"',
     'label="OLT"',
-    // Baris tombol Status kini memakai <Section label="Status"> yang sama seperti
-    // bagian lain (acuan: satu `dl` panjang), bukan <section> berkartu sendiri.
-    '<Section label="Status">',
-    'label="Traffic/Signal"',
+    'title="Jaringan & layanan"',
+    'title="Status perangkat"',
+    // Baris tombol diagnostik memakai <Section label="Diagnostik"> (nama lama "Status"
+    // dipakai blok Status perangkat, jadi tidak boleh tabrakan).
+    '<Section label="Diagnostik">',
+    'label="Trafik/Sinyal"',
     'label="Profil Kecepatan"',
     'label="Port Ethernet"',
     'label="WiFi"',
@@ -287,32 +289,34 @@ check("mode setup WAN: 4 mode acuan dipetakan, nilai tak dikenal apa adanya", ()
   assert.ok(page.includes('target="_blank" rel="noopener noreferrer"'), "tautan IP aman");
 });
 
-check("baris PPPoE hanya untuk mode pppoe; kata sandi dari backend (manager)", () => {
-  const i = page.lastIndexOf('label="PPPoE username"');
-  assert.notEqual(i, -1, "baris PPPoE username hilang");
+check("baris PPPoE hanya untuk mode pppoe; kredensial dari backend (manager)", () => {
+  // Username + kata sandi kini SATU baris dengan satu tombol mata.
+  const i = page.lastIndexOf('label="Username PPPoE"');
+  assert.notEqual(i, -1, "baris PPPoE hilang");
   assert.ok(page.slice(i - 600, i).includes("{isPppoe && ("), "baris PPPoE tanpa penjaga mode");
-  assert.ok(page.includes('label="PPPoE password"'), "baris PPPoE password hilang");
+  assert.ok(page.includes(">Password PPPoE<"), "label Password PPPoE hilang dari baris gabungan");
   assert.ok(page.includes('const isPppoe = (d.wan_mode ?? "").toLowerCase() === "pppoe"'),
             "penjaga mode pppoe");
   assert.ok(page.includes("d.pppoe_password"), "kata sandi PPPoE tidak dirender");
+  assert.ok(page.includes("Hanya untuk manager"), "keterangan kata sandi tanpa nilai hilang");
 });
 
-check("baris spesifikasi koneksi memakai label persis acuan", () => {
+check("baris spesifikasi koneksi memakai label hasil rename (tabel pemilik)", () => {
   for (const l of [
-    "TR069 Profile", "Mgmt IP", "Attached VLANs", "ONU mode", "WAN setup mode",
-    "PPPoE username", "PPPoE password",
+    "Profil TR069", "Mgmt IP", "VLAN terpasang", "Mode ONU", "Setup WAN", "Username PPPoE",
   ]) {
     assert.ok(page.includes(`label="${l}"`), `baris hilang: ${l}`);
   }
-  // Label lama tidak boleh tertinggal.
-  for (const l of ["VLAN terpasang", "Mode ONU", "Mode setup WAN", "Mode IP manajemen",
-                   "TR-069 profile", "Akses remote WAN"]) {
+  // Label Inggris lama tidak boleh tertinggal (termasuk dua baris PPPoE yang kini gabung).
+  for (const l of ["TR069 Profile", "Attached VLANs", "ONU mode", "WAN setup mode",
+                   "PPPoE username", "PPPoE password", "Mode setup WAN", "Akses remote WAN"]) {
     assert.ok(!page.includes(`label="${l}"`), `label lama masih ada: ${l}`);
   }
-  // Tanpa data: TR069 `Inactive`, Mgmt IP belum terbaca, dan mode "—"; bukan fakta karangan.
-assert.ok(page.includes('label="TR069 Profile" value={<>Inactive'), "TR069 Profile Inactive");
-  assert.ok(page.includes('mgmtMode === null ? "— (belum terbaca)"'), "Mgmt IP belum terbaca");
-  assert.ok(page.includes('wanMode === null ? "—"'), "WAN setup mode kosong = —");
+  // Tanpa data: TR069 `Inactive`, Mgmt IP belum terbaca, dan mode "—" redup; bukan fakta karangan.
+  assert.ok(page.includes('label="Profil TR069" value={<>Inactive'), "Profil TR069 Inactive");
+  assert.ok(page.includes('mgmtMode === null ? <span className="text-faint">— (belum terbaca)</span>'),
+            "Mgmt IP belum terbaca");
+  assert.ok(page.includes("wanMode === null ? DASH"), "Setup WAN kosong = — redup");
 });
 
 check("mode ONU/WAN dipakai apa adanya dari backend (default dihitung di sana)", () => {
@@ -328,12 +332,12 @@ check("mode ONU/WAN dipakai apa adanya dari backend (default dihitung di sana)",
   assert.ok(page.includes('onuMode === null'), "ONU mode kosong harus tetap punya cabang —");
 });
 
-check("kolom identitas memakai label persis acuan + `None` untuk nilai kosong", () => {
+check("blok Identitas memakai label hasil rename + `None` untuk nilai kosong", () => {
   const rows = [...page.matchAll(/<DRow label="([^"]+)"/g)].map((m) => m[1]);
-  const left = rows.slice(0, rows.indexOf("ONU external ID") + 1);
+  const left = rows.slice(0, rows.indexOf("Lokasi") + 1);
   assert.deepEqual(left, [
-    "OLT", "ONU", "SN", "ONU type", "Configuration Preset", "Zone", "Splitter", "Sector",
-    "Name", "Address or comment", "Contact", "Authorization date", "ONU external ID",
+    "OLT", "ONU", "SN", "Tipe ONU", "Preset konfigurasi", "Nama pelanggan", "Alamat",
+    "Kontak", "Zona", "Splitter", "Sektor", "ID eksternal", "Tanggal otorisasi", "Lokasi",
   ], left.join(","));
   // Board / Port / GPON channel sengaja dibuang pemilik: tidak boleh muncul lagi.
   for (const l of ["Board", "Port", "GPON channel"]) {
@@ -348,7 +352,7 @@ check("panel LIVE hanya dirender saat LIVE aktif, Pps/Avg size '—' tanpa count
   const i = page.indexOf('<CardHead title="LIVE traffic"');
   assert.notEqual(i, -1, "panel LIVE hilang");
   assert.ok(page.slice(i - 400, i).includes("{live && ("), "panel LIVE tanpa penjaga `live`");
-  assert.ok(i < page.indexOf('label="Traffic/Signal"'), "panel LIVE harus di atas Traffic/Signal");
+  assert.ok(i < page.indexOf('label="Trafik/Sinyal"'), "panel harus sebelum kartu trafik");
   // Upload = out_octets (keluar dari ONU), download = in_octets — kontrak backend.
   assert.ok(page.includes('label="U Speed"') && page.includes("latest?.outMbps"), "U Speed = out");
   assert.ok(page.includes('label="D Speed"') && page.includes("latest?.inMbps"), "D Speed = in");

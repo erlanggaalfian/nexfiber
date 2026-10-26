@@ -84,10 +84,9 @@ const page = await ctx.newPage();
 for (const [name, width, height] of [["desktop-1440", 1440, 1200], ["mobile-390", 390, 900]]) {
   await page.setViewportSize({ width, height });
   await page.goto(`${BASE}/onu/91`, { waitUntil: "networkidle" });
-  // Bagian atas kini datar (tanpa kartu "Informasi & status ONU"); penanda siap-render
-  // yang stabil adalah baris identitas pertama (`OLT`), yang hanya ada setelah detail
-  // ONU benar-benar ter-render.
-  await page.waitForSelector("text=Configuration Preset", { timeout: 15_000 });
+  // Penanda siap-render yang stabil adalah baris blok Identitas, yang hanya ada setelah
+  // detail ONU benar-benar ter-render.
+  await page.waitForSelector("text=Preset konfigurasi", { timeout: 20000 });
   await page.screenshot({ path: `${OUT}-${name}.png`, fullPage: true });
   const over = await page.evaluate(() => ({
     doc: document.documentElement.scrollWidth - document.documentElement.clientWidth,
