@@ -19,7 +19,7 @@ Aturan:
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.rbac import scope_olt_ids
@@ -38,8 +38,8 @@ from app.services.onu_traffic_service import (
 
 # Interval sampler (schedules.py) — dipakai juga untuk membatasi delta yang masih wajar.
 SAMPLE_INTERVAL_MINUTES = 5
-# Retensi sampel mentah (PRD: time-series detail 30 hari).
-RETENTION_DAYS = 30
+# Retensi TIDAK lagi di sini: diatur per jenis data di Settings -> Graph Data
+# (`graph_data_service`, job harian `purge_graph_data`), bukan konstanta sampler.
 RANGES: dict[str, timedelta] = {
     "24h": timedelta(hours=24), "7d": timedelta(days=7), "30d": timedelta(days=30),
 }
@@ -135,19 +135,9 @@ async def sample_olt(db: AsyncSession, olt: Olt) -> dict:
         if in_bps is not None or out_bps is not None:
             with_rate += 1
 
-    purged = await _purge(db, now)
     olt.status, olt.last_sync_at, olt.last_error = "online", now, None
     return {"onus_on_device": len(upload), "samples_written": written,
-            "samples_with_rate": with_rate, "purged_rows": purged}
-
-
-async def _purge(db: AsyncSession, now: datetime) -> int:
-    """Retensi bergulir dikerjakan sampler sendiri (tanpa cron tambahan)."""
-    result = await db.execute(
-        delete(OnuTrafficHistory)
-        .where(OnuTrafficHistory.sampled_at < now - timedelta(days=RETENTION_DAYS))
-    )
-    return result.rowcount or 0
+            "samples_with_rate": with_rate}
 
 
 async def history(db: AsyncSession, serial: str, range_: Literal["24h", "7d", "30d"],

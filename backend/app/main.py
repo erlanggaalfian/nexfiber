@@ -20,6 +20,7 @@ from app.repositories import olt_repo
 from app.routers import (
     activity_logs,
     auth,
+    graph_data,
     jobs,
     master_data,
     olts,
@@ -78,7 +79,8 @@ async def system_status(
 # onu_actions sebelum onus: path /{onu_id}/... tidak boleh ketelan /{serial} di onus.py.
 for module in (auth, olts, onu_by_id, onu_actions, onu_traffic, onus, jobs, master_data,
                users, zones,
-               onu_types, splitters, vlans, speed_profiles, onu_presets, activity_logs):
+               onu_types, splitters, vlans, speed_profiles, onu_presets, activity_logs,
+               graph_data):
     app.include_router(module.router)
 
 # ponytail: sajikan frontend build dari API sendiri, satu port saja, no nginx/caddy.

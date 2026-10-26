@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.core.db import SessionLocal
 from app.core.exceptions import ConflictError
 from app.models.olt import Olt
-from app.services import job_service, olt_onboarding
+from app.services import graph_data_service, job_service, olt_onboarding
 from app.services import onu_traffic_history_service as traffic_history_service
 
 log = logging.getLogger("nexfiber.schedules")
@@ -32,6 +32,14 @@ async def enqueue_for_active_olts(job_type: str) -> None:
                 await db.rollback()
                 log.debug("%s for OLT %s still pending/running; skipped", job_type, olt_id)
 
+async def purge_graph_data() -> None:
+    """Retensi data graph (Settings -> Graph Data). Bukan job per OLT: satu tabel global,
+    tidak menyentuh perangkat, jadi dijalankan langsung di worker tanpa lewat job queue.
+    """
+    async with SessionLocal() as db:
+        purged = await graph_data_service.purge_expired(db)
+    log.info("purge graph data: %s", purged)
+
 def start_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler()
     def add(job_type: str, trigger: str, **when: int) -> None:
@@ -49,6 +57,8 @@ def start_scheduler() -> AsyncIOScheduler:
     add("sync_olt_metrics", "interval", minutes=15)
     add("sync_unconfigured", "interval", minutes=1)
     add("backup_olt_config", "cron", hour=2)  # PRD only says "harian"; 02:00 = quiet hours
+    # Purge retensi data graph: 03:00, setelah backup, jauh dari jam sibuk.
+    scheduler.add_job(purge_graph_data, "cron", hour=3, max_instances=1, coalesce=True)
     # Rantai onboarding OLT: tahap berikutnya diantre begitu tahap sebelumnya sukses.
     # 5 detik = progres terasa langsung di UI tanpa membebani DB (query 1 tabel settings).
     scheduler.add_job(olt_onboarding.advance_active_chains, "interval", seconds=5,

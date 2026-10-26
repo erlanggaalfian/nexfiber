@@ -1,6 +1,6 @@
 import {
-  Broadcast, ClockCounterClockwise, Cpu, DotsThreeCircle, Gauge, HardDrives, House, ListBullets, PlusCircle,
-  ShieldCheck, TreeStructure, Users, type Icon,
+  Broadcast, ChartLine, ClockCounterClockwise, Cpu, DotsThreeCircle, Gauge, HardDrives, House,
+  ListBullets, PlusCircle, ShieldCheck, TreeStructure, Users, type Icon,
 } from "@phosphor-icons/react";
 import type { Role } from "./api";
 
@@ -17,6 +17,7 @@ export const SETTINGS: SettingsItem[] = [
   { label: "ONU Types", to: "/settings/onu-types", icon: Cpu, roles: MANAGERS },
   { label: "Splitters & Zone", to: "/settings/splitters", icon: TreeStructure, roles: ALL },
   { label: "Speed Profile", to: "/settings/speed-profiles", icon: Gauge, roles: ALL },
+  { label: "Graph Data", to: "/settings/graph-data", icon: ChartLine, roles: MANAGERS },
   { label: "VPN Tunnels", to: "/settings/vpn", icon: ShieldCheck, roles: MANAGERS, soon: true },
   { label: "TR-069", to: "/settings/tr069", icon: Broadcast, roles: MANAGERS, soon: true },
 ];

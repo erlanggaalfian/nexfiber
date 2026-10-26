@@ -8,7 +8,6 @@ import pytest
 
 from app.services.onu_traffic_history_service import (
     MAX_DELTA_S,
-    RETENTION_DAYS,
     SAMPLE_INTERVAL_MINUTES,
     delta_bps,
 )
@@ -62,6 +61,6 @@ def test_counter_tidak_bergerak_adalah_nol_bukan_none():
     assert delta_bps(12_345, 12_345, 300.0, 64) == 0
 
 
-def test_konstanta_interval_dan_retensi():
+def test_konstanta_interval_sampler():
     assert SAMPLE_INTERVAL_MINUTES == 5
-    assert RETENTION_DAYS == 30
+    # Retensi dipindah ke graph_data_service + tabel settings; sampler tidak purge lagi.

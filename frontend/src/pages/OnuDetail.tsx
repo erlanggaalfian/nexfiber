@@ -365,19 +365,34 @@ function RxChart({ points }: { points: SignalPoint[] }) {
     .map((p, i) => (p.rx_power_dbm === null ? null : `${x(i)},${y(p.rx_power_dbm)}`))
     .filter((s): s is string => s !== null)
     .join(" ");
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => max - f * span);
+  const range = `${fmtDateTime(points[0].sampled_at)} → ${fmtDateTime(points[points.length - 1].sampled_at)}`;
   return (
     <>
-    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-32 w-full" role="img"
-         aria-label={`Grafik Rx ONU, ${values.length} titik, terendah ${min.toFixed(1)} dBm`}>
-      {[-25, -27].map((t) => (
-        <line key={t} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
-              strokeWidth="0.4" strokeDasharray="2 2" className="text-muted" />
-      ))}
-      {values.length === 1
-        ? <circle cx="50" cy={y(values[0])} r="1.2" className="fill-fiber" vectorEffect="non-scaling-stroke" />
-        : <polyline points={line} fill="none" stroke="currentColor" strokeWidth="1"
-                    className="text-fiber" vectorEffect="non-scaling-stroke" />}
-    </svg>
+    <div className="flex gap-2">
+      {/* Label sumbu Y di luar SVG: SVG non-uniform scale, teks di dalamnya ikut melar. */}
+      <div className="flex w-12 shrink-0 flex-col justify-between py-0.5 text-right font-mono text-[10px] text-faint">
+        {ticks.map((t, i) => <span key={i}>{t.toFixed(1)}</span>)}
+      </div>
+      <div className="min-w-0 grow">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-40 w-full" role="img"
+             aria-label={`Grafik Rx ONU, ${values.length} titik, terendah ${min.toFixed(1)} dBm`}>
+          {ticks.map((t, i) => (
+            <line key={i} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
+                  strokeWidth="0.3" className="text-line" vectorEffect="non-scaling-stroke" />
+          ))}
+          {[-25, -27].map((t) => (
+            <line key={t} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
+                  strokeWidth="0.4" strokeDasharray="2 2" className="text-muted" vectorEffect="non-scaling-stroke" />
+          ))}
+          {values.length === 1
+            ? <circle cx="50" cy={y(values[0])} r="1.2" className="fill-fiber" vectorEffect="non-scaling-stroke" />
+            : <polyline points={line} fill="none" stroke="currentColor" strokeWidth="1.2"
+                        className="text-fiber" vectorEffect="non-scaling-stroke" />}
+        </svg>
+        <p className="mt-1 text-center font-mono text-[10px] text-faint">dBm · {range}</p>
+      </div>
+    </div>
     <StatusStrip points={points} />
     </>
   );
@@ -777,6 +792,18 @@ export function OnuDetail() {
   const qc = useQueryClient();
   const { isManager } = useAuth();
   const range = (params.get("range") ?? "24h") as "24h" | "7d" | "30d";
+  /** Satu rentang untuk kedua grafik (query `?range=`): 24 jam / 7 hari / 30 hari. */
+  const RangeTabs = () => (
+    <div className="mb-2 flex gap-1" role="tablist" aria-label="Rentang histori grafik">
+      {RANGES.map(([value, label]) => (
+        <button key={value} type="button" role="tab" aria-selected={range === value}
+          onClick={() => { const p = new URLSearchParams(params); p.set("range", value); setParams(p, { replace: true }); }}
+          className={`border-b-2 px-2 py-1 text-xs ${range === value ? "border-fiber font-semibold text-fiber" : "border-transparent text-muted hover:text-ink"}`}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
   /** Modal aksi ONU (kontrak `/api/onus/{id}/actions`), satu state untuk semua modal. */
   const [modal, setModal] = useState<OnuModalState | null>(null);
   const [note, setNote] = useState("");
@@ -1284,6 +1311,7 @@ export function OnuDetail() {
                 sekali, 2 bulkwalk per OLT) dan disimpan di `onu_traffic_history`. Halaman
                 ini hanya menggambar sampel yang ADA — pesan kosong hanya muncul kalau
                 sampelnya memang belum terkumpul. */}
+            <RangeTabs />
             {trafficHistory.isPending
               ? <Skeleton text="Memuat histori trafik ..." rows={2} />
               : <TrafficHistoryChart points={trafficHistory.data ?? []} />}
@@ -1303,15 +1331,7 @@ export function OnuDetail() {
                 )}
               </>
             }>
-            <div className="mb-2 flex gap-1" role="tablist" aria-label="Rentang histori sinyal">
-              {RANGES.map(([value, label]) => (
-                <button key={value} type="button" role="tab" aria-selected={range === value}
-                  onClick={() => { const p = new URLSearchParams(params); p.set("range", value); setParams(p, { replace: true }); }}
-                  className={`border-b-2 px-2 py-1 text-xs ${range === value ? "border-fiber font-semibold text-fiber" : "border-transparent text-muted hover:text-ink"}`}>
-                  {label}
-                </button>
-              ))}
-            </div>
+            <RangeTabs />
             {signal.isPending
               ? <Skeleton text="Memuat histori sinyal ..." rows={2} />
               : <RxChart points={signal.data ?? []} />}

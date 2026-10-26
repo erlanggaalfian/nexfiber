@@ -10,6 +10,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Lainnya } from "./pages/Lainnya";
 import { Login } from "./pages/Login";
 import { OltDetail } from "./pages/OltDetail";
+import { GraphData } from "./pages/settings/GraphData";
 import { OnuTypes } from "./pages/settings/OnuTypes";
 import { OltManagement } from "./pages/settings/OltManagement";
 import { Splitters } from "./pages/settings/Splitters";
@@ -73,6 +74,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/settings/onu-types" element={<OnuTypes />} />
             <Route path="/settings/splitters" element={<Splitters />} />
             <Route path="/settings/speed-profiles" element={<SpeedProfile />} />
+            <Route path="/settings/graph-data" element={<GraphData />} />
             <Route path="/logs" element={<Logs />} />
             {LATER.map((p) => <Route key={p} path={p} element={<Placeholder />} />)}
             <Route path="*" element={<NotFound />} />
