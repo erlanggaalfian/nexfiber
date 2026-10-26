@@ -48,7 +48,9 @@ export function MgmtIpModal(
       {mode !== "inactive" && (
         <Row label="Mgmt VLAN-ID">
           <Select value={vlan} onChange={setVlan} placeholder="Tanpa VLAN" label="Mgmt VLAN-ID">
-            {(options?.vlans ?? []).map((v) => (
+            {(options?.vlans ?? [])
+              .filter((v) => v.is_management || String(v.number) === vlan)
+              .map((v) => (
               <option key={v.number} value={v.number}>{v.number} - {v.name}</option>
             ))}
           </Select>

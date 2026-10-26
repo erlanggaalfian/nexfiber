@@ -184,6 +184,9 @@ class OnuSnapshot:
     description: str | None = None
     onu_type: str | None = None
     admin_state: str | None = None  # "enabled" | "disabled" (nilai enum onus.admin_state)
+    # Dari stanza `pon-onu-mng` running-config; None = ONU tanpa PPPoE di perangkat.
+    pppoe_username: str | None = None
+    pppoe_password: str | None = None
 
 
 @dataclass

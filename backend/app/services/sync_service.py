@@ -10,6 +10,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import encrypt_secret
 from app.drivers.base import OltDriver
 from app.models.olt import Olt, OltConfigBackup, PonPort
 from app.models.onu import Onu, OnuSignalHistory
@@ -174,7 +175,7 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
         select(Onu).where(Onu.olt_id == olt.id, Onu.deleted_at.is_(None))
     )).scalars()}
     added = updated = skipped = 0
-    with_name = with_descr = 0
+    with_name = with_descr = with_pppoe = 0
     for snap in sorted(inv.onus, key=lambda s: s.serial_number):
         if snap.name:
             with_name += 1
@@ -208,6 +209,13 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
         onu.description = onu.description or _clip(snap.description, 128)
         if snap.admin_state:
             onu.admin_state = snap.admin_state
+        if snap.pppoe_username:
+            # Perangkat = sumber kebenaran WAN: PPPoE di running-config menimpa kolom DB.
+            onu.wan_mode, onu.onu_mode = "pppoe", "routing"
+            onu.pppoe_username = snap.pppoe_username[:100]
+            if snap.pppoe_password:
+                onu.pppoe_password_enc = encrypt_secret(snap.pppoe_password)
+            with_pppoe += 1
         if snap.status == "online":
             onu.last_seen_at = now
         updated += 1
@@ -221,7 +229,8 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
             "onus_skipped_unknown_port": skipped, "vlans_added": vlans_added,
             "vlans_on_device": len(inv.vlan_ids),
             # Bukti seberapa banyak metadata yang MEMANG dibaca dari perangkat (bukan tebakan).
-            "onus_with_device_name": with_name, "onus_with_device_description": with_descr}
+            "onus_with_device_name": with_name, "onus_with_device_description": with_descr,
+            "onus_with_pppoe": with_pppoe}
 
 async def sync_olt_metrics(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict:
     """Optical ONU + kesehatan OLT + adopsi inventory dalam SATU job per OLT

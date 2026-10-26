@@ -191,9 +191,9 @@ check("penanda TR-069 tidak jadi tombol aktif (prasyarat ACS internal belum ada)
   assert.ok(!page.includes("tr069_profile"));
 });
 
-check("password PPPoE tidak pernah dirender", () => {
-  assert.ok(!page.includes("pppoe_password"));
-  assert.ok(page.includes("Tidak ditampilkan"));
+check("password PPPoE tampil (dari backend, manager saja) dan TR069 bertanda segera rilis", () => {
+  assert.ok(page.includes("d.pppoe_password"));
+  assert.ok(page.includes("Segera rilis"));
 });
 
 check("aksi merusak tetap minta ketik serial + manager-only", () => {
@@ -287,14 +287,14 @@ check("mode setup WAN: 4 mode acuan dipetakan, nilai tak dikenal apa adanya", ()
   assert.ok(page.includes('target="_blank" rel="noopener noreferrer"'), "tautan IP aman");
 });
 
-check("baris PPPoE hanya untuk mode pppoe; kata sandi tidak pernah dirender", () => {
+check("baris PPPoE hanya untuk mode pppoe; kata sandi dari backend (manager)", () => {
   const i = page.lastIndexOf('label="PPPoE username"');
   assert.notEqual(i, -1, "baris PPPoE username hilang");
   assert.ok(page.slice(i - 600, i).includes("{isPppoe && ("), "baris PPPoE tanpa penjaga mode");
   assert.ok(page.includes('label="PPPoE password"'), "baris PPPoE password hilang");
   assert.ok(page.includes('const isPppoe = (d.wan_mode ?? "").toLowerCase() === "pppoe"'),
             "penjaga mode pppoe");
-  assert.ok(!page.includes("pppoe_password"), "kata sandi PPPoE disentuh halaman");
+  assert.ok(page.includes("d.pppoe_password"), "kata sandi PPPoE tidak dirender");
 });
 
 check("baris spesifikasi koneksi memakai label persis acuan", () => {
@@ -310,7 +310,7 @@ check("baris spesifikasi koneksi memakai label persis acuan", () => {
     assert.ok(!page.includes(`label="${l}"`), `label lama masih ada: ${l}`);
   }
   // Tanpa data: `Inactive` (TR069/Mgmt IP) dan "—" (mode), bukan angka/teks karangan.
-  assert.ok(page.includes('label="TR069 Profile" value="Inactive"'), "TR069 Profile Inactive");
+assert.ok(page.includes('label="TR069 Profile" value={<>Inactive'), "TR069 Profile Inactive");
   assert.ok(page.includes('mgmtMode === null ? "Inactive"'), "Mgmt IP Inactive");
   assert.ok(page.includes('wanMode === null ? "—"'), "WAN setup mode kosong = —");
 });

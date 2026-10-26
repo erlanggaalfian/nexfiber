@@ -530,6 +530,7 @@ class ZteC320Driver(OltDriver):
                 )
                 baseinfo.update(_parse_onu_baseinfo(out))
         metadata = _parse_onu_metadata(config_out)
+        pppoe = _parse_onu_pppoe(config_out)
         onus = []
         for snap in states:
             serial, onu_type = baseinfo.get((snap.slot, snap.port, snap.onu_id), (None, None))
@@ -537,6 +538,9 @@ class ZteC320Driver(OltDriver):
                 continue  # tanpa SN tidak bisa jadi baris onus (kunci uq_onu_olt_serial)
             snap.serial_number, snap.onu_type = serial, onu_type
             snap.name, snap.description = metadata.get(
+                (snap.slot, snap.port, snap.onu_id), (None, None)
+            )
+            snap.pppoe_username, snap.pppoe_password = pppoe.get(
                 (snap.slot, snap.port, snap.onu_id), (None, None)
             )
             onus.append(snap)
@@ -1015,6 +1019,9 @@ _ONU_BASEINFO_ROW_RE = re.compile(
 _ONU_IFACE_STANZA_RE = re.compile(
     r"^interface gpon-onu_(\d+)/(\d+)/(\d+):(\d+)[ \t]*\n((?:[ \t]+.*\n)*)", re.M
 )
+_ONU_MNG_STANZA_RE = re.compile(
+    r"^pon-onu-mng gpon-onu_(\d+)/(\d+)/(\d+):(\d+)[ \t]*\n((?:[ \t]+.*\n)*)", re.M
+)
 _ONU_CFG_NAME_RE = re.compile(r"^[ \t]+name[ \t]+(\S.*)$", re.M)
 _ONU_CFG_DESCR_RE = re.compile(r"^[ \t]+description[ \t]+(\S.*)$", re.M)
 
@@ -1063,6 +1070,19 @@ def _parse_onu_metadata(output: str) -> dict[tuple[int, int, int], tuple[str | N
             name.group(1).strip() if name else None,
             desc.group(1).strip() if desc else None,
         )
+    return rows
+
+def _parse_onu_pppoe(output: str) -> dict[tuple[int, int, int], tuple[str, str | None]]:
+    """`show running-config` -> {(slot, port, onu_id): (user, password)} dari stanza
+    `pon-onu-mng` (baris `pppoe N ... user U password P`). ONU tanpa PPPoE tidak ada di hasil."""
+    from app.drivers.onu_report import parse_pppoe
+
+    rows: dict[tuple[int, int, int], tuple[str, str | None]] = {}
+    for m in _ONU_MNG_STANZA_RE.finditer(output):
+        _rack, slot, port, onu_id, body = m.groups()
+        found = parse_pppoe(body)
+        if found:
+            rows[(int(slot), int(port), int(onu_id))] = found
     return rows
 
 def _parse_vlan_summary(output: str) -> list[int]:

@@ -615,3 +615,11 @@ def test_sync_wan_from_running_sets_pppoe_and_keeps_secret_encrypted():
     assert decrypt_secret(onu.pppoe_password_enc) == "P-NOT-REAL"
     _sync_wan_from_running(onu, "tanpa pppoe")
     assert onu.wan_mode == "pppoe"
+
+
+def test_inventory_parses_pppoe_per_onu():
+    from app.drivers.zte_c320 import _parse_onu_pppoe
+    cfg = ("interface gpon-onu_1/3/6:59\n  name X\n!\npon-onu-mng gpon-onu_1/3/6:59\n"
+           "  pppoe 1 nat enable user u@x.invalid password P-NOT-REAL\n!\n"
+           "pon-onu-mng gpon-onu_1/3/6:60\n  ip-host 2 ip 10.0.0.2 mask 255.255.255.0\n!\n")
+    assert _parse_onu_pppoe(cfg) == {(3, 6, 59): ("u@x.invalid", "P-NOT-REAL")}

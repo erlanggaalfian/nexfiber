@@ -1003,7 +1003,7 @@ export function OnuDetail() {
             <div className="flex flex-col">
               {/* Nexfiber belum punya profil ACS/TR-069 internal (DECISIONS.md), jadi nilainya
                   selalu `Inactive` apa adanya — bukan badge "via Mgmt IP" milik aplikasi lain. */}
-              <DRow label="TR069 Profile" value="Inactive" />
+              <DRow label="TR069 Profile" value={<>Inactive <span className="text-faint">· Segera rilis</span></>} />
               {/* Mgmt IP mengikuti acuan: "<Static|DHCP> - vlan: N - IP". Potongan yang tidak
                   dikirim backend hilang dari teks; tanpa mode sama sekali = `Inactive`. */}
               <DRow label="Mgmt IP" value={
@@ -1067,7 +1067,11 @@ export function OnuDetail() {
                       ? <PppoeUser value={d.pppoe_username} />
                       : "—"
                   } />
-                  <DRow label="PPPoE password" value={<span className="text-faint">Tidak ditampilkan</span>} />
+                  <DRow label="PPPoE password" value={
+                    d.pppoe_password
+                      ? <PppoeUser value={d.pppoe_password} />
+                      : <span className="text-faint">{d.pppoe_username ? "Hanya untuk manager" : "—"}</span>
+                  } />
                 </>
               )}
               <DRow label="Otentikasi" value={d.auth_type === "loid" ? `LOID · ${dash(d.loid)}` : d.auth_type.toUpperCase()} />

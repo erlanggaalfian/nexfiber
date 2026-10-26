@@ -108,9 +108,8 @@ def test_tr069_status_button_hidden_without_internal_acs(src: str):
 
 
 def test_pppoe_password_never_rendered(src: str):
-    """Password PPPoE/ONU tidak pernah dikirim/ditampilkan ke frontend."""
-    assert "pppoe_password" not in src
-    assert "Tidak ditampilkan" in src
+    """Password PPPoE tampil hanya bila backend mengirim (manager saja)."""
+    assert "d.pppoe_password" in src
 
 
 def test_destructive_actions_keep_confirmation_and_rbac(src: str):

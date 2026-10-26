@@ -37,6 +37,7 @@ class OnuRow(BaseModel):
     last_down_reason: str | None
 
 class OnuDetail(OnuRow):
+    pppoe_password: str | None = None  # hanya diisi untuk role manager
     pon_port_id: int
     auth_type: str
     loid: str | None

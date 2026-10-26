@@ -22,7 +22,7 @@ from app.core.exceptions import (
 )
 from app.core.profile_name import clean_profile_name
 from app.core.rbac import MANAGERS, scope_olt_ids
-from app.core.security import encrypt_secret
+from app.core.security import decrypt_secret, encrypt_secret
 from app.core.signal import BUCKETS, rx_bucket
 from app.drivers.base import OltDriver
 from app.drivers.onu_report import parse_pppoe
@@ -93,7 +93,12 @@ async def _get_row(db: AsyncSession, serial: str, user: User):
     return row
 
 async def get_onu(db: AsyncSession, serial: str, user: User) -> OnuDetail:
-    return OnuDetail(**_row(*await _get_row(db, serial, user)))
+    row = await _get_row(db, serial, user)
+    detail = OnuDetail(**_row(*row))
+    # Password PPPoE = kredensial pelanggan: sama seperti running-config, manager saja.
+    if row[0].pppoe_password_enc and user.role in MANAGERS:
+        detail.pppoe_password = decrypt_secret(row[0].pppoe_password_enc)
+    return detail
 
 async def signal_history(db: AsyncSession, serial: str, range_: str, user: User) -> list:
     onu = (await _get_row(db, serial, user))[0]

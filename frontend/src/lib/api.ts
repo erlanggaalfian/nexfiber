@@ -153,7 +153,7 @@ export type OnuDetail = OnuRow & {
   line_profile_id: string | null; srv_profile_id: string | null;
   software_version: string | null; hardware_version: string | null;
   onu_mode: string | null; wan_mode: string | null; mgmt_ip_mode: string | null;
-  pppoe_username: string | null; latitude: number | null; longitude: number | null;
+  pppoe_username: string | null; pppoe_password?: string | null; latitude: number | null; longitude: number | null;
   registered_at: string | null;
 };
 
