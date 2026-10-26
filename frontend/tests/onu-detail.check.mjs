@@ -480,9 +480,9 @@ check("kartu Signal & Status history tidak menyerah pada satu sampel", () => {
   // jadi sesaat setelah worker restart titiknya memang baru satu.
   assert.ok(!chart.includes("values.length < 2"),
             "ambang 2 titik kembali: satu bacaan Rx akan dianggap 'belum cukup data'");
-  assert.ok(chart.includes("values.length === 0"),
-            "pesan kosong harus hanya untuk 0 bacaan Rx");
-  assert.ok(chart.includes("values.length === 1") && chart.includes("<circle"),
+  assert.ok(chart.includes("all.length === 0"),
+            "pesan kosong harus hanya untuk 0 bacaan Rx (dihitung dari semua garis)");
+  assert.ok(chart.includes("s.values.length === 1") && chart.includes("<circle"),
             "satu titik harus digambar sebagai lingkaran (polyline 1 titik tidak terlihat)");
   // Judul kartu menjanjikan 'Status history', jadi pita status harus benar-benar dirender.
   assert.ok(page.includes('ChartCard title="Signal &amp; Status history"'),

@@ -301,9 +301,10 @@ function fmtDistance(m: number | null) {
   return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${nf.format(m)} m`;
 }
 
-/** Ringkasan histori Rx: terendah / rata-rata / tertinggi + jumlah bacaan tidak online. */
-function rxStats(points: SignalPoint[]) {
-  const values = points.map((p) => p.rx_power_dbm).filter((v): v is number => v !== null);
+/** Ringkasan histori satu garis Rx (ONU atau OLT): terendah / rata-rata / tertinggi
+ *  + jumlah bacaan tidak online. Dipanggil sekali per garis, field jadi parameter. */
+function rxStats(points: SignalPoint[], field: "rx_power_dbm" | "olt_rx_power_dbm") {
+  const values = points.map((p) => p[field]).filter((v): v is number => v !== null);
   const downs = points.filter((p) => p.status !== "online").length;
   if (values.length === 0) return null;
   return {
@@ -342,11 +343,19 @@ function RxBox({ title, value }: { title: string; value: number | null }) {
  *  ponytail: tanpa library chart — satu polyline sudah menjawab "trennya turun atau tidak".
  *  skipped: tooltip per titik & zoom, tambah kalau operator memang memintanya. */
 function RxChart({ points }: { points: SignalPoint[] }) {
-  const values = points.map((p) => p.rx_power_dbm).filter((v): v is number => v !== null);
+  const SERIES = [
+    { field: "rx_power_dbm", label: "ONU Rx", line: "text-fiber", dot: "fill-fiber" },
+    { field: "olt_rx_power_dbm", label: "OLT Rx", line: "text-amber", dot: "fill-amber" },
+  ] as const;
   // Satu sampel BUKAN "belum cukup data": sampler optik jalan tiap 15 menit, jadi sesaat
   // setelah worker restart memang baru ada 1 titik. Polyline 1 titik tidak tergambar, maka
-  // titik tunggal digambar sebagai lingkaran. Pesan kosong hanya untuk 0 bacaan Rx.
-  if (values.length === 0) {
+  // titik tunggal digambar sebagai lingkaran. Pesan kosong hanya untuk 0 bacaan Rx total.
+  const series = SERIES.map((s) => ({
+    ...s,
+    values: points.map((p) => p[s.field]).filter((v): v is number => v !== null),
+  }));
+  const all = series.flatMap((s) => s.values);
+  if (all.length === 0) {
     return (
       <>
         <p className="py-6 text-muted">
@@ -356,15 +365,11 @@ function RxChart({ points }: { points: SignalPoint[] }) {
       </>
     );
   }
-  const min = Math.min(...values, -30);
-  const max = Math.max(...values, -8);
+  const min = Math.min(...all, -30);
+  const max = Math.max(...all, -8);
   const span = max - min || 1;
   const x = (i: number) => (i / (points.length - 1)) * 100;
   const y = (v: number) => 100 - ((v - min) / span) * 100;
-  const line = points
-    .map((p, i) => (p.rx_power_dbm === null ? null : `${x(i)},${y(p.rx_power_dbm)}`))
-    .filter((s): s is string => s !== null)
-    .join(" ");
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => max - f * span);
   const range = `${fmtDateTime(points[0].sampled_at)} → ${fmtDateTime(points[points.length - 1].sampled_at)}`;
   return (
@@ -376,7 +381,7 @@ function RxChart({ points }: { points: SignalPoint[] }) {
       </div>
       <div className="min-w-0 grow">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-40 w-full" role="img"
-             aria-label={`Grafik Rx ONU, ${values.length} titik, terendah ${min.toFixed(1)} dBm`}>
+             aria-label={`Grafik Rx ONU dan OLT, ${all.length} titik, terendah ${min.toFixed(1)} dBm`}>
           {ticks.map((t, i) => (
             <line key={i} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
                   strokeWidth="0.3" className="text-line" vectorEffect="non-scaling-stroke" />
@@ -385,10 +390,16 @@ function RxChart({ points }: { points: SignalPoint[] }) {
             <line key={t} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
                   strokeWidth="0.4" strokeDasharray="2 2" className="text-muted" vectorEffect="non-scaling-stroke" />
           ))}
-          {values.length === 1
-            ? <circle cx="50" cy={y(values[0])} r="1.2" className="fill-fiber" vectorEffect="non-scaling-stroke" />
-            : <polyline points={line} fill="none" stroke="currentColor" strokeWidth="1.2"
-                        className="text-fiber" vectorEffect="non-scaling-stroke" />}
+          {series.map((s) => {
+            const line = points
+              .map((p, i) => (p[s.field] === null ? null : `${x(i)},${y(p[s.field] as number)}`))
+              .filter((v): v is string => v !== null)
+              .join(" ");
+            return s.values.length === 1
+              ? <circle key={s.label} cx="50" cy={y(s.values[0])} r="1.2" className={s.dot} vectorEffect="non-scaling-stroke" />
+              : <polyline key={s.label} points={line} fill="none" stroke="currentColor" strokeWidth="1.2"
+                          className={s.line} vectorEffect="non-scaling-stroke" />;
+          })}
         </svg>
         <p className="mt-1 text-center font-mono text-[10px] text-faint">dBm · {range}</p>
       </div>
@@ -792,13 +803,16 @@ export function OnuDetail() {
   const qc = useQueryClient();
   const { isManager } = useAuth();
   const range = (params.get("range") ?? "24h") as "24h" | "7d" | "30d";
-  /** Satu rentang untuk kedua grafik (query `?range=`): 24 jam / 7 hari / 30 hari. */
-  const RangeTabs = () => (
-    <div className="mb-2 flex gap-1" role="tablist" aria-label="Rentang histori grafik">
-      {RANGES.map(([value, label]) => (
-        <button key={value} type="button" role="tab" aria-selected={range === value}
-          onClick={() => { const p = new URLSearchParams(params); p.set("range", value); setParams(p, { replace: true }); }}
-          className={`border-b-2 px-2 py-1 text-xs ${range === value ? "border-fiber font-semibold text-fiber" : "border-transparent text-muted hover:text-ink"}`}>
+  /** Rentang Signal terpisah dari Traffic (query `?srange=`): memilih 7 hari di kartu
+   *  Traffic tidak boleh ikut mengubah Signal & Status history. */
+  const srange = (params.get("srange") ?? "24h") as "24h" | "7d" | "30d";
+  /** Tab rentang 24 jam / 7 hari / 30 hari, satu per kartu grafik (param URL sendiri). */
+  const RangeTabs = ({ param, value, aria }: { param: string; value: "24h" | "7d" | "30d"; aria: string }) => (
+    <div className="mb-2 flex gap-1" role="tablist" aria-label={aria}>
+      {RANGES.map(([v, label]) => (
+        <button key={v} type="button" role="tab" aria-selected={value === v}
+          onClick={() => { const p = new URLSearchParams(params); p.set(param, v); setParams(p, { replace: true }); }}
+          className={`border-b-2 px-2 py-1 text-xs ${value === v ? "border-fiber font-semibold text-fiber" : "border-transparent text-muted hover:text-ink"}`}>
           {label}
         </button>
       ))}
@@ -827,8 +841,8 @@ export function OnuDetail() {
   /** Satu-satunya identitas untuk semua operasi: serial dari respons detail. */
   const serial = onu.data?.serial_number ?? "";
   const signal = useQuery({
-    queryKey: ["onu", serial, "signal", range],
-    queryFn: () => api<SignalPoint[]>(`/api/onus/${serial}/signal?range=${range}`),
+    queryKey: ["onu", serial, "signal", srange],
+    queryFn: () => api<SignalPoint[]>(`/api/onus/${serial}/signal?range=${srange}`),
     enabled: serial !== "",
   });
   const logs = useQuery({
@@ -907,7 +921,8 @@ export function OnuDetail() {
     return <ErrorState message={onu.error?.message ?? "Gagal memuat ONU"} onRetry={() => onu.refetch()} />;
   }
   const d = onu.data;
-  const stats = rxStats(signal.data ?? []);
+  const stats = rxStats(signal.data ?? [], "rx_power_dbm");
+  const oltStats = rxStats(signal.data ?? [], "olt_rx_power_dbm");
   const tStats = trafficStats(trafficHistory.data ?? []);
   const specs = (onuTypes.data ?? []).find(
     (t) => t.id === d.onu_type_id || t.name.toLowerCase() === (d.onu_type ?? "").toLowerCase(),
@@ -1311,27 +1326,31 @@ export function OnuDetail() {
                 sekali, 2 bulkwalk per OLT) dan disimpan di `onu_traffic_history`. Halaman
                 ini hanya menggambar sampel yang ADA — pesan kosong hanya muncul kalau
                 sampelnya memang belum terkumpul. */}
-            <RangeTabs />
+            <RangeTabs param="range" value={range} aria="Rentang histori trafik" />
             {trafficHistory.isPending
               ? <Skeleton text="Memuat histori trafik ..." rows={2} />
               : <TrafficHistoryChart points={trafficHistory.data ?? []} />}
           </ChartCard>
-          <ChartCard title="Signal &amp; Status history" note={`dBm · rentang ${range}`}
+          <ChartCard title="Signal &amp; Status history" note={`dBm · rentang ${srange}`}
             legend={
               <>
                 <LegendRow color="bg-fiber" label="ONU Rx 1490nm" value={dbm(d.rx_power_dbm)} />
                 <LegendRow color="bg-amber" label="OLT Rx 1310nm" value={dbm(d.olt_rx_power_dbm)} />
                 {stats && (
-                  <LegendRow color="bg-sunken" label={`Rx ${range} min · rata-rata · maks`}
+                  <LegendRow color="bg-fiber" label={`ONU Rx ${srange} min · rata-rata · maks`}
                     value={`${stats.min.toFixed(1)} · ${stats.avg.toFixed(1)} · ${stats.max.toFixed(1)}`} />
                 )}
+                {oltStats && (
+                  <LegendRow color="bg-amber" label={`OLT Rx ${srange} min · rata-rata · maks`}
+                    value={`${oltStats.min.toFixed(1)} · ${oltStats.avg.toFixed(1)} · ${oltStats.max.toFixed(1)}`} />
+                )}
                 {stats && (
-                  <LegendRow color="bg-sunken" label={`Bacaan tidak online (${range})`}
+                  <LegendRow color="bg-sunken" label={`Bacaan tidak online (${srange})`}
                     value={`${stats.downs} / ${stats.count}`} />
                 )}
               </>
             }>
-            <RangeTabs />
+            <RangeTabs param="srange" value={srange} aria="Rentang histori sinyal" />
             {signal.isPending
               ? <Skeleton text="Memuat histori sinyal ..." rows={2} />
               : <RxChart points={signal.data ?? []} />}
