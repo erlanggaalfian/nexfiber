@@ -104,6 +104,7 @@ class OnuDetail(OnuRow):
     onu_mode_source: ModeSource = "cli"
     wan_mode_source: ModeSource = "cli"
     mgmt_ip_mode: str | None
+    mgmt_vlan: int | None = None  # nomor VLAN management, bukan FK `onus.vlan_id`
     pppoe_username: str | None
     latitude: float | None
     longitude: float | None

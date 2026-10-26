@@ -297,6 +297,58 @@ async def test_adopt_inventory_writes_wan_vlan_from_device_to_existing_onu():
     assert out["onus_with_wan_vlan"] == 1
 
 
+async def test_adopt_inventory_management_does_not_touch_primary_vlan():
+    """VLAN management BUKAN VLAN utama: `onus.vlan_id` milik "Update VLAN", tidak boleh
+    ditimpa sinkron management. Data uji SINTETIS (serial TESTSN..., bukan data pelanggan).
+    """
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    class _ExistingOnu:
+        serial_number = "TESTSN00000005"
+        pon_port_id = onu_index = None
+        status = "unknown"
+        last_sync_at = last_seen_at = None
+        onu_type = None
+        admin_state = "enabled"
+        name = description = None
+        wan_vlan = None
+        pppoe_username = None
+        vlan_id = 42  # VLAN utama, TIDAK boleh berubah
+        mgmt_ip_mode = None
+        ip_address = None
+
+    existing = _ExistingOnu()
+
+    class _DbMgmt(_Db):
+        async def execute(self, stmt):
+            text = str(stmt)
+            if "FROM vlans" in text:
+                class _Rv(_Result):
+                    def scalars(self_inner):
+                        return iter([SimpleNamespace(id=7, vlan_id=15, type="management",
+                                                    olt_id=None)])
+                return _Rv()
+            if "FROM onus" in text and text.strip().lower().startswith("select"):
+                class _Ro(_Result):
+                    def scalars(self_inner):
+                        return iter([existing])
+                return _Ro()
+            return await super().execute(stmt)
+
+    inv = OltInventory(
+        onus=[OnuSnapshot(slot=6, port=1, onu_id=1, serial_number="TESTSN00000005",
+                          status="online", management_ips=[(15, "dhcp", None)])],
+        vlan_ids=[],
+    )
+    out = await sync_service._adopt_inventory(_DbMgmt(), _Olt(), _InventoryDriver(inv),
+                                              datetime.now(UTC))
+    assert existing.mgmt_ip_mode == "dhcp"
+    assert existing.ip_address is None
+    assert existing.vlan_id == 42  # VLAN utama tidak disentuh
+    assert out["onus_with_management_ip"] == 1
+
+
 async def test_adopt_inventory_skips_unknown_pon_port():
     from datetime import UTC, datetime
 

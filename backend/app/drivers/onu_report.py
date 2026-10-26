@@ -11,6 +11,7 @@ fitur.
 """
 
 import re
+from ipaddress import ip_address
 
 from app.drivers.errors import ZTE_ERROR_PATTERNS, is_error_output
 
@@ -191,6 +192,47 @@ def parse_wan_vlan(running: str) -> int | None:
     """
     m = _WAN_FLOW_RE.search(running or "")
     return int(m.group(1)) if m else None
+
+
+_FLOW_RE = re.compile(r"^\s*flow\s+(\d+)\s+pri\s+\d+\s+vlan\s+(\d+)\s*$", re.I | re.M)
+_GEM_FLOW_RE = re.compile(r"^\s*gemport\s+\d+\s+flow\s+(\d+)\s*$", re.I | re.M)
+_IPHOST_BIND_RE = re.compile(r"^\s*switchport-bind\s+switch_0/1\s+iphost\s+(\d+)\s*$", re.I | re.M)
+_IPHOST_RE = re.compile(r"^\s*ip-host\s+(\d+)\s+(.+)$", re.I | re.M)
+
+
+def parse_management_ip(running: str) -> list[tuple[int, str, str | None]] | None:
+    """Kandidat `(VLAN, mode, IP)`; pemilih VLAN management ada di layer service.
+
+    Format nyata tidak mengikat nomor ip-host ke flow secara eksplisit. Bila tepat satu
+    ip-host terkonfigurasi dan terikat, statusnya dibawa untuk semua flow bergemport;
+    master VLAN kemudian memilih flow management. Bentuk ambigu/tidak dikenal = None.
+    """
+    text = running or ""
+    flows = {int(flow): int(vlan) for flow, vlan in _FLOW_RE.findall(text)}
+    flow_ids = [int(n) for n in _GEM_FLOW_RE.findall(text) if int(n) in flows]
+    if not flow_ids:
+        return None
+    hosts = {int(n): value.strip() for n, value in _IPHOST_RE.findall(text)}
+    bound = {int(n) for n in _IPHOST_BIND_RE.findall(text)}
+    configured = [(n, value) for n, value in hosts.items() if n in bound]
+    if not hosts:
+        mode, ip = "inactive", None
+    elif len(configured) != 1:
+        return None
+    else:
+        value = configured[0][1]
+        static = re.match(r"ip-address\s+(\d+\.\d+\.\d+\.\d+)(?:\s|$)", value, re.I)
+        if re.search(r"(?:^|\s)dhcp-enable\s+enable(?:\s|$)", value, re.I):
+            mode, ip = "dhcp", None
+        elif static:
+            try:
+                ip = str(ip_address(static.group(1)))
+            except ValueError:
+                return None
+            mode = "static"
+        else:
+            return None
+    return [(flows[flow], mode, ip) for flow in flow_ids]
 
 
 # --- Info SW ----------------------------------------------------------------------

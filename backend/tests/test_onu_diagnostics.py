@@ -634,6 +634,42 @@ def test_parse_wan_vlan_takes_flow_1_only():
     assert parse_wan_vlan("") is None
 
 
+def test_parse_management_ip_real_dhcp_config():
+    from app.drivers.onu_report import parse_management_ip
+    body = """  voip protocol sip
+  flow 1 pri 0 vlan 15
+  flow 2 pri 2 vlan 100
+  gemport 1 flow 1
+  gemport 2 flow 2
+  switchport-bind switch_0/1 iphost 1
+  switchport-bind switch_0/1 iphost 2
+  switchport-bind switch_0/1 veip 1
+  ip-host 2 dhcp-enable enable ping-response enable traceroute-response enable
+"""
+    assert parse_management_ip(body) == [(15, "dhcp", None), (100, "dhcp", None)]
+
+
+def test_parse_management_ip_static_inactive_and_unknown():
+    from app.drivers.onu_report import parse_management_ip
+    static = """  flow 1 pri 0 vlan 15
+  gemport 1 flow 1
+  switchport-bind switch_0/1 iphost 2
+  ip-host 2 ip-address 192.0.2.9 mask 255.255.255.0
+"""
+    assert parse_management_ip(static) == [(15, "static", "192.0.2.9")]
+    assert parse_management_ip("  flow 1 pri 0 vlan 15\n  gemport 1 flow 1\n") \
+        == [(15, "inactive", None)]
+    assert parse_management_ip("  flow 1 pri 0 vlan 15\n  gemport 1 flow 1\n  ip-host 2 magic on\n") is None
+
+
+def test_inventory_parses_management_ip_per_onu():
+    from app.drivers.zte_c320 import _parse_onu_management_ips
+    cfg = ("pon-onu-mng gpon-onu_1/2/3:22\n  flow 1 pri 0 vlan 15\n"
+           "  gemport 1 flow 1\n  switchport-bind switch_0/1 iphost 2\n"
+           "  ip-host 2 dhcp-enable enable\n!\n")
+    assert _parse_onu_management_ips(cfg) == {(2, 3, 22): [(15, "dhcp", None)]}
+
+
 def test_inventory_parses_wan_vlan_per_onu():
     from app.drivers.zte_c320 import _parse_onu_wan_vlan
     cfg = ("pon-onu-mng gpon-onu_1/3/6:59\n  flow 1 pri 0 vlan 15\n  flow 2 pri 2 vlan 100\n!\n"

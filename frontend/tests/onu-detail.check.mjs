@@ -309,9 +309,9 @@ check("baris spesifikasi koneksi memakai label persis acuan", () => {
                    "TR-069 profile", "Akses remote WAN"]) {
     assert.ok(!page.includes(`label="${l}"`), `label lama masih ada: ${l}`);
   }
-  // Tanpa data: `Inactive` (TR069/Mgmt IP) dan "—" (mode), bukan angka/teks karangan.
+  // Tanpa data: TR069 `Inactive`, Mgmt IP belum terbaca, dan mode "—"; bukan fakta karangan.
 assert.ok(page.includes('label="TR069 Profile" value={<>Inactive'), "TR069 Profile Inactive");
-  assert.ok(page.includes('mgmtMode === null ? "Inactive"'), "Mgmt IP Inactive");
+  assert.ok(page.includes('mgmtMode === null ? "— (belum terbaca)"'), "Mgmt IP belum terbaca");
   assert.ok(page.includes('wanMode === null ? "—"'), "WAN setup mode kosong = —");
 });
 

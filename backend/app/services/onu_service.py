@@ -138,6 +138,7 @@ async def get_onu(db: AsyncSession, serial: str, user: User) -> OnuDetail:
     row = await _get_row(db, serial, user)
     detail = OnuDetail(**_row(*row))
     detail.service_vlans = await _service_vlans(db, row[0])
+    detail.mgmt_vlan = next((v.vlan_id for v in detail.service_vlans or [] if v.is_management), None)
     _apply_mode_defaults(detail)
     # Password PPPoE = kredensial pelanggan: sama seperti running-config, manager saja.
     if row[0].pppoe_password_enc and user.role in MANAGERS:

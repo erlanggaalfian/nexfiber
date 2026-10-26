@@ -189,6 +189,8 @@ class OnuSnapshot:
     pppoe_password: str | None = None
     # VLAN WAN nyata dari `flow 1 ... vlan N` di stanza `pon-onu-mng`; None = tidak dilaporkan.
     wan_vlan: int | None = None
+    # Semua kandidat flow ber-ip-host; layer service memilih VLAN bertipe management.
+    management_ips: list[tuple[int, str, str | None]] | None = None
 
 
 @dataclass

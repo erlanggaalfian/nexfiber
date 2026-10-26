@@ -532,6 +532,7 @@ class ZteC320Driver(OltDriver):
         metadata = _parse_onu_metadata(config_out)
         pppoe = _parse_onu_pppoe(config_out)
         wan_vlans = _parse_onu_wan_vlan(config_out)
+        management_ips = _parse_onu_management_ips(config_out)
         onus = []
         for snap in states:
             serial, onu_type = baseinfo.get((snap.slot, snap.port, snap.onu_id), (None, None))
@@ -545,6 +546,7 @@ class ZteC320Driver(OltDriver):
                 (snap.slot, snap.port, snap.onu_id), (None, None)
             )
             snap.wan_vlan = wan_vlans.get((snap.slot, snap.port, snap.onu_id))
+            snap.management_ips = management_ips.get((snap.slot, snap.port, snap.onu_id))
             onus.append(snap)
         return OltInventory(onus=onus, vlan_ids=_parse_vlan_summary(vlan_out))
 
@@ -1103,6 +1105,21 @@ def _parse_onu_wan_vlan(output: str) -> dict[tuple[int, int, int], int]:
         if vlan is not None:
             rows[(slot, port, onu_id)] = vlan
     return rows
+
+
+def _parse_onu_management_ips(
+    output: str,
+) -> dict[tuple[int, int, int], list[tuple[int, str, str | None]]]:
+    """Semua kandidat flow ber-ip-host; pemilihan VLAN management dilakukan saat sync."""
+    from app.drivers.onu_report import parse_management_ip
+
+    rows = {}
+    for slot, port, onu_id, body in _mng_stanzas(output):
+        found = parse_management_ip(body)
+        if found is not None:
+            rows[(slot, port, onu_id)] = found
+    return rows
+
 
 def _parse_vlan_summary(output: str) -> list[int]:
     """`show vlan summary`: "All created vlan num: 6" lalu baris id "1,15,19,68,100,3045".

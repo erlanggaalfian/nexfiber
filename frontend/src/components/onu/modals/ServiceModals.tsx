@@ -24,9 +24,9 @@ export function MgmtIpModal(
     onSubmit: (body: { mode: string; vlan: number | null; ip: string | null }) => void;
   },
 ) {
-  const [mode, setMode] = useState<"inactive" | "static" | "dhcp">(() => {
+  const [mode, setMode] = useState<"" | "inactive" | "static" | "dhcp">(() => {
     const v = (current.mode ?? "").toLowerCase();
-    return v === "static" || v === "dhcp" ? v : "inactive";
+    return v === "inactive" || v === "static" || v === "dhcp" ? v : "";
   });
   const [vlan, setVlan] = useState(current.vlan === null ? "" : String(current.vlan));
   const [ip, setIp] = useState(current.ip ?? "");
@@ -37,7 +37,7 @@ export function MgmtIpModal(
                   vlan: mode === "inactive" || vlan === "" ? null : Number(vlan),
                   ip: mode === "static" && ip.trim() !== "" ? ip.trim() : null,
                 })}>
-      <Row label="Mgmt IP mode">
+      <Row label="Mgmt IP mode" hint={mode === "" ? "Belum terbaca dari perangkat" : undefined}>
         <Radios name="mgmt-mode" value={mode} onChange={setMode}
                 options={[
                   { value: "inactive", label: "Inactive" },

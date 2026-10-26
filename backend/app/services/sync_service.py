@@ -6,7 +6,7 @@ import hashlib
 from dataclasses import asdict
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -175,8 +175,14 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
     existing = {onu.serial_number: onu for onu in (await db.execute(
         select(Onu).where(Onu.olt_id == olt.id, Onu.deleted_at.is_(None))
     )).scalars()}
+    management_vlans = {}
+    if any(s.management_ips is not None for s in inv.onus):
+        for vlan in (await db.execute(select(Vlan).where(
+            Vlan.type == "management", or_(Vlan.olt_id == olt.id, Vlan.olt_id.is_(None))
+        ).order_by(Vlan.olt_id.nulls_first()))).scalars():
+            management_vlans[vlan.vlan_id] = vlan
     added = updated = skipped = 0
-    with_name = with_descr = with_pppoe = with_wan_vlan = 0
+    with_name = with_descr = with_pppoe = with_wan_vlan = with_management = 0
     for snap in sorted(inv.onus, key=lambda s: s.serial_number):
         if snap.name:
             with_name += 1
@@ -186,6 +192,10 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
         if pon_port_id is None:
             skipped += 1
             continue
+        management = [row for row in snap.management_ips or [] if row[0] in management_vlans]
+        mgmt = management[0] if len(management) == 1 else None
+        if mgmt:
+            with_management += 1
         onu = existing.get(snap.serial_number)
         if onu is None:
             stmt = insert(Onu).values(
@@ -194,6 +204,8 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
                 name=_clip(snap.name, 100), description=_clip(snap.description, 128),
                 status=snap.status, config_state="success",
                 admin_state=snap.admin_state or "enabled",
+                mgmt_ip_mode=mgmt[1] if mgmt else None,
+                ip_address=mgmt[2] if mgmt else None,
                 last_seen_at=now if snap.status == "online" else None,
                 last_sync_at=now, registered_at=now,
             )
@@ -221,6 +233,13 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
             # Sama alasannya: VLAN WAN di `flow 1` perangkat menimpa kolom DB.
             onu.wan_vlan = snap.wan_vlan
             with_wan_vlan += 1
+        if mgmt:
+            # Perangkat + master VLAN = sumber kebenaran management; timpa hasil aksi manual.
+            # `onus.vlan_id` TIDAK disentuh: itu VLAN utama (kolom "Update VLAN"), bukan
+            # milik management. Nomor VLAN management tampil dari `service_vlans`
+            # (is_management) di detail, lihat `OnuDetail.mgmt_vlan`.
+            onu.mgmt_ip_mode = mgmt[1]
+            onu.ip_address = mgmt[2]
         if snap.status == "online":
             onu.last_seen_at = now
         updated += 1
@@ -235,7 +254,8 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
             "vlans_on_device": len(inv.vlan_ids),
             # Bukti seberapa banyak metadata yang MEMANG dibaca dari perangkat (bukan tebakan).
             "onus_with_device_name": with_name, "onus_with_device_description": with_descr,
-            "onus_with_pppoe": with_pppoe, "onus_with_wan_vlan": with_wan_vlan}
+            "onus_with_pppoe": with_pppoe, "onus_with_wan_vlan": with_wan_vlan,
+            "onus_with_management_ip": with_management}
 
 async def sync_olt_metrics(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict:
     """Optical ONU + kesehatan OLT + adopsi inventory dalam SATU job per OLT

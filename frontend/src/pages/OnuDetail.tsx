@@ -990,7 +990,7 @@ export function OnuDetail() {
     external_id: d.external_id, olt_id: d.olt_id, olt_name: d.olt_name,
     slot: d.slot, port: d.port, onu_mode: d.onu_mode, wan_mode: d.wan_mode, pppoe_username: d.pppoe_username,
     wan_vlan: d.wan_vlan ?? null, pppoe_password: d.pppoe_password ?? null,
-    mgmt_ip_mode: d.mgmt_ip_mode, vlan_id: d.vlan_id, ip_address: d.ip_address,
+    mgmt_ip_mode: d.mgmt_ip_mode, vlan_id: d.mgmt_vlan ?? null, ip_address: d.ip_address,
     download_profile_name: d.download_profile_name, upload_profile_name: d.upload_profile_name,
     zone_id: d.zone_id, splitter_id: d.splitter_id, splitter_port: d.splitter_port,
     name: d.name, customer_name: d.customer_name, address: d.address, contact: d.contact,
@@ -1131,14 +1131,14 @@ export function OnuDetail() {
               {/* Nexfiber belum punya profil ACS/TR-069 internal (DECISIONS.md), jadi nilainya
                   selalu `Inactive` apa adanya — bukan badge "via Mgmt IP" milik aplikasi lain. */}
               <DRow label="TR069 Profile" value={<>Inactive <span className="text-faint">· Segera rilis</span></>} />
-              {/* Mgmt IP mengikuti acuan: "<Static|DHCP> - vlan: N - IP". Potongan yang tidak
-                  dikirim backend hilang dari teks; tanpa mode sama sekali = `Inactive`. */}
+              {/* Mgmt IP mengikuti acuan: "<Static|DHCP> - vlan: N - IP". Mode kosong berarti
+                  belum terbaca dari perangkat, bukan fakta `Inactive`. */}
               <DRow label="Mgmt IP" value={
-                mgmtMode === null ? "Inactive" : (
+                mgmtMode === null ? "— (belum terbaca)" : (
                   <>
                     <span>
                       {mgmtMode}
-                      {d.vlan_id !== null && ` - vlan: ${d.vlan_id}`}
+                      {d.mgmt_vlan != null && ` - vlan: ${d.mgmt_vlan}`}
                       {d.ip_address && " - "}
                     </span>
                     {d.ip_address && <IpLink ip={d.ip_address} />}
