@@ -360,9 +360,9 @@ check("panel LIVE hanya dirender saat LIVE aktif, Pps/Avg size '—' tanpa count
 });
 
 check("kartu Traffic history menggambar sampel tersimpan, bukan angka karangan", () => {
-  const i = page.indexOf('<ChartCard title="Traffic history"');
-  assert.notEqual(i, -1, "kartu Traffic history hilang");
-  const card = page.slice(i, i + 1400);
+  const i = page.indexOf("<ChartCard title={`Trafik ${RANGE_TITLE[range]}`}");
+  assert.notEqual(i, -1, "kartu histori trafik hilang");
+  const card = page.slice(i, i + 2200);
   assert.ok(card.includes("<TrafficHistoryChart points={trafficHistory.data ?? []}"),
             "grafik tidak dipasang ke data endpoint histori");
   // Pesan lama ("backend belum menyimpan") tidak boleh kembali: backend sudah menyimpan.
@@ -374,7 +374,8 @@ check("kartu Traffic history menggambar sampel tersimpan, bukan angka karangan",
   // Sampel tanpa laju memutus garis; tidak pernah diganti 0.
   assert.ok(chart.includes("if (v === null)") && chart.includes("current = []"),
             "titik null tidak memutus garis");
-  assert.ok(chart.includes("Mengumpulkan sampel"), "pesan kosong jujur tidak ada");
+  assert.ok(chart.includes("Belum ada sampel trafik") && chart.includes("Tunggu poll berikutnya"),
+            "pesan kosong harus menyebut sebab dan satu aksi");
   assert.ok(!/in_bps\s*\?\?\s*0\s*\)\s*\/\s*1e6/.test(chart), "laju null diganti nol");
 });
 
@@ -484,9 +485,14 @@ check("kartu Signal & Status history tidak menyerah pada satu sampel", () => {
             "pesan kosong harus hanya untuk 0 bacaan Rx (dihitung dari semua garis)");
   assert.ok(chart.includes("s.values.length === 1") && chart.includes("<circle"),
             "satu titik harus digambar sebagai lingkaran (polyline 1 titik tidak terlihat)");
-  // Judul kartu menjanjikan 'Status history', jadi pita status harus benar-benar dirender.
-  assert.ok(page.includes('ChartCard title="Signal &amp; Status history"'),
-            "judul kartu berubah: perbarui pemeriksaan ini");
+  assert.ok(chart.includes("dataMin - 1.5") && chart.includes("dataMax + 1.5"),
+            "domain Rx harus rapat ke data");
+  assert.ok(chart.includes("-27.25") && chart.includes("-24.75"),
+            "domain Rx harus tetap memuat ambang -25 dan -27");
+  assert.ok(!chart.includes("Math.min(...all, -30)") && !chart.includes("Math.max(...all, -8)"),
+            "domain Rx lebar lama kembali");
+  assert.ok(page.includes("<ChartCard title={`Sinyal ${RANGE_TITLE[srange]}`}"),
+            "judul kartu sinyal harus mengikuti rentang terpilih");
   assert.ok((page.match(/<StatusStrip points=\{points\} \/>/g) ?? []).length >= 2,
             "pita Status history tidak dirender di kedua cabang RxChart");
   const strip = page.slice(page.indexOf("function StatusStrip"));

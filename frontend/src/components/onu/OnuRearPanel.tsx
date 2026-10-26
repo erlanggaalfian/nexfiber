@@ -12,7 +12,7 @@ function Jack({ label, children }: { label: string; children: React.ReactNode })
   return (
     <div className="flex shrink-0 flex-col items-center gap-1">
       {children}
-      <span className="font-mono text-[10px] uppercase leading-none text-faint">{label}</span>
+      <span className="font-mono text-xs font-medium uppercase leading-none text-muted">{label}</span>
     </div>
   );
 }

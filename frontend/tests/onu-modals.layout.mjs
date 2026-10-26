@@ -95,13 +95,13 @@ const CASES = [
   ["attached-vlans", (p) => p.getByRole("button", { name: /^Attached VLANs/ }).click(), "Update attached VLANs"],
   ["onu-mode", (p) => p.getByRole("button", { name: /^ONU mode/ }).click(), "Update ONU mode"],
   ["location", (p) => p.getByRole("button", { name: /^Zone/ }).click(), "Update location details"],
-  ["eth-port", (p) => p.getByLabel("Konfigurasi eth_0/1").click(), "Configure ethernet port eth_0/1"],
-  ["wifi-port", (p) => p.getByLabel("Konfigurasi wifi_0/1").click(), "Configure WiFi port wifi_0/1"],
+  ["eth-port", (p) => p.getByLabel("Konfigurasi eth_0/1").and(p.locator(":visible")).click(), "Configure ethernet port eth_0/1"],
+  ["wifi-port", (p) => p.getByLabel("Konfigurasi wifi_0/1").and(p.locator(":visible")).click(), "Configure WiFi port wifi_0/1"],
   ["onu-type", (p) => p.getByRole("button", { name: /^ONU type/ }).click(), "Change ONU type"],
   ["external-id", (p) => p.getByRole("button", { name: /^ONU external ID/ }).click(), "Update ONU external ID"],
   // Titik buka "Ubah speed"/"Replace ONU / ganti SN" di blok Aksi DIBUANG (permintaan pemilik):
   // keduanya kini hanya dibuka dari tabel Profil Kecepatan dan baris identitas SN.
-  ["speed-profile", (p) => p.getByLabel("Konfigurasi profil kecepatan").click(), "Configure speed profiles"],
+  ["speed-profile", (p) => p.getByLabel("Konfigurasi profil kecepatan").and(p.locator(":visible")).click(), "Configure speed profiles"],
   ["replace-sn", (p) => p.getByRole("button", { name: /^SN/ }).click(), "Replace ONU by SN"],
   ["mgmt-ip", (p) => p.getByRole("button", { name: /^Mgmt IP/ }).click(), "Update Management and VoIP IP"],
   ["voip-enable", (p) => p.getByRole("button", { name: /^Layanan VoIP/ }).click(), "Enable VoIP"],
