@@ -14,6 +14,7 @@ from app.models.olt import Olt
 from app.services import (
     olt_service,
     onu_service,
+    onu_traffic_history_service,
     speed_profile_service,
     sync_service,
     vlan_service,
@@ -87,6 +88,10 @@ async def sync_olt_metrics(db, job, olt, driver):
 async def sync_unconfigured(db, job, olt, driver):
     return await sync_service.sync_unconfigured(db, olt, driver)
 
+async def sample_onu_traffic(db, job, olt, driver):
+    """Sampler histori trafik: SNMP saja, tidak memakai `driver` (dua bulkwalk per OLT)."""
+    return await onu_traffic_history_service.sample_olt(db, olt)
+
 async def backup_olt_config(db, job, olt, driver):
     triggered_by = f"user:{job.created_by}" if job.created_by else "schedule"
     return await sync_service.backup_olt_config(db, olt, driver, triggered_by)
@@ -147,6 +152,7 @@ HANDLERS: dict[str, Handler] = {
     "sync_onu_optical": sync_onu_optical,
     "sync_olt_metrics": sync_olt_metrics,
     "sync_unconfigured": sync_unconfigured,
+    "sample_onu_traffic": sample_onu_traffic,
     "backup_olt_config": backup_olt_config,
     "test_connection": test_connection,
     "set_vlan_ports": set_vlan_ports,

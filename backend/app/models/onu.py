@@ -119,6 +119,30 @@ class Onu(TimestampMixin, Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class OnuTrafficHistory(Base):
+    """Sampel counter octet per ONU + laju bps yang sudah dihitung saat sampling.
+
+    bps dihitung di backend (bukan di frontend) karena hanya backend yang tahu sampel
+    sebelumnya; kalau counter wrap/reset atau OLT tak terjangkau, bps-nya NULL — tidak
+    pernah 0 palsu. Counter mentah tetap disimpan supaya laju bisa dihitung ulang kalau
+    rumusnya diperbaiki.
+    """
+
+    __tablename__ = "onu_traffic_history"
+    __table_args__ = (
+        Index("ix_onu_traffic_onu_sampled", "onu_id", "sampled_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    onu_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("onus.id"), nullable=False)
+    # Relatif ONU (schemas/onu_traffic.py): in = masuk ke ONU = download pelanggan.
+    in_octets: Mapped[int] = mapped_column(Numeric(20, 0), nullable=False)
+    out_octets: Mapped[int] = mapped_column(Numeric(20, 0), nullable=False)
+    in_bps: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    out_bps: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    sampled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class OnuSignalHistory(Base):
     """Separate from onus so the main row isn't UPDATEd thousands of times/day (PRD 4.6)."""
 

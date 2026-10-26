@@ -34,3 +34,17 @@ class OnuTrafficSample(BaseModel):
     in_octets: str = Field(description="Desimal string; octet MASUK ke ONU = download")
     out_octets: str = Field(description="Desimal string; octet KELUAR dari ONU = upload")
     counter_bits: Literal[32, 64] = Field(description="Lebar counter: modulus wrap = 2**bits")
+
+
+class OnuTrafficPoint(BaseModel):
+    """Satu titik grafik `Traffic history` (sampel tersimpan, interval ±5 menit).
+
+    Berbeda dari `OnuTrafficSample`: laju sudah DIHITUNG backend dari sampel sebelumnya
+    (hanya backend yang menyimpan masa lalu). `null` = laju tidak diketahui (sampel
+    pertama, counter wrap, atau sampler sempat berhenti) — frontend harus memutus garis
+    di titik itu, bukan menggambar nol.
+    """
+
+    sampled_at: datetime
+    in_bps: int | None = Field(description="bit/detik MASUK ke ONU = download pelanggan")
+    out_bps: int | None = Field(description="bit/detik KELUAR dari ONU = upload pelanggan")

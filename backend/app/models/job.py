@@ -26,6 +26,7 @@ JobType = Enum(
     "sync_onu_optical",
     "sync_olt_metrics",
     "sync_unconfigured",
+    "sample_onu_traffic",
     "backup_olt_config",
     "apply_speed_profile",
     "create_vlan",
@@ -76,7 +77,7 @@ class Job(TimestampMixin, Base):
             postgresql_where=text(
                 "status IN ('pending','running') "
                 "AND job_type IN ('sync_onu_status','sync_onu_optical','sync_unconfigured',"
-                "'sync_olt_metrics')"
+                "'sync_olt_metrics','sample_onu_traffic')"
             ),
         ),
     )

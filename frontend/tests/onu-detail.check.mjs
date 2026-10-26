@@ -346,12 +346,23 @@ check("panel LIVE hanya dirender saat LIVE aktif, Pps/Avg size '—' tanpa count
   assert.ok(page.includes('cell("Avg size", "—")'), "Avg size harus —");
 });
 
-check("kartu Traffic history dibiarkan kosong: backend belum menyimpan sampel", () => {
+check("kartu Traffic history menggambar sampel tersimpan, bukan angka karangan", () => {
   const i = page.indexOf('<ChartCard title="Traffic history"');
   assert.notEqual(i, -1, "kartu Traffic history hilang");
-  const card = page.slice(i, i + 700);
-  assert.ok(card.includes("backend belum menyimpan sampel counter"), "keterangan jujur");
-  assert.ok(!card.includes("<svg"), "grafik histori digambar tanpa data");
+  const card = page.slice(i, i + 1400);
+  assert.ok(card.includes("<TrafficHistoryChart points={trafficHistory.data ?? []}"),
+            "grafik tidak dipasang ke data endpoint histori");
+  // Pesan lama ("backend belum menyimpan") tidak boleh kembali: backend sudah menyimpan.
+  assert.ok(!page.includes("backend belum menyimpan sampel counter"), "klaim lama kembali");
+  // Data diambil dari endpoint histori, bukan dihitung ulang di halaman.
+  assert.ok(page.includes("/traffic/history?range=${range}"), "endpoint histori tidak dipanggil");
+  const chart = page.slice(page.indexOf("function TrafficHistoryChart"),
+                           page.indexOf("function trafficStats"));
+  // Sampel tanpa laju memutus garis; tidak pernah diganti 0.
+  assert.ok(chart.includes("if (v === null)") && chart.includes("current = []"),
+            "titik null tidak memutus garis");
+  assert.ok(chart.includes("Mengumpulkan sampel"), "pesan kosong jujur tidak ada");
+  assert.ok(!/in_bps\s*\?\?\s*0\s*\)\s*\/\s*1e6/.test(chart), "laju null diganti nol");
 });
 
 check("Rx tanpa bacaan = LOS, bukan angka karangan", () => {

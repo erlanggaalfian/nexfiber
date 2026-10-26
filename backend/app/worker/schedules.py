@@ -11,6 +11,7 @@ from app.core.db import SessionLocal
 from app.core.exceptions import ConflictError
 from app.models.olt import Olt
 from app.services import job_service, olt_onboarding
+from app.services import onu_traffic_history_service as traffic_history_service
 
 log = logging.getLogger("nexfiber.schedules")
 
@@ -38,6 +39,11 @@ def start_scheduler() -> AsyncIOScheduler:
                           max_instances=1, coalesce=True, **when)
 
     add("sync_onu_status", "interval", minutes=1)
+    # Histori trafik: sampel counter per ONU, 2 bulkwalk per OLT per siklus (bukan per
+    # ONU). 5 menit = kompromi yang dipakai aplikasi referensi: cukup halus untuk grafik
+    # 24 jam, cukup jarang supaya 30 hari × 1000 ONU tetap wajar di tabel biasa.
+    add("sample_onu_traffic", "interval",
+        minutes=traffic_history_service.SAMPLE_INTERVAL_MINUTES)
     # DECISIONS "Job & scheduling": optical + kesehatan OLT satu job (sync_olt_metrics),
     # satu koneksi per OLT tiap 15 menit. Jangan tambah job sync_olt_health terpisah.
     add("sync_olt_metrics", "interval", minutes=15)

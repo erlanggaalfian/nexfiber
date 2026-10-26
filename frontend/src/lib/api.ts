@@ -176,6 +176,13 @@ export type SignalPoint = {
   olt_rx_power_dbm: number | null; status: string;
 };
 
+/** GET /api/onus/{serial}/traffic/history — sampel tersimpan (±5 menit sekali).
+ *  bps sudah dihitung backend dari dua sampel berurutan; `null` = laju tidak diketahui
+ *  (sampel pertama / counter wrap / sampler sempat berhenti), JANGAN digambar sebagai 0. */
+export type TrafficHistoryPoint = {
+  sampled_at: string; in_bps: number | null; out_bps: number | null;
+};
+
 export type OnuLog = {
   id: number; created_at: string; username: string | null; action: string; success: boolean;
   job_id: number | null; raw_command: string | null; raw_output: string | null;

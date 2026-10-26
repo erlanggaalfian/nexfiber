@@ -43,6 +43,13 @@ const onuTypes = [{
 const routes = [
   [/\/api\/auth\/me$/, me],
   [/\/api\/onus\/[^/]+\/signal/, []],
+  // Histori trafik: sampel sintetis HANYA untuk harness (bukan data pelanggan nyata),
+  // supaya grafik benar-benar dirender dan overflow-nya ikut terukur.
+  [/\/api\/onus\/[^/]+\/traffic\/history/, Array.from({ length: 24 }, (_, i) => ({
+    sampled_at: new Date(Date.UTC(2026, 9, 25, i)).toISOString(),
+    in_bps: i % 7 === 0 ? null : 1_000_000 * (i + 1),
+    out_bps: i % 7 === 0 ? null : 200_000 * (i + 1),
+  }))],
   [/\/api\/onus\/[^/]+\/logs/, []],
   [/\/api\/onus\/by-id\//, detail],
   [/\/api\/onus\/[^/?]+$/, detail],

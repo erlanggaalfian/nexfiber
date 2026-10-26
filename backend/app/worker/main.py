@@ -40,7 +40,7 @@ PERMANENT_ERRORS = (
 # Job yang HANYA pakai SNMP (lihat driver: fetch_onu_status/fetch_optical tidak membuka
 # CLI). Job ini tidak perlu kunci CLI, jadi status/optical satu OLT boleh jalan bersamaan
 # dengan job CLI OLT lain tanpa ikut mengantre.
-SNMP_ONLY_JOBS = frozenset({"sync_onu_status", "sync_onu_optical"})
+SNMP_ONLY_JOBS = frozenset({"sync_onu_status", "sync_onu_optical", "sample_onu_traffic"})
 # OLT sedang dipakai sesi CLI lain: bukan error, cuma antre. Coba lagi sebentar lagi.
 CLI_BUSY_RETRY = timedelta(seconds=5)
 

@@ -261,7 +261,7 @@ def test_endpoint_registered_with_no_store():
     from app.routers import onu_traffic as router_mod
 
     paths = {r.path for r in router_mod.router.routes if isinstance(r, APIRoute)}
-    assert paths == {"/api/onus/{serial}/traffic"}
+    assert paths == {"/api/onus/{serial}/traffic", "/api/onus/{serial}/traffic/history"}
     assert "no-store" in inspect.getsource(router_mod)
     main_src = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text()
     assert "onu_traffic" in main_src

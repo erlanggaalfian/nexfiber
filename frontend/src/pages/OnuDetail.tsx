@@ -20,8 +20,10 @@
  *    kata sandi TIDAK PERNAH dirender (backend tidak mengirimnya);
  *  - `Pps`/`Avg size` di panel LIVE = "—": kontrak counter backend hanya octet, tidak ada
  *    counter paket. Tidak ada OID/CLI baru yang ditambahkan ke perangkat untuk ini;
- *  - kartu `Traffic history` (histori jam-jaman) KOSONG dengan keterangan jujur: backend
- *    belum menyimpan sampel counter di DB. Diajukan terpisah, bukan dikarang di frontend;
+ *  - kartu `Traffic history` menggambar sampel bps yang BENAR-BENAR tersimpan di DB
+ *    (`onu_traffic_history`, diisi job worker `sample_onu_traffic` tiap 5 menit lewat
+ *    SNMP); titik tanpa laju (sampel pertama/wrap/sampler berhenti) memutus garis, tidak
+ *    pernah digambar nol, dan pesan kosong hanya muncul kalau sampelnya memang belum ada;
  *  - tombol `TR-069` dirender MATI (belum ada ACS internal), bukan tombol ke endpoint karangan.
  *
  *  Warna memakai token Nexfiber sendiri (`bg-surface`, `text-fiber`, dst.), bukan palet/CDN
@@ -54,7 +56,7 @@ import {
 import { Button } from "../components/ui/button";
 import {
   api, ApiError, type OnuDetail as Detail, type OnuLog, type OnuType, type SignalPoint,
-  type Splitter, type Zone,
+  type Splitter, type TrafficHistoryPoint, type Zone,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { DONE, useJob } from "../lib/jobs";
@@ -346,6 +348,89 @@ function niceTop(peak: number) {
   return 10 * pow;
 }
 
+/** Grafik `Traffic history`: dua polyline dari sampel bps yang BENAR-BENAR tersimpan di
+ *  DB (sampler worker, ±5 menit sekali). Titik dengan `null` (laju tidak diketahui:
+ *  sampel pertama, counter wrap, sampler berhenti) MEMUTUS garis — tidak pernah
+ *  digambar sebagai nol.
+ *
+ *  ponytail: satu SVG polyline seperti RxChart/LiveChart, bukan library chart —
+ *  pertanyaan operator ("kapan jenuh / kapan sepi") sudah terjawab garis.
+ *  skipped: tooltip per titik, zoom; tambah kalau operator memintanya. */
+function TrafficHistoryChart({ points }: { points: TrafficHistoryPoint[] }) {
+  const rated = points.filter((p) => p.in_bps !== null || p.out_bps !== null);
+  if (rated.length < 2) {
+    return (
+      <p className="py-10 text-center text-muted">
+        Mengumpulkan sampel; grafik muncul setelah beberapa menit
+        {points.length > 0 && ` (baru ${points.length} sampel)`}.
+      </p>
+    );
+  }
+  const peak = Math.max(...rated.flatMap((p) => [p.in_bps ?? 0, p.out_bps ?? 0])) / 1e6;
+  const top = niceTop(peak);
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * top);
+  const x = (i: number) => (i / (points.length - 1)) * 100;
+  const y = (mbpsValue: number) => 100 - (mbpsValue / top) * 100;
+  /** Segmen terpisah per rentetan titik yang lajunya diketahui: jeda sampler = garis putus. */
+  const segments = (pick: (p: TrafficHistoryPoint) => number | null) => {
+    const out: string[] = [];
+    let current: string[] = [];
+    points.forEach((p, i) => {
+      const v = pick(p);
+      if (v === null) {
+        if (current.length > 1) out.push(current.join(" "));
+        current = [];
+        return;
+      }
+      current.push(`${x(i)},${y(v / 1e6)}`);
+    });
+    if (current.length > 1) out.push(current.join(" "));
+    return out;
+  };
+  const span = `${fmtDateTime(points[0].sampled_at)} → ${fmtDateTime(points[points.length - 1].sampled_at)}`;
+  return (
+    <div className="flex gap-2">
+      {/* Label sumbu Y di luar SVG: SVG-nya non-uniform scale, teks di dalamnya ikut melar. */}
+      <div className="flex w-12 shrink-0 flex-col justify-between py-0.5 text-right font-mono text-[10px] text-faint">
+        {[...ticks].reverse().map((t, i) => <span key={i}>{axisTick(t)}</span>)}
+      </div>
+      <div className="min-w-0 grow">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-40 w-full" role="img"
+             aria-label={`Grafik histori trafik, ${rated.length} sampel, puncak ${peak.toFixed(2)} Mbps`}>
+          {ticks.map((t) => (
+            <line key={t} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
+                  strokeWidth="0.3" className="text-line" vectorEffect="non-scaling-stroke" />
+          ))}
+          {segments((p) => p.out_bps).map((pts, i) => (
+            <polyline key={`up-${i}`} points={pts} fill="none" stroke="currentColor"
+                      strokeWidth="1.2" className="text-amber" vectorEffect="non-scaling-stroke" />
+          ))}
+          {segments((p) => p.in_bps).map((pts, i) => (
+            <polyline key={`down-${i}`} points={pts} fill="none" stroke="currentColor"
+                      strokeWidth="1.2" className="text-fiber" vectorEffect="non-scaling-stroke" />
+          ))}
+        </svg>
+        <p className="mt-1 text-center font-mono text-[10px] text-faint">Mbps · {span}</p>
+      </div>
+    </div>
+  );
+}
+
+/** Ringkasan histori trafik: puncak & rata-rata per arah dari sampel yang lajunya diketahui. */
+function trafficStats(points: TrafficHistoryPoint[]) {
+  const pick = (f: (p: TrafficHistoryPoint) => number | null) =>
+    points.map(f).filter((v): v is number => v !== null);
+  const down = pick((p) => p.in_bps);
+  const up = pick((p) => p.out_bps);
+  if (down.length === 0 && up.length === 0) return null;
+  const avg = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+  return {
+    count: Math.max(down.length, up.length),
+    downMax: Math.max(0, ...down) / 1e6, downAvg: avg(down) / 1e6,
+    upMax: Math.max(0, ...up) / 1e6, upAvg: avg(up) / 1e6,
+  };
+}
+
 const axisTick = (v: number) => (v === 0 ? "0" : v < 1 ? v.toFixed(1) : String(Number(v.toFixed(1))));
 
 /** Satu baris ringkasan arah (naik/turun) di bawah grafik LIVE, mengikuti acuan:
@@ -624,6 +709,14 @@ export function OnuDetail() {
     queryFn: () => api<OnuLog[]>(`/api/onus/${serial}/logs?limit=50`),
     enabled: serial !== "",
   });
+  /** Histori trafik dari sampel tersimpan (tanpa menyentuh OLT) — rentang sama dengan
+   *  kartu sinyal supaya satu pemilih rentang mengatur kedua grafik. */
+  const trafficHistory = useQuery({
+    queryKey: ["onu", serial, "traffic-history", range],
+    queryFn: () =>
+      api<TrafficHistoryPoint[]>(`/api/onus/${serial}/traffic/history?range=${range}`),
+    enabled: serial !== "",
+  });
   const zones = useQuery({ queryKey: ["zones"], queryFn: () => api<Zone[]>("/api/zones") });
   const splitters = useQuery({
     queryKey: ["splitters", "all"], queryFn: () => api<Splitter[]>("/api/splitters"),
@@ -698,6 +791,7 @@ export function OnuDetail() {
   }
   const d = onu.data;
   const stats = rxStats(signal.data ?? []);
+  const tStats = trafficStats(trafficHistory.data ?? []);
   const specs = (onuTypes.data ?? []).find(
     (t) => t.id === d.onu_type_id || t.name.toLowerCase() === (d.onu_type ?? "").toLowerCase(),
   );
@@ -1078,14 +1172,24 @@ export function OnuDetail() {
           flex), menumpuk penuh di bawah 768px seperti aturan `@media` acuan. */}
       <Section label="Traffic/Signal">
         <div className="flex flex-col gap-4 lg:flex-row">
-          <ChartCard title="Traffic history" note="bits per second">
-            {/* Histori trafik jam-jaman butuh penyimpanan sampel counter di DB yang BELUM ada
-                di backend Nexfiber (tidak ada tabel/endpoint-nya). Kartu dibiarkan kosong
-                dengan keterangan jujur — laju realtime ada di panel LIVE di atas. */}
-            <p className="py-10 text-center text-muted">
-              Belum ada histori trafik: backend belum menyimpan sampel counter per jam.
-              Laju realtime bisa dilihat lewat tombol LIVE! di atas.
-            </p>
+          <ChartCard title="Traffic history" note={`bits per second · rentang ${range}`}
+            legend={
+              <>
+                <LegendRow color="bg-fiber" label={`Download maks · rata-rata (${range})`}
+                  value={tStats ? `${mbps(tStats.downMax)} · ${mbps(tStats.downAvg)}` : "—"} />
+                <LegendRow color="bg-amber" label={`Upload maks · rata-rata (${range})`}
+                  value={tStats ? `${mbps(tStats.upMax)} · ${mbps(tStats.upAvg)}` : "—"} />
+                <LegendRow color="bg-sunken" label="Sampel dengan laju terbaca"
+                  value={tStats ? String(tStats.count) : "0"} />
+              </>
+            }>
+            {/* Sampel counter dikumpulkan sampler worker (job `sample_onu_traffic`, 5 menit
+                sekali, 2 bulkwalk per OLT) dan disimpan di `onu_traffic_history`. Halaman
+                ini hanya menggambar sampel yang ADA — pesan kosong hanya muncul kalau
+                sampelnya memang belum terkumpul. */}
+            {trafficHistory.isPending
+              ? <Skeleton text="Memuat histori trafik ..." rows={2} />
+              : <TrafficHistoryChart points={trafficHistory.data ?? []} />}
           </ChartCard>
           <ChartCard title="Signal &amp; Status history" note={`dBm · rentang ${range}`}
             legend={
