@@ -46,7 +46,7 @@ const onuTypes = [{
 /** Satu aksi sengaja `supported:false` untuk membuktikan modal tetap terbuka + tombol mati. */
 const KINDS = [
   "attached-vlans", "onu-mode", "eth-port", "wifi-port", "wifi-clear", "external-id",
-  "onu-type", "speed-profile", "move", "replace-sn", "mgmt-ip", "voip-enable",
+  "onu-type", "speed-profile", "replace-sn", "mgmt-ip", "voip-enable",
   "voip-disable", "iptv", "reboot", "disable", "enable", "restore-factory",
   "resync-config", "delete",
 ];
@@ -99,9 +99,10 @@ const CASES = [
   ["wifi-port", (p) => p.getByLabel("Konfigurasi wifi_0/1").click(), "Configure WiFi port wifi_0/1"],
   ["onu-type", (p) => p.getByRole("button", { name: /^ONU type/ }).click(), "Change ONU type"],
   ["external-id", (p) => p.getByRole("button", { name: /^ONU external ID/ }).click(), "Update ONU external ID"],
-  ["speed-profile", (p) => p.getByRole("button", { name: "Ubah speed" }).click(), "Configure speed profiles"],
-  ["move", (p) => p.getByRole("button", { name: "Move ONU" }).click(), "Move ONU"],
-  ["replace-sn", (p) => p.getByRole("button", { name: /^Replace ONU/ }).click(), "Replace ONU by SN"],
+  // Titik buka "Ubah speed"/"Replace ONU / ganti SN" di blok Aksi DIBUANG (permintaan pemilik):
+  // keduanya kini hanya dibuka dari tabel Profil Kecepatan dan baris identitas SN.
+  ["speed-profile", (p) => p.getByLabel("Konfigurasi profil kecepatan").click(), "Configure speed profiles"],
+  ["replace-sn", (p) => p.getByRole("button", { name: /^SN/ }).click(), "Replace ONU by SN"],
   ["mgmt-ip", (p) => p.getByRole("button", { name: /^Mgmt IP/ }).click(), "Update Management and VoIP IP"],
   ["voip-enable", (p) => p.getByRole("button", { name: /^Layanan VoIP/ }).click(), "Enable VoIP"],
   ["iptv", (p) => p.getByRole("button", { name: /^IPTV/ }).click(), "Update IPTV"],

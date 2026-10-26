@@ -239,6 +239,12 @@ async def run_action(db: AsyncSession, onu_id: int, kind: str, body: dict,
 
     driver = build_driver(olt)
     result = await driver.run_onu_commands(commands)
+    # Perintah "Update attached VLANs" SUKSES = daftar service-port ONU sekarang persis
+    # `vlan_numbers` (build_attached_vlans menulis satu service-port per VLAN). Simpan
+    # langsung supaya modal dibuka ulang sudah tercentang benar tanpa menunggu siklus
+    # sync 15 menit. Hanya saat sukses — kalau OLT menolak, DB tidak boleh mengklaim.
+    if kind == "attached-vlans" and result.success and vlan_numbers is not None:
+        onu.service_vlan_ids = list(vlan_numbers)
     await log_activity(
         db, action=f"onu.action.{kind}", entity_type="onu", entity_id=str(onu.id),
         success=result.success, user_id=user.id, olt_id=onu.olt_id, onu_id=onu.id,

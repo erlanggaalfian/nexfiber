@@ -5,10 +5,13 @@
  *  - `Setup via ONU webpage` tidak punya sumber IP maupun PPPoE;
  *  - `Static IP` memunculkan sumber IP (pool/manual) + alamat IP;
  *  - `PPPoE` memunculkan username + password (tombol mata) saja.
- *  Kata sandi hanya di state lokal modal ini dan hilang saat modal ditutup.
+ *  Username/password PPPoE terisi dari data ONU hasil sinkron running-config (password
+ *  plaintext hanya dikirim backend ke role manager); keduanya tetap hanya di state lokal
+ *  modal ini dan hilang saat modal ditutup.
  */
 import { useState } from "react";
-import { serviceVlanOptions, type OnuConfigOptions } from "../../../lib/onuActions";
+import { type OnuConfigOptions } from "../../../lib/onuActions";
+import { wanVlanChoices } from "../../../lib/wanVlan";
 import { Help, ModalShell, PasswordInput, Radios, Row, Select, field } from "./ModalShell";
 
 export type OnuModeBody = {
@@ -40,7 +43,17 @@ export function OnuModeModal(
   { options, current, supported, note, busy, error, onClose, onSubmit }:
   {
     options: OnuConfigOptions | undefined;
-    current: { wan_vlan: number | null; onu_mode: string | null; wan_mode: string | null; pppoe_username?: string | null };
+    current: {
+      /** VLAN WAN nyata perangkat (`onus.wan_vlan`). */
+      wan_vlan: number | null;
+      /** VLAN yang DICENTANG di "Update attached VLANs" = satu-satunya pilihan WAN VLAN. */
+      attached_vlans: number[];
+      onu_mode: string | null;
+      wan_mode: string | null;
+      pppoe_username?: string | null;
+      /** Plaintext dari backend (manager saja); diisi ke field supaya bisa dilihat/diubah. */
+      pppoe_password?: string | null;
+    };
     supported: boolean | null;
     note?: string | null;
     busy?: boolean;
@@ -61,7 +74,7 @@ export function OnuModeModal(
   const [ipSource, setIpSource] = useState<"pool" | "manual">("pool");
   const [ip, setIp] = useState("");
   const [user, setUser] = useState(current.pppoe_username ?? "");
-  const [pass, setPass] = useState("");
+  const [pass, setPass] = useState(current.pppoe_password ?? "");
   const [remote, setRemote] = useState("disabled");
 
   const routing = mode === "routing";
@@ -70,6 +83,9 @@ export function OnuModeModal(
   /** `wan_modes` dari backend = mode yang didukung perangkat; kosong = semua ditawarkan. */
   const allowed = options?.wan_modes ?? [];
   const text = (v: string) => (v.trim() === "" ? null : v.trim());
+  /** Pilihan WAN VLAN = HANYA VLAN terpasang ONU + VLAN WAN yang sedang berlaku
+   *  (lihat `wanVlanChoices`; diuji di `frontend/tests/onu-mode.check.mjs`). */
+  const vlanChoices = wanVlanChoices(options?.vlans, current.attached_vlans, current.wan_vlan);
 
   return (
     <ModalShell title="Update ONU mode" action="Update" supported={supported} note={note}
@@ -90,8 +106,10 @@ export function OnuModeModal(
              Setelah WAN VLAN-ID diubah, periksa setelan port Ethernet dan perbarui VLAN sesuai kebutuhan.
            </Help>}>
         <Select value={wanVlan} onChange={setWanVlan} placeholder="Tanpa VLAN" label="WAN VLAN-ID">
-          {serviceVlanOptions(options).map((v) => (
-            <option key={v.number} value={v.number}>{v.number} - {v.name}</option>
+          {vlanChoices.map((v) => (
+            <option key={v.number} value={v.number}>
+              {v.name === null ? v.number : `${v.number} - ${v.name}`}
+            </option>
           ))}
         </Select>
       </Row>

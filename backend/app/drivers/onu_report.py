@@ -179,6 +179,20 @@ def parse_pppoe(running: str) -> tuple[str, str | None] | None:
     return (m.group(1), m.group(2)) if m else None
 
 
+_WAN_FLOW_RE = re.compile(r"^\s*flow\s+1\s+pri\s+\d+\s+vlan\s+(\d+)\s*$", re.I | re.M)
+
+
+def parse_wan_vlan(running: str) -> int | None:
+    """VLAN WAN ONU = `flow 1 pri <p> vlan <N>` di stanza `pon-onu-mng`.
+
+    `flow 1` adalah flow yang dipakai gemport 1 (layanan WAN) pada semua stanza nyata OLT
+    ini; flow 2 dst. milik layanan lain (mgmt/VoIP) dan sengaja TIDAK dianggap VLAN WAN.
+    None bila perangkat tidak melaporkan baris itu — tidak ada tebakan dari VLAN lain.
+    """
+    m = _WAN_FLOW_RE.search(running or "")
+    return int(m.group(1)) if m else None
+
+
 # --- Info SW ----------------------------------------------------------------------
 
 _REGION_RE = re.compile(

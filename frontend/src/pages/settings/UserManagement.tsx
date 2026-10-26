@@ -1,11 +1,11 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Dialog } from "radix-ui";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { Navigate } from "react-router";
 import * as z from "zod";
 import { Empty, ErrorState, PageTitle, Skeleton, fmtDateTime } from "../../components/data";
+import { ConfirmShell, DrawerShell, ModalShell } from "../../components/onu/modals/ModalShell";
 import { Button } from "../../components/ui/button";
 import { api, qs, type Olt, type Role } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
@@ -110,15 +110,13 @@ function UserDrawer({ edit, onClose }: { edit: UserRow | null; onClose: () => vo
   const role = watch("role");
 
   return (
-    <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
-        <Dialog.Content className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[480px] flex-col border-l bg-surface shadow-modal data-[state=closed]:animate-[drawer-out_200ms_ease-in] data-[state=open]:animate-[drawer-in_250ms_ease-out]">
-          <Dialog.Title className="border-b px-4 py-3 text-lg font-semibold">
-            {edit ? `Edit ${edit.username}` : "Tambah user"}
-          </Dialog.Title>
-          <form onSubmit={handleSubmit((f) => save.mutate(f))} className="flex min-h-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+    <DrawerShell
+      title={edit ? `Edit ${edit.username}` : "Tambah user"}
+      onClose={onClose}
+      onSubmit={() => void handleSubmit((f) => save.mutate(f))()}
+      busy={save.isPending}
+      error={save.isError ? save.error.message : undefined}
+    >
               {!edit && (
                 <Field label="Username" error={formState.errors.username?.message}>
                   <input className={input} autoFocus autoComplete="off" {...register("username")} />
@@ -181,18 +179,7 @@ function UserDrawer({ edit, onClose }: { edit: UserRow | null; onClose: () => vo
                   </span>
                 </Field>
               )}
-              {save.isError && <p className="text-down" role="alert">{save.error.message}</p>}
-            </div>
-            <div className="flex justify-end gap-2 border-t px-4 py-3">
-              <Dialog.Close asChild><Button>Batal</Button></Dialog.Close>
-              <Button type="submit" variant="fiber" disabled={save.isPending}>
-                {save.isPending ? "Menyimpan ..." : "Simpan"}
-              </Button>
-            </div>
-          </form>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    </DrawerShell>
   );
 }
 
@@ -201,20 +188,8 @@ function Confirm({ title, body, action, onConfirm, onClose, error, busy }: {
   error?: string; busy?: boolean;
 }) {
   return (
-    <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-md border bg-surface p-4 shadow-modal">
-          <Dialog.Title className="mb-2 text-lg font-semibold">{title}</Dialog.Title>
-          <p className="mb-4 text-muted">{body}</p>
-          {error && <p className="mb-3 text-down" role="alert">{error}</p>}
-          <div className="flex justify-end gap-2">
-            <Dialog.Close asChild><Button>Tutup</Button></Dialog.Close>
-            <Button variant="primary" onClick={onConfirm} disabled={busy}>{action}</Button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <ConfirmShell title={title} body={body} action={action} danger={false}
+                  onConfirm={onConfirm} onClose={onClose} error={error} busy={busy} />
   );
 }
 
@@ -384,19 +359,10 @@ export function UserManagement() {
         />
       )}
       {temp && (
-        <Dialog.Root open onOpenChange={() => setTemp("")}>
-          <Dialog.Portal>
-            <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
-            <Dialog.Content className="fixed top-1/2 left-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-md border bg-surface p-4 shadow-modal">
-              <Dialog.Title className="mb-2 text-lg font-semibold">Password sementara</Dialog.Title>
-              <p className="mb-3 text-muted">Catat sekarang; tidak bisa dilihat lagi.</p>
-              <p className="mb-4 rounded-sm bg-sunken px-2 py-1.5 font-mono select-all">{temp}</p>
-              <div className="flex justify-end">
-                <Dialog.Close asChild><Button variant="fiber">Selesai</Button></Dialog.Close>
-              </div>
-            </Dialog.Content>
-          </Dialog.Portal>
-        </Dialog.Root>
+        <ModalShell title="Password sementara" onClose={() => setTemp("")} closeLabel="Selesai">
+          <p className="mb-3 text-muted">Catat sekarang; tidak bisa dilihat lagi.</p>
+          <p className="rounded-sm bg-surface px-2 py-1.5 font-mono select-all">{temp}</p>
+        </ModalShell>
       )}
     </>
   );

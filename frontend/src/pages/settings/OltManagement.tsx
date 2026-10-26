@@ -1,12 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Dialog } from "radix-ui";
 import { useState, Fragment } from "react";
 import { useForm } from "react-hook-form";
 import { Link, Navigate } from "react-router";
 import * as z from "zod";
 import { PageTitle, StatusBadge, fmtDateTime } from "../../components/data";
 import { Drawer, Field, TableCard, cell, filterInput, input } from "../../components/crud";
+import { ConfirmShell } from "../../components/onu/modals/ModalShell";
 import { OltSyncProgressRow } from "../../components/OltSyncProgress";
 import { Button, buttonClass } from "../../components/ui/button";
 import { api, qs, type Olt, type OltRow } from "../../lib/api";
@@ -174,41 +174,32 @@ function DeleteDialog({ olt, onClose }: { olt: OltRow; onClose: () => void }) {
     },
   });
   return (
-    <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-md border bg-surface p-4 shadow-modal">
-          <Dialog.Title className="mb-2 text-lg font-semibold">Hapus {olt.name}?</Dialog.Title>
-          <p className="mb-4 text-muted">
-            {needsName
-              ? `${olt.onu_count} ONU ikut dinonaktifkan di aplikasi; perangkat tidak disentuh.`
-              : "OLT dihapus dari aplikasi; perangkat tidak disentuh."}
-          </p>
-          {needsName && (
-            <Field label="Ketik nama OLT">
-              <input
-                className={`${input} font-mono`}
-                autoFocus
-                autoComplete="off"
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-              />
-            </Field>
-          )}
-          {del.isError && <p className="mb-3 text-down" role="alert">{del.error.message}</p>}
-          <div className="flex justify-end gap-2">
-            <Dialog.Close asChild><Button>Tutup</Button></Dialog.Close>
-            <Button
-              variant="danger"
-              onClick={() => del.mutate()}
-              disabled={del.isPending || (needsName && typed !== olt.name)}
-            >
-              Hapus
-            </Button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <ConfirmShell
+      title={`Hapus ${olt.name}?`}
+      body={needsName
+        ? `${olt.onu_count} ONU ikut dinonaktifkan di aplikasi; perangkat tidak disentuh.`
+        : "OLT dihapus dari aplikasi; perangkat tidak disentuh."}
+      action="Hapus"
+      onConfirm={() => del.mutate()}
+      onClose={onClose}
+      error={del.isError ? del.error.message : undefined}
+      busy={del.isPending}
+      disabled={needsName && typed !== olt.name}
+    >
+      {needsName && (
+        <div className="mt-3">
+          <Field label="Ketik nama OLT">
+            <input
+              className={`${input} font-mono`}
+              autoFocus
+              autoComplete="off"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+            />
+          </Field>
+        </div>
+      )}
+    </ConfirmShell>
   );
 }
 

@@ -16,6 +16,7 @@ from app.models.olt import Olt, OltConfigBackup, PonPort
 from app.models.onu import Onu, OnuSignalHistory
 from app.models.unconfigured_onu import UnconfiguredOnu
 from app.models.vlan import Vlan
+from app.services import onboarding_sync
 
 
 async def _onus_by_position(db: AsyncSession, olt_id: int) -> dict[tuple[int, int, int], Onu]:
@@ -175,7 +176,7 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
         select(Onu).where(Onu.olt_id == olt.id, Onu.deleted_at.is_(None))
     )).scalars()}
     added = updated = skipped = 0
-    with_name = with_descr = with_pppoe = 0
+    with_name = with_descr = with_pppoe = with_wan_vlan = 0
     for snap in sorted(inv.onus, key=lambda s: s.serial_number):
         if snap.name:
             with_name += 1
@@ -216,6 +217,10 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
             if snap.pppoe_password:
                 onu.pppoe_password_enc = encrypt_secret(snap.pppoe_password)
             with_pppoe += 1
+        if snap.wan_vlan is not None:
+            # Sama alasannya: VLAN WAN di `flow 1` perangkat menimpa kolom DB.
+            onu.wan_vlan = snap.wan_vlan
+            with_wan_vlan += 1
         if snap.status == "online":
             onu.last_seen_at = now
         updated += 1
@@ -230,7 +235,7 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
             "vlans_on_device": len(inv.vlan_ids),
             # Bukti seberapa banyak metadata yang MEMANG dibaca dari perangkat (bukan tebakan).
             "onus_with_device_name": with_name, "onus_with_device_description": with_descr,
-            "onus_with_pppoe": with_pppoe}
+            "onus_with_pppoe": with_pppoe, "onus_with_wan_vlan": with_wan_vlan}
 
 async def sync_olt_metrics(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict:
     """Optical ONU + kesehatan OLT + adopsi inventory dalam SATU job per OLT
@@ -239,6 +244,13 @@ async def sync_olt_metrics(db: AsyncSession, olt: Olt, driver: OltDriver) -> dic
     """
     inventory = await _adopt_inventory(db, olt, driver, datetime.now(UTC))
     optical = await sync_onu_optical(db, olt, driver)
+    # Provisioning per-ONU (VLAN layanan, profil kecepatan, jarak) — SNMP, 7 bulkwalk untuk
+    # seluruh OLT. Tanpa langkah ini `onus.service_vlan_ids` tidak pernah terisi dan modal
+    # "Update attached VLANs" selalu terbuka tanpa centang: `sync_onu_metadata` sudah ada
+    # dan sudah diuji, tapi TIDAK PERNAH dipanggil dari job manapun (grep kosong).
+    # `create_master=False`: job berkala tidak boleh membuat baris Zone/Splitter baru —
+    # izin itu khusus onboarding OLT baru (DECISIONS).
+    metadata = await onboarding_sync.sync_onu_metadata(db, olt, driver, create_master=False)
     now = datetime.now(UTC)
     health = await driver.fetch_health()
     olt.cpu_pct = health.cpu_pct
@@ -254,7 +266,7 @@ async def sync_olt_metrics(db: AsyncSession, olt: Olt, driver: OltDriver) -> dic
         db, olt.id, {(p.slot, p.port): p.ifindex for p in await driver.list_pon_ports()}, now
     )
     _mark_olt_ok(olt, now)
-    return {**optical, **inventory,
+    return {**optical, **inventory, **metadata,
             "cards": len(health.cards), "uplink_ports": health.uplink_ports}
 
 async def sync_unconfigured(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict:

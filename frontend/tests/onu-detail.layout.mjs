@@ -50,7 +50,13 @@ const routes = [
     in_bps: i % 7 === 0 ? null : 1_000_000 * (i + 1),
     out_bps: i % 7 === 0 ? null : 200_000 * (i + 1),
   }))],
-  [/\/api\/onus\/[^/]+\/logs/, []],
+  // Dua entri log: pop up "Log aksi terakhir" harus merender deskripsi + tautan ke /logs?q=SN.
+  [/\/api\/onus\/[^/]+\/logs/, [
+    { id: 2, created_at: "2026-10-25T02:00:00Z", username: "demo", action: "onu.update_info",
+      success: true, job_id: null, raw_command: null, raw_output: null },
+    { id: 1, created_at: "2026-10-25T01:00:00Z", username: "demo", action: "onu.action.reboot",
+      success: false, job_id: 7, raw_command: "reboot", raw_output: null },
+  ]],
   [/\/api\/onus\/by-id\//, detail],
   [/\/api\/onus\/[^/?]+$/, detail],
   [/\/api\/onu-types/, onuTypes],
@@ -98,7 +104,42 @@ for (const [name, width, height] of [["desktop-1440", 1440, 1200], ["mobile-390"
   }));
   assert.ok(over.doc <= 1, `${name}: overflow horizontal ${over.doc}px`);
   assert.deepEqual(over.worst, [], `${name}: elemen meluber tanpa overflow-x-auto`);
-  console.log(`ok  ${name}: tanpa overflow horizontal -> ${OUT}-${name}.png`);
+
+  // Aksi yang dibuang pemilik tidak boleh kembali sebagai tombol di blok Aksi.
+  for (const gone of ["Ubah data pelanggan", "Ubah lokasi", "Ubah speed", "Ubah VLAN",
+                      "Move ONU", "Replace ONU / ganti SN"]) {
+    assert.equal(await page.getByRole("button", { name: gone }).count(), 0,
+                 `${name}: tombol \`${gone}\` masih ada`);
+  }
+
+  // "Log aksi terakhir" = POP UP: isinya baru muncul setelah pemicunya diklik, tiap entri
+  // berupa tautan ke /logs?q=<serial>.
+  assert.equal(await page.getByText("Update location details").count(), 0,
+               `${name}: isi log tampil tanpa diklik (bukan pop up)`);
+  await page.getByRole("button", { name: /^Log aksi terakhir/ }).click();
+  const pop = page.locator("[data-radix-popper-content-wrapper]");
+  await pop.waitFor({ state: "visible", timeout: 5_000 });
+  const link = pop.getByRole("link", { name: "Update location details" });
+  await link.waitFor({ state: "visible", timeout: 5_000 });
+  assert.equal(await link.getAttribute("href"), `/logs?q=${detail.serial_number}`,
+               `${name}: tautan entri log tidak menuju /logs?q=<serial>`);
+  // Entri kedua: nama aksi diturunkan dari `action` backend, tanpa daftar karangan.
+  assert.equal(await pop.getByRole("link", { name: "Reboot" }).count(), 1,
+               `${name}: entri log kedua tidak dirender`);
+  await page.screenshot({ path: `${OUT}-${name}-log-popup.png` });
+  const popOver = await page.evaluate(() => {
+    const el = document.querySelector("[data-radix-popper-content-wrapper]");
+    const box = el.firstElementChild.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    return { wide: Math.round(box.width) - vw, right: Math.round(box.right) - vw,
+             doc: document.documentElement.scrollWidth - vw };
+  });
+  assert.ok(popOver.wide <= 0, `${name}: pop up log lebih lebar dari viewport (${popOver.wide}px)`);
+  assert.ok(popOver.right <= 1, `${name}: pop up log keluar sisi kanan (${popOver.right}px)`);
+  assert.ok(popOver.doc <= 1, `${name}: pop up log membuat overflow halaman (${popOver.doc}px)`);
+  await page.keyboard.press("Escape");
+  await pop.waitFor({ state: "detached", timeout: 5_000 });
+  console.log(`ok  ${name}: tanpa overflow + pop up log aksi -> ${OUT}-${name}.png`);
 }
 await browser.close();
 console.log("\n2 pemeriksaan layout lulus");

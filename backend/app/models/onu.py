@@ -11,7 +11,7 @@ from sqlalchemy import (
     String,
     text,
 )
-from sqlalchemy.dialects.postgresql import INET
+from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -79,6 +79,12 @@ class Onu(TimestampMixin, Base):
     distance_m: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     vlan_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("vlans.id"), nullable=True)
+    # VLAN layanan NYATA di perangkat: SEMUA `service-port ... vlan N` ONU ini, urutan
+    # perangkat, dedupe. `vlan_id` di atas hanya satu VLAN primer (FK master) dan terbukti
+    # kehilangan VLAN kedua pada 187/247 ONU di OLT WNG. NULL = belum pernah disinkron
+    # (beda dari `[]` yang berarti ONU memang tidak punya service-port) — pembeda itu
+    # dipakai UI untuk tidak menampilkan daftar karangan.
+    service_vlan_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     # TODO Speed Profile pisah Download/Upload (Opsi A): 1 FK gabungan -> 2 FK per arah.
     download_speed_profile_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("speed_profiles.id"), nullable=True
@@ -100,6 +106,11 @@ class Onu(TimestampMixin, Base):
     external_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     onu_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
     wan_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # VLAN WAN NYATA di perangkat: angka pada `flow 1 pri <p> vlan <N>` di stanza
+    # `pon-onu-mng` running-config. Bukan FK master (VLAN perangkat belum tentu terdaftar)
+    # dan bukan turunan `service_vlan_ids` (daftar itu memuat juga VLAN mgmt/VoIP).
+    # NULL = perangkat tidak melaporkan baris itu.
+    wan_vlan: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pppoe_username: Mapped[str | None] = mapped_column(String(100), nullable=True)
     pppoe_password_enc: Mapped[bytes | None] = mapped_column(nullable=True)
     mgmt_ip_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)

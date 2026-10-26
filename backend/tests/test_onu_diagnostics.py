@@ -623,3 +623,42 @@ def test_inventory_parses_pppoe_per_onu():
            "  pppoe 1 nat enable user u@x.invalid password P-NOT-REAL\n!\n"
            "pon-onu-mng gpon-onu_1/3/6:60\n  ip-host 2 ip 10.0.0.2 mask 255.255.255.0\n!\n")
     assert _parse_onu_pppoe(cfg) == {(3, 6, 59): ("u@x.invalid", "P-NOT-REAL")}
+
+
+def test_parse_wan_vlan_takes_flow_1_only():
+    """`flow 1` = layanan WAN; flow lain (mgmt/VoIP) tidak boleh dianggap VLAN WAN."""
+    from app.drivers.onu_report import parse_wan_vlan
+    body = "  flow 1 pri 0 vlan 15\n  flow 2 pri 2 vlan 100\n"
+    assert parse_wan_vlan(body) == 15
+    assert parse_wan_vlan("  flow 2 pri 2 vlan 100\n") is None
+    assert parse_wan_vlan("") is None
+
+
+def test_inventory_parses_wan_vlan_per_onu():
+    from app.drivers.zte_c320 import _parse_onu_wan_vlan
+    cfg = ("pon-onu-mng gpon-onu_1/3/6:59\n  flow 1 pri 0 vlan 15\n  flow 2 pri 2 vlan 100\n!\n"
+           "pon-onu-mng gpon-onu_1/3/6:60\n  flow 2 pri 2 vlan 100\n!\n")
+    assert _parse_onu_wan_vlan(cfg) == {(3, 6, 59): 15}
+
+
+def test_wan_vlan_from_real_running_config_fixture():
+    """Fixture transkrip nyata (PRD Bagian 5: parser CLI wajib diuji dengan fixture teks)."""
+    from pathlib import Path
+    from app.drivers.zte_c320 import _parse_onu_wan_vlan
+    base = Path(__file__).parent / "fixtures" / "cli"
+    assert _parse_onu_wan_vlan((base / "zte_show_running_config_onu.txt").read_text()) \
+        == {(3, 6, 59): 15}
+    assert _parse_onu_wan_vlan((base / "zte_show_running_config_onu_2.txt").read_text()) \
+        == {(4, 3, 46): 15}
+
+
+def test_sync_wan_from_running_sets_wan_vlan_and_keeps_old_when_absent():
+    from types import SimpleNamespace
+    from app.services.onu_service import _sync_wan_from_running
+    onu = SimpleNamespace(wan_mode=None, onu_mode=None, pppoe_username=None,
+                          pppoe_password_enc=None, wan_vlan=None)
+    _sync_wan_from_running(onu, "  flow 1 pri 0 vlan 15\n  flow 2 pri 2 vlan 100\n")
+    assert onu.wan_vlan == 15
+    # Tanpa baris `flow 1`: nilai lama dipertahankan, tidak di-NULL-kan.
+    _sync_wan_from_running(onu, "  flow 2 pri 2 vlan 100\n")
+    assert onu.wan_vlan == 15

@@ -49,6 +49,21 @@ sudah tercatat di sini.
   dashboard (list/badge), tanpa pengiriman keluar.
 - VPN Tunnels & TR-069 Management — tetap Phase 2 ("Segera"), tidak dibangun.
 
+## Mode ONU / WAN setup mode di Detail ONU — sumber nilai
+- Sumber utama: hasil baca **CLI/running-config** yang sudah disinkron backend
+  (kolom `onus.onu_mode` / `onus.wan_mode`).
+- Tidak terbaca di CLI (kolom NULL/kosong) -> tampil **default**: ONU mode
+  `Routing`, WAN setup mode `Setup via ONU webpage` (`wan_mode = "webpage"`).
+  Default yang sama jadi nilai awal modal `Update ONU mode`.
+- Default dihitung **di backend** (`app/schemas/onu.py`: `DEFAULT_ONU_MODE` /
+  `DEFAULT_WAN_MODE`, dipakai `onu_service._apply_mode_defaults`) dan dikirim
+  sebagai nilai efektif + penanda `onu_mode_source` / `wan_mode_source`
+  (`"cli"` | `"default"`). Frontend TIDAK menambal default sendiri.
+- Default **tidak pernah ditulis ke DB**: kolom tetap NULL supaya default tidak
+  tersamar sebagai hasil baca perangkat.
+- Kelak TR-069 server jadi sumber nilai; sebelum itu cukup CLI + default ini.
+  Sumber baru masuk lewat jalur `*_source` yang sama, bukan cabang UI baru.
+
 ## Job & scheduling
 - Nama job provisioning ONU: **`authorize_onu`** (bukan `provision_onu`).
 - `sync_unconfigured`: interval **1 menit**.

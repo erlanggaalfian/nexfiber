@@ -187,6 +187,8 @@ class OnuSnapshot:
     # Dari stanza `pon-onu-mng` running-config; None = ONU tanpa PPPoE di perangkat.
     pppoe_username: str | None = None
     pppoe_password: str | None = None
+    # VLAN WAN nyata dari `flow 1 ... vlan N` di stanza `pon-onu-mng`; None = tidak dilaporkan.
+    wan_vlan: int | None = None
 
 
 @dataclass

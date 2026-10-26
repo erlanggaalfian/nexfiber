@@ -14,7 +14,7 @@ import {
 } from "../../../lib/onuActions";
 import { AttachedVlansModal } from "./AttachedVlansModal";
 import {
-  ExternalIdModal, MoveOnuModal, OnuTypeModal, ReplaceSnModal, SpeedProfileModal,
+  ExternalIdModal, OnuTypeModal, ReplaceSnModal, SpeedProfileModal,
 } from "./BasicModals";
 import { ConfirmActionModal, type ConfirmKind } from "./ConfirmActionModal";
 import { EthPortModal } from "./EthPortModal";
@@ -33,7 +33,6 @@ export type OnuModalState =
   | { kind: "onu-type" }
   | { kind: "external-id" }
   | { kind: "speed-profile" }
-  | { kind: "move" }
   | { kind: "replace-sn" }
   | { kind: "mgmt-ip" }
   | { kind: "voip-enable"; port: number }
@@ -54,7 +53,11 @@ export type ModalOnu = {
   port: number;
   onu_mode: string | null;
   wan_mode: string | null;
+  /** VLAN WAN nyata perangkat (kolom `wan_vlan`), bukan diambil dari daftar VLAN terpasang. */
+  wan_vlan?: number | null;
   pppoe_username?: string | null;
+  /** Hanya dikirim backend untuk role manager; undefined/null = tidak boleh/tidak ada. */
+  pppoe_password?: string | null;
   mgmt_ip_mode: string | null;
   vlan_id: number | null;
   ip_address: string | null;
@@ -74,12 +77,10 @@ export type ModalOnu = {
 };
 
 export function OnuActionModals(
-  { state, onu, olts, onClose, onDone }:
+  { state, onu, onClose, onDone }:
   {
     state: OnuModalState | null;
     onu: ModalOnu;
-    /** Pilihan OLT untuk Move ONU; default hanya OLT saat ini. */
-    olts?: { id: number; name: string }[];
     onClose: () => void;
     /** Dipanggil setelah aksi sukses — halaman memakai ini untuk pesan status. */
     onDone?: (kind: string, r: ActionResult | null) => void;
@@ -125,10 +126,12 @@ export function OnuActionModals(
       return (
         <OnuModeModal {...common("onu-mode")} options={options.data}
           current={{
-            wan_vlan: onu.attached_vlans[0] ?? null,
+            wan_vlan: onu.wan_vlan ?? null,
+            attached_vlans: onu.attached_vlans,
             onu_mode: onu.onu_mode,
             wan_mode: onu.wan_mode,
             pppoe_username: onu.pppoe_username,
+            pppoe_password: onu.pppoe_password,
           }}
           onSubmit={(body) => act("onu-mode", { ...body })} />
       );
@@ -171,13 +174,6 @@ export function OnuActionModals(
         <SpeedProfileModal {...common("speed-profile")} options={options.data}
           current={{ download: onu.download_profile_name, upload: onu.upload_profile_name }}
           onSubmit={(body) => act("speed-profile", { ...body })} />
-      );
-    case "move":
-      return (
-        <MoveOnuModal {...common("move")}
-          olts={olts ?? [{ id: onu.olt_id, name: onu.olt_name }]}
-          current={{ olt_id: onu.olt_id, board: onu.slot, port: onu.port }}
-          onSubmit={(body) => act("move", { ...body })} />
       );
     case "replace-sn":
       return (

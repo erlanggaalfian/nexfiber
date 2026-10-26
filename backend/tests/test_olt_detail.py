@@ -7,7 +7,14 @@ Semua lewat driver/transport palsu — TIDAK pernah menyentuh device nyata.
 import pytest
 
 from app.core.exceptions import CommandRejectedError
-from app.drivers.types import DriverResult, OltCard, OltHealth, OltInventory, PonPortInfo
+from app.drivers.types import (
+    DriverResult,
+    OltCard,
+    OltHealth,
+    OltInventory,
+    OltProvisioning,
+    PonPortInfo,
+)
 from app.drivers.zte_c320 import (
     ZteC320Driver,
     _merge_card_load,
@@ -203,6 +210,15 @@ class MetricsDriver:
     async def list_pon_ports(self):
         self.calls.append("list_pon_ports")
         return [PonPortInfo(slot=1, port=1, ifindex=268501248)]
+
+    async def fetch_provisioning(self):
+        """Dipakai langkah metadata ONU (VLAN layanan/profil/jarak) di dalam job yang sama.
+
+        Tanpa langkah ini `onus.service_vlan_ids` tidak pernah terisi dan modal
+        "Update attached VLANs" selalu terbuka tanpa centang.
+        """
+        self.calls.append("fetch_provisioning")
+        return OltProvisioning(onus=[], profiles=[])
 
 
 class MetricsDb:

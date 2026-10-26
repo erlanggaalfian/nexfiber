@@ -8,6 +8,8 @@ export function AttachedVlansModal(
   { options, current, supported, note, busy, error, onClose, onSubmit }:
   {
     options: OnuConfigOptions | undefined;
+    /** VLAN yang SUDAH terpasang di ONU (nomor perangkat, dari `service_vlans` backend).
+     *  Dipakai sebagai centang awal; lihat `attachedVlanNumbers` di OnuDetail. */
     current: number[];
     supported: boolean | null;
     note?: string | null;
@@ -17,19 +19,32 @@ export function AttachedVlansModal(
     onSubmit: (vlans: number[]) => void;
   },
 ) {
+  /** `current` dibaca sekali saat modal mount. Modal hanya dirender setelah detail ONU
+   *  ada (halaman menampilkan skeleton sebelum itu), jadi nilainya sudah final — dan
+   *  menyinkronkan ulang dari prop akan membuang centang yang sedang diubah operator
+   *  setiap kali query detail refetch di latar. */
   const [vlans, setVlans] = useState<number[]>(current);
+  /** VLAN terpasang yang TIDAK ada di daftar pilihan (management, atau belum terdaftar di
+   *  master VLAN OLT). Tidak bisa dicentang/di-uncheck di sini, tapi tetap dikirim utuh:
+   *  perintah backend menulis ulang seluruh `service-port`, jadi menghilangkannya = ikut
+   *  menghapus layanan yang tidak pernah ditampilkan ke operator. */
+  const shown = serviceVlanOptions(options);
+  const hidden = vlans.filter((v) => !shown.some((o) => o.number === v));
   return (
     <ModalShell title="Update attached VLANs" action="Update" supported={supported} note={note}
                 busy={busy} error={error} onClose={onClose} onSubmit={() => onSubmit(vlans)}>
       <Row label="VLANs">
-        <VlanMulti label="VLANs" options={serviceVlanOptions(options)} value={vlans} onChange={setVlans} />
+        <VlanMulti label="VLANs" options={shown} value={vlans} onChange={setVlans} />
       </Row>
-      {/* Acuan: dua catatan di panel penuh lebar di bawah multiselect, bukan hint kecil. */}
+      {/* Acuan: catatan di panel penuh lebar di bawah multiselect, bukan hint kecil. */}
       <HelpPanel>
         <Help>Pilih semua VLAN yang akan dipakai pada ONU ini.</Help>
-        <Help warn>
-          Setelah daftar VLAN diubah, buka setelan port Ethernet dan tetapkan VLAN sesuai kebutuhan.
-        </Help>
+        {hidden.length > 0 && (
+          <Help>
+            VLAN {hidden.join(", ")} tetap terpasang pada ONU dan akan dipertahankan
+            (tidak bisa diubah di sini).
+          </Help>
+        )}
       </HelpPanel>
     </ModalShell>
   );

@@ -1,5 +1,5 @@
 /** Modal satu/dua field: Change ONU type, Update ONU external ID, Configure speed profiles,
- *  Move ONU, Replace ONU by SN. Semuanya memakai `ModalShell` yang sama. */
+ *  Replace ONU by SN. Semuanya memakai `ModalShell` yang sama. */
 import { useState } from "react";
 import type { OnuConfigOptions } from "../../../lib/onuActions";
 import { ModalShell, Row, Select, field } from "./ModalShell";
@@ -77,40 +77,6 @@ export function SpeedProfileModal(
         <Select value={up} onChange={setUp} placeholder="Jangan ubah" label="Upload speed">
           {byDir("upload").map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
         </Select>
-      </Row>
-    </ModalShell>
-  );
-}
-
-export function MoveOnuModal(
-  { olts, current, onSubmit, ...c }:
-  Common & {
-    olts: { id: number; name: string }[];
-    current: { olt_id: number; board: number; port: number };
-    onSubmit: (body: { olt_id: number; board: number; port: number }) => void;
-  },
-) {
-  const [olt, setOlt] = useState(String(current.olt_id));
-  const [board, setBoard] = useState(String(current.board));
-  const [port, setPort] = useState(String(current.port));
-  const ok = olt !== "" && board !== "" && port !== "";
-  return (
-    <ModalShell title="Move ONU" action="Move" {...c} disabled={!ok}
-                onSubmit={() => ok && onSubmit({
-                  olt_id: Number(olt), board: Number(board), port: Number(port),
-                })}>
-      <Row label="OLT">
-        <Select value={olt} onChange={setOlt} label="OLT">
-          {olts.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-        </Select>
-      </Row>
-      <Row label="Board">
-        <input className={field} type="number" min={1} value={board} aria-label="Board"
-               onChange={(e) => setBoard(e.target.value)} />
-      </Row>
-      <Row label="Port">
-        <input className={field} type="number" min={1} value={port} aria-label="Port"
-               onChange={(e) => setPort(e.target.value)} />
       </Row>
     </ModalShell>
   );

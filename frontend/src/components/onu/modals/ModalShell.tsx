@@ -160,6 +160,71 @@ export function Select(
   );
 }
 
+/* ---------------------------------------------------------------------------
+ * Kerangka bersama SEMUA pop up aplikasi (modal ONU, drawer Settings, dialog
+ * konfirmasi, dialog detail Logs). Satu overlay, satu radius/shadow, satu
+ * header (judul + silang), satu badan `sunken` yang bisa discroll, satu footer
+ * kanan. Di bawah `sm` semuanya jadi bottom sheet penuh lebar (DESIGN §12.8).
+ * Jangan menulis markup `Dialog.*` baru di halaman: pakai salah satu shell.
+ * ------------------------------------------------------------------------- */
+const OVERLAY =
+  "fixed inset-0 z-40 bg-black/50 data-[state=open]:animate-[fade-in_150ms_ease-out]";
+const PANEL = "fixed z-50 flex flex-col overflow-hidden border bg-surface shadow-modal";
+/** Mobile: tempel ke bawah layar, sudut atas membulat, animasi naik. */
+const SHEET =
+  "max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:max-h-[88vh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-t-md max-sm:rounded-b-none max-sm:border-x-0 max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]";
+const CENTER =
+  "top-1/2 left-1/2 max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-1/2 rounded-md data-[state=open]:animate-[fade-in_150ms_ease-out]";
+const DRAWER =
+  "inset-y-0 right-0 w-full max-w-[480px] border-l data-[state=closed]:animate-[drawer-out_200ms_ease-in] data-[state=open]:animate-[drawer-in_250ms_ease-out]";
+
+export function ModalFrame({ variant = "center", width = "max-w-[600px]", title, onClose, onSubmit, footer, children }: {
+  variant?: "center" | "drawer";
+  /** Hanya dipakai `center`: kelas `max-w-*`. */
+  width?: string;
+  title: ReactNode;
+  onClose: () => void;
+  onSubmit?: () => void;
+  footer: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className={OVERLAY} />
+        <Dialog.Content
+          className={`${PANEL} ${variant === "drawer" ? DRAWER : `${CENTER} ${width}`} ${SHEET}`}
+        >
+          <div className="flex items-start justify-between gap-3 border-b px-5 py-3.5">
+            <Dialog.Title className="text-lg font-semibold text-ink">{title}</Dialog.Title>
+            <Dialog.Close
+              className="-mr-1 shrink-0 rounded-sm p-0.5 text-faint hover:text-ink"
+              aria-label="Tutup"
+            >
+              <X size={16} aria-hidden />
+            </Dialog.Close>
+          </div>
+          <form
+            onSubmit={(e) => { e.preventDefault(); onSubmit?.(); }}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            {/* Badan lebih teredam dari header+footer supaya form menonjol. */}
+            <div className="min-h-0 flex-1 overflow-y-auto bg-sunken px-5 py-4">{children}</div>
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t px-5 py-3">
+              {footer}
+            </div>
+          </form>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+/** Pesan galat satu bentuk untuk semua pop up. */
+export function ModalError({ children }: { children: ReactNode }) {
+  return <p className="mt-2 text-xs text-down" role="alert">{children}</p>;
+}
+
 export type ShellProps = {
   title: string;
   onClose: () => void;
@@ -179,62 +244,111 @@ export type ShellProps = {
   wide?: boolean;
   /** Mati karena validasi lokal (mis. konfirmasi belum diketik). */
   disabled?: boolean;
+  /** Teks tombol tutup; default `Close` (acuan SmartOLT). */
+  closeLabel?: string;
+  /** Teks tombol aksi saat `busy`; default `Mengirim ...`. */
+  busyLabel?: string;
   extra?: ReactNode;
   children?: ReactNode;
 };
 
 export function ModalShell({
   title, onClose, onSubmit, action = "Simpan", busy, error, supported = true, note,
-  danger, warn, wide, disabled, extra, children,
+  danger, warn, wide, disabled, closeLabel = "Close", busyLabel = "Mengirim ...", extra, children,
 }: ShellProps) {
   const unsupported = supported === false;
   return (
-    <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
-        {/* Lebar acuan `.modal-dialog` 600px (900px untuk port ethernet, lihat `wide`). */}
-        <Dialog.Content
-          className={`fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-md border bg-surface shadow-modal data-[state=open]:animate-[fade-in_150ms_ease-out] ${wide ? "max-w-[900px]" : "max-w-[600px]"}`}
-        >
-          {/* Header acuan: judul besar kiri + tombol silang kanan, garis bawah. */}
-          <div className="flex items-start justify-between gap-3 border-b px-5 py-3.5">
-            <Dialog.Title className="text-lg font-semibold text-ink">{title}</Dialog.Title>
-            <Dialog.Close
-              className="-mr-1 shrink-0 rounded-sm p-0.5 text-faint hover:text-ink"
-              aria-label="Tutup"
-            >
-              <X size={16} aria-hidden />
-            </Dialog.Close>
-          </div>
-          <form
-            onSubmit={(e) => { e.preventDefault(); if (!unsupported) onSubmit?.(); }}
-            className="flex min-h-0 flex-1 flex-col"
-          >
-            {/* Badan acuan lebih gelap/teredam dari header+footer supaya form menonjol. */}
-            <div className="min-h-0 flex-1 overflow-y-auto bg-sunken px-5 py-4">
-              {children}
-              {unsupported && (
-                <p className="mt-2 text-xs text-amber" role="status">
-                  Belum didukung{note ? ` — ${note}` : ""}
-                </p>
-              )}
-              {error && <p className="mt-2 text-xs text-down" role="alert">{error}</p>}
-            </div>
-            {/* Footer acuan: aksi sekunder kiri, `Close` teks biasa + tombol aksi terisi kanan. */}
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t px-5 py-3">
-              {extra && <span className="mr-auto">{extra}</span>}
-              <Button size="md" variant="quiet" onClick={onClose}>Close</Button>
-              {onSubmit && (
-                <Button size="md" type="submit"
-                        variant={danger ? "dangerSolid" : warn ? "primary" : "fiber"}
-                        disabled={busy || unsupported || disabled}>
-                  {busy ? "Mengirim ..." : action}
-                </Button>
-              )}
-            </div>
-          </form>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <ModalFrame
+      title={title}
+      onClose={onClose}
+      /* Lebar acuan `.modal-dialog` 600px (900px untuk port ethernet, lihat `wide`). */
+      width={wide ? "max-w-[900px]" : "max-w-[600px]"}
+      onSubmit={unsupported ? undefined : onSubmit}
+      footer={
+        <>
+          {extra && <span className="mr-auto">{extra}</span>}
+          {/* Tanpa tombol aksi, tombol tutup yang jadi aksi utama. */}
+          <Button size="md" variant={onSubmit ? "quiet" : "fiber"} onClick={onClose}>{closeLabel}</Button>
+          {onSubmit && (
+            <Button size="md" type="submit"
+                    variant={danger ? "dangerSolid" : warn ? "primary" : "fiber"}
+                    disabled={busy || unsupported || disabled}>
+              {busy ? busyLabel : action}
+            </Button>
+          )}
+        </>
+      }
+    >
+      {children}
+      {unsupported && (
+        <p className="mt-2 text-xs text-amber" role="status">
+          Belum didukung{note ? ` — ${note}` : ""}
+        </p>
+      )}
+      {error && <ModalError>{error}</ModalError>}
+    </ModalFrame>
+  );
+}
+
+/** Drawer kanan 480px (DESIGN §13) — tema sama dengan modal, hanya posisinya beda. */
+export function DrawerShell({
+  title, onClose, onSubmit, busy, error, disabled,
+  action = "Simpan", busyLabel = "Menyimpan ...", closeLabel = "Batal", children,
+}: {
+  title: ReactNode; onClose: () => void; onSubmit: () => void;
+  busy?: boolean; error?: string | null; disabled?: boolean;
+  action?: string; busyLabel?: string; closeLabel?: string; children?: ReactNode;
+}) {
+  return (
+    <ModalFrame
+      variant="drawer"
+      title={title}
+      onClose={onClose}
+      onSubmit={onSubmit}
+      footer={
+        <>
+          <Button size="md" variant="quiet" onClick={onClose}>{closeLabel}</Button>
+          <Button size="md" type="submit" variant="fiber" disabled={busy || disabled}>
+            {busy ? busyLabel : action}
+          </Button>
+        </>
+      }
+    >
+      {children}
+      {error && <ModalError>{error}</ModalError>}
+    </ModalFrame>
+  );
+}
+
+/** Dialog konfirmasi kecil (DESIGN §13: 400px, satu kalimat dampak, aksi di kanan). */
+export function ConfirmShell({
+  title, body, action, onConfirm, onClose, error, busy, disabled, danger = true,
+  closeLabel = "Tutup", children,
+}: {
+  title: ReactNode; body?: ReactNode; action: string;
+  onConfirm: () => void; onClose: () => void;
+  error?: string | null; busy?: boolean; disabled?: boolean; danger?: boolean;
+  closeLabel?: string; children?: ReactNode;
+}) {
+  return (
+    <ModalFrame
+      title={title}
+      onClose={onClose}
+      width="max-w-[420px]"
+      onSubmit={onConfirm}
+      footer={
+        <>
+          <Button size="md" variant="quiet" onClick={onClose}>{closeLabel}</Button>
+          <Button size="md" type="submit" variant={danger ? "dangerSolid" : "primary"}
+                  disabled={busy || disabled}>
+            {action}
+          </Button>
+        </>
+      }
+    >
+      {body && <p className="text-sm text-muted">{body}</p>}
+      {children}
+      {error && <ModalError>{error}</ModalError>}
+    </ModalFrame>
   );
 }

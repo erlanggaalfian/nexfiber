@@ -38,7 +38,13 @@ class SnmpTransport:
         """
         engine = SnmpEngine()
         try:
-            target = UdpTransportTarget((self._host, self._port))
+            # Default pysnmp (timeout=1s, retries=5) terlalu galak untuk OLT produksi:
+            # terukur di OLT WNG (247 ONU, 2026-10-26) satu bulkwalk tabel optical butuh
+            # 9-12 detik untuk ~10 round-trip, dan agen SNMP C320 kadang menjawab > 1 detik
+            # per permintaan -> job sync_olt_metrics gagal "No SNMP response received before
+            # timeout" dan histori sinyal berhenti terisi. 3 detik memberi ruang jeda agen
+            # tanpa menggantung job; retries diturunkan supaya total waktu buruk tidak naik.
+            target = UdpTransportTarget((self._host, self._port), timeout=3, retries=3)
             results: list[tuple[str, object]] = []
             obj = ObjectType(ObjectIdentity(base_oid))
             while True:

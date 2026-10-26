@@ -401,3 +401,64 @@ async def test_empty_description_counted_and_leaves_metadata_blank():
     assert (onu.zone_id, onu.splitter_id, onu.address) == (None, None, None)
     # Provisioning SNMP tetap terisi walau description kosong.
     assert onu.vlan_id == 70 and onu.download_speed_profile_id is not None
+
+
+# --- VLAN layanan sebagai DAFTAR (centang modal "Update attached VLANs") -----------
+
+
+async def test_service_vlan_ids_stores_every_device_vlan_not_just_primary():
+    """Akar bug "centang kosong": `vlan_id` hanya SATU FK, jadi VLAN kedua hilang.
+
+    Fixture SNMP ini = kasus nyata 171 ONU di OLT WNG: service-port 15 + 16484 (=100
+    setelah masking bit flag perangkat). `vlan_id` lama benar tapi hanya 15; daftar
+    penuh harus utuh di `service_vlan_ids`, termasuk VLAN management.
+    """
+    db, olt, onu = _scenario()
+    provisioning = await _driver().fetch_provisioning()
+    await onboarding_sync.sync_onu_metadata(db, olt, StubDriver(provisioning))
+
+    assert onu.service_vlan_ids == [15, 100]
+    # VLAN primer lama tetap dipakai dialog "Ubah VLAN" -> jangan ikut berubah artinya.
+    assert onu.vlan_id == 70
+
+
+async def test_service_vlan_ids_overwritten_when_device_changes():
+    """VLAN layanan = telemetri perangkat, bukan isian operator: daftar lama harus kalah.
+
+    Kalau nilai lama dipertahankan (seperti kolom metadata manual), ONU yang VLAN-nya
+    diubah langsung di OLT akan terus menampilkan centang lama di modal.
+    """
+    db, olt, onu = _scenario()
+    onu.service_vlan_ids = [999]
+    provisioning = await _driver().fetch_provisioning()
+    stats = await onboarding_sync.sync_onu_metadata(db, olt, StubDriver(provisioning))
+
+    assert onu.service_vlan_ids == [15, 100]
+    assert stats["filled_service_vlans"] == 1
+
+
+async def test_service_vlan_ids_untouched_when_already_equal():
+    """Idempoten: sinkron ulang nilai yang sama tidak dihitung sebagai perubahan."""
+    db, olt, onu = _scenario()
+    onu.service_vlan_ids = [15, 100]
+    provisioning = await _driver().fetch_provisioning()
+    stats = await onboarding_sync.sync_onu_metadata(db, olt, StubDriver(provisioning))
+
+    assert onu.service_vlan_ids == [15, 100]
+    assert stats["filled_service_vlans"] == 0
+
+
+async def test_service_vlan_ids_empty_list_is_recorded_not_left_null():
+    """ONU tanpa service-port -> `[]` (jujur kosong), bukan NULL (belum disinkron).
+
+    Pembeda itu yang dipakai UI untuk memilih antara "tidak ada VLAN" dan
+    "data belum tersedia" — kalau keduanya NULL, UI tidak bisa jujur.
+    """
+    rows = dict(SNMP_ROWS)
+    rows[OID_ONU_SERVICE_PORT_VLAN] = []
+    provisioning = await _driver(FakeSnmp(rows)).fetch_provisioning()
+    db, olt, onu = _scenario()
+    await onboarding_sync.sync_onu_metadata(db, olt, StubDriver(provisioning))
+
+    assert onu.service_vlan_ids == []
+    assert onu.vlan_id is None  # tidak ada VLAN -> tidak dikarang

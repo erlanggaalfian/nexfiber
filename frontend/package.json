@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "check": "node tests/onu-detail.check.mjs && node tests/olt-sync.check.mjs && node tests/profile-name.check.mjs",
+    "check": "node tests/onu-detail.check.mjs && node tests/olt-sync.check.mjs && node tests/profile-name.check.mjs && node tests/onu-mode.check.mjs",
     "check:layout": "node tests/onu-detail.layout.mjs && node tests/onu-modals.layout.mjs"
   },
   "dependencies": {

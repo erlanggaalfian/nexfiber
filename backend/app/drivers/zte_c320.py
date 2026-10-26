@@ -531,6 +531,7 @@ class ZteC320Driver(OltDriver):
                 baseinfo.update(_parse_onu_baseinfo(out))
         metadata = _parse_onu_metadata(config_out)
         pppoe = _parse_onu_pppoe(config_out)
+        wan_vlans = _parse_onu_wan_vlan(config_out)
         onus = []
         for snap in states:
             serial, onu_type = baseinfo.get((snap.slot, snap.port, snap.onu_id), (None, None))
@@ -543,6 +544,7 @@ class ZteC320Driver(OltDriver):
             snap.pppoe_username, snap.pppoe_password = pppoe.get(
                 (snap.slot, snap.port, snap.onu_id), (None, None)
             )
+            snap.wan_vlan = wan_vlans.get((snap.slot, snap.port, snap.onu_id))
             onus.append(snap)
         return OltInventory(onus=onus, vlan_ids=_parse_vlan_summary(vlan_out))
 
@@ -1072,17 +1074,34 @@ def _parse_onu_metadata(output: str) -> dict[tuple[int, int, int], tuple[str | N
         )
     return rows
 
+def _mng_stanzas(output: str):
+    """(slot, port, onu_id, isi) tiap stanza `pon-onu-mng` di `show running-config`."""
+    for m in _ONU_MNG_STANZA_RE.finditer(output):
+        _rack, slot, port, onu_id, body = m.groups()
+        yield int(slot), int(port), int(onu_id), body
+
 def _parse_onu_pppoe(output: str) -> dict[tuple[int, int, int], tuple[str, str | None]]:
     """`show running-config` -> {(slot, port, onu_id): (user, password)} dari stanza
     `pon-onu-mng` (baris `pppoe N ... user U password P`). ONU tanpa PPPoE tidak ada di hasil."""
     from app.drivers.onu_report import parse_pppoe
 
     rows: dict[tuple[int, int, int], tuple[str, str | None]] = {}
-    for m in _ONU_MNG_STANZA_RE.finditer(output):
-        _rack, slot, port, onu_id, body = m.groups()
+    for slot, port, onu_id, body in _mng_stanzas(output):
         found = parse_pppoe(body)
         if found:
-            rows[(int(slot), int(port), int(onu_id))] = found
+            rows[(slot, port, onu_id)] = found
+    return rows
+
+def _parse_onu_wan_vlan(output: str) -> dict[tuple[int, int, int], int]:
+    """`show running-config` -> {(slot, port, onu_id): VLAN WAN} dari `flow 1 ... vlan N`
+    di stanza `pon-onu-mng`. ONU tanpa baris itu tidak ada di hasil (bukan 0/None palsu)."""
+    from app.drivers.onu_report import parse_wan_vlan
+
+    rows: dict[tuple[int, int, int], int] = {}
+    for slot, port, onu_id, body in _mng_stanzas(output):
+        vlan = parse_wan_vlan(body)
+        if vlan is not None:
+            rows[(slot, port, onu_id)] = vlan
     return rows
 
 def _parse_vlan_summary(output: str) -> list[int]:

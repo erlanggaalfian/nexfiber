@@ -3,10 +3,11 @@
  *  menulis ulang markup yang sama.
  */
 import { CaretDown, X } from "@phosphor-icons/react";
-import { Dialog, Popover } from "radix-ui";
+import { Popover } from "radix-ui";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { DONE, useJob } from "../lib/jobs";
+import { ConfirmShell, DrawerShell } from "./onu/modals/ModalShell";
 import { Empty, ErrorState, Skeleton } from "./data";
 import { Button } from "./ui/button";
 
@@ -30,29 +31,9 @@ export function Drawer({ title, onClose, onSubmit, busy, error, children }: {
   children: ReactNode;
 }) {
   return (
-    <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
-        <Dialog.Content className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[480px] flex-col border-l bg-surface shadow-modal data-[state=closed]:animate-[drawer-out_200ms_ease-in] data-[state=open]:animate-[drawer-in_250ms_ease-out]">
-          <Dialog.Title className="border-b px-4 py-3 text-lg font-semibold">{title}</Dialog.Title>
-          <form
-            onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
-            className="flex min-h-0 flex-1 flex-col"
-          >
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              {children}
-              {error && <p className="text-down" role="alert">{error}</p>}
-            </div>
-            <div className="flex justify-end gap-2 border-t px-4 py-3">
-              <Dialog.Close asChild><Button>Batal</Button></Dialog.Close>
-              <Button type="submit" variant="fiber" disabled={busy}>
-                {busy ? "Menyimpan ..." : "Simpan"}
-              </Button>
-            </div>
-          </form>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <DrawerShell title={title} onClose={onClose} onSubmit={onSubmit} busy={busy} error={error}>
+      {children}
+    </DrawerShell>
   );
 }
 
@@ -61,21 +42,10 @@ export function Confirm({ title, body, action, onConfirm, onClose, error, busy, 
   error?: string; busy?: boolean; children?: ReactNode;
 }) {
   return (
-    <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-md border bg-surface p-4 shadow-modal">
-          <Dialog.Title className="mb-2 text-lg font-semibold">{title}</Dialog.Title>
-          <p className="mb-4 text-muted">{body}</p>
-          {error && <p className="mb-3 text-down" role="alert">{error}</p>}
-          {children}
-          <div className="flex justify-end gap-2">
-            <Dialog.Close asChild><Button>Tutup</Button></Dialog.Close>
-            <Button variant="danger" onClick={onConfirm} disabled={busy}>{action}</Button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <ConfirmShell title={title} body={body} action={action} onConfirm={onConfirm}
+                  onClose={onClose} error={error} busy={busy}>
+      {children}
+    </ConfirmShell>
   );
 }
 

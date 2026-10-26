@@ -133,7 +133,7 @@ async def _provisioning_from_snmp(db: AsyncSession, olt: Olt, driver: OltDriver,
         select(Vlan).where(Vlan.olt_id == olt.id)
     )).scalars()}
     profile_cache: dict[tuple[str, str], int | None] = {}
-    filled = {"download": 0, "upload": 0, "vlan": 0, "distance": 0}
+    filled = {"download": 0, "upload": 0, "vlan": 0, "distance": 0, "service_vlans": 0}
     matched = 0
 
     for item in provisioning.onus:
@@ -162,6 +162,14 @@ async def _provisioning_from_snmp(db: AsyncSession, olt: Olt, driver: OltDriver,
                 if direction == "upload" and not onu.srv_profile_id:
                     onu.srv_profile_id = device_name[:50]
 
+        # VLAN layanan: SELURUH daftar dari perangkat disimpan apa adanya (sumber centang
+        # modal "Update attached VLANs"). Ini telemetri perangkat, bukan isian operator,
+        # jadi selalu ditimpa — kalau tidak, ONU yang VLAN-nya diubah di OLT akan terus
+        # menampilkan daftar lama. Nomor disimpan mentah: VLAN yang belum ada di master
+        # tetap data nyata. `None` -> `[]` juga dihitung (NULL = belum pernah disinkron).
+        if onu.service_vlan_ids != item.vlan_ids:
+            onu.service_vlan_ids = list(item.vlan_ids)
+            filled["service_vlans"] += 1
         if onu.vlan_id is None:
             vlan = _primary_vlan(item.vlan_ids, vlan_rows)
             if vlan is not None:

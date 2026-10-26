@@ -121,6 +121,30 @@ def test_destructive_actions_keep_confirmation_and_rbac(src: str):
         assert "isManager" in src[idx - 400 : idx], action
 
 
+def test_last_action_log_popup_reuses_existing_endpoints(src: str):
+    """Pop up "Log aksi terakhir" tidak boleh menuntut endpoint baru: isinya dari
+    GET /api/onus/{serial}/logs yang sudah ada, dan tautan entri menuju halaman Logs
+    (GET /api/logs) yang juga sudah ada. Tidak ada endpoint karangan."""
+    assert '/logs?limit=' in src
+    assert "`/logs?q=${encodeURIComponent(serial)}`" in src
+    onu_routes = re.findall(r'@router\.get\("/\{serial\}([^"]*)"', ROUTERS.read_text())
+    assert "/logs" in onu_routes, onu_routes
+    logs_router = (Path(__file__).resolve().parents[1] / "app/routers/activity_logs.py").read_text()
+    assert 'prefix="/api/logs"' in logs_router or '"/api/logs"' in logs_router
+
+
+def test_removed_onu_actions_stay_removed(src: str):
+    """6 aksi yang dibuang pemilik tidak boleh kembali sebagai tombol di halaman detail.
+    Endpoint backend-nya SENGAJA dibiarkan hidup (dipakai halaman/klien lain), jadi yang
+    diperiksa hanya hilangnya titik buka di UI."""
+    for label in ("Ubah data pelanggan", "Ubah lokasi", "Ubah speed", "Ubah VLAN",
+                  "Move ONU", "Replace ONU / ganti SN"):
+        assert f">{label}<" not in src, label
+    modals = (Path(__file__).resolve().parents[2]
+              / "frontend/src/components/onu/modals/OnuActionModals.tsx").read_text()
+    assert 'kind: "move"' not in modals
+
+
 def test_port_counts_come_from_master_data_not_hardcode(src: str):
     """Jumlah port Ethernet/SSID/VoIP/CATV dibaca dari katalog ONU Types."""
     assert '/api/onu-types' in src

@@ -40,23 +40,24 @@
  *  optimistic update (AGENTS.md).
  */
 import {
-  ArrowDown, ArrowLeft, ArrowSquareOut, ArrowUp, Eye, EyeSlash, Gear, Pencil, PlusCircle,
+  ArrowDown, ArrowLeft, ArrowSquareOut, ArrowUp, CaretDown, Eye, EyeSlash, Gear, Pencil,
+  PlusCircle,
 } from "@phosphor-icons/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { Drawer, Field, TableCard, cell, input } from "../components/crud";
+import { Popover } from "radix-ui";
 import { OnuRearPanel } from "../components/onu/OnuRearPanel";
 import {
   OnuActionModals, type ModalOnu, type OnuModalState,
 } from "../components/onu/modals/OnuActionModals";
 import {
-  ErrorState, Panel, Skeleton, StatusBadge, fmtDateTime, nf, rxBucket, RX_BUCKETS,
+  ErrorState, Skeleton, StatusBadge, fmtDateTime, nf, rxBucket, RX_BUCKETS,
 } from "../components/data";
 import { Button } from "../components/ui/button";
 import {
   api, ApiError, type OnuDetail as Detail, type OnuLog, type OnuType, type SignalPoint,
-  type Splitter, type TrafficHistoryPoint, type Zone,
+  type TrafficHistoryPoint,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { DONE, useJob } from "../lib/jobs";
@@ -72,6 +73,8 @@ const TRAFFIC_MS = 5_000;
 const LIVE_MAX_MS = 10 * 60_000;
 /** Titik grafik yang disimpan (10 menit @5s = 120). */
 const TRAFFIC_KEEP = 120;
+/** Entri log yang ditampilkan di pop up aksi (histori penuh tetap di halaman Logs). */
+const LOG_POPUP_ROWS = 5;
 
 const dash = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
 const dbm = (v: number | null) => (v === null ? "—" : `${Number(v).toFixed(2)} dBm`);
@@ -97,6 +100,13 @@ const WAN_MODE_LABEL: Record<string, string> = {
 /** Mode yang menampilkan IP WAN + baris PPPoE. `webpage` sengaja tidak punya IP. */
 const wanLabel = (mode: string | null) =>
   mode === null || mode === "" ? null : (WAN_MODE_LABEL[mode.toLowerCase()] ?? mode);
+
+/** Mode ONU: huruf kapital ada di teks (`Routing`/`Bridging`), bukan CSS. Nilai di luar
+ *  daftar tampil apa adanya. Backend mengirim nilai EFEKTIF (CLI, atau default `routing`
+ *  bila tidak terbaca CLI) plus `onu_mode_source`, jadi halaman tidak menebak sendiri. */
+const ONU_MODE_LABEL: Record<string, string> = { routing: "Routing", bridging: "Bridging" };
+const onuLabel = (mode: string | null) =>
+  mode === null || mode === "" ? null : (ONU_MODE_LABEL[mode.toLowerCase()] ?? mode);
 
 /** Mode IP manajemen pada acuan: `Static` / `DHCP`. Nilai lain tampil apa adanya. */
 const MGMT_MODE_LABEL: Record<string, string> = { static: "Static", dhcp: "DHCP" };
@@ -171,6 +181,66 @@ const TROW = "odd:bg-sunken";
 /** Kolom `Action` tabel acuan: TAUTAN "Configure" berikon plus, bukan tombol penuh.
  *  `aria-label` tetap menyebut port supaya titik buka modal tetap bisa ditunjuk pembaca
  *  layar (dan tes layout modal) dengan nama yang jelas. */
+/** Pop up "Log aksi terakhir": dibuka dari bawah blok aksi, isinya entri log terakhir ONU ini.
+ *  Tiap baris = deskripsi aksi (tautan ke `/logs?q=<serial>`) + waktu + hasil. Teks deskripsi
+ *  diturunkan dari `action` yang dikirim backend, bukan daftar karangan. */
+const LOG_DESC: Record<string, string> = {
+  "onu.update_info": "Update location details",
+  "onu.refresh_detail": "Refresh ONU details",
+  "onu.authorize": "Authorize ONU",
+  "onu.reboot": "Reboot ONU",
+  "onu.delete": "Delete ONU",
+  "onu.restore_factory": "Restore ONU to factory defaults",
+};
+/** `onu.action.eth-port` -> "Eth port", `onu.read_status` -> "Read status". */
+const logDesc = (action: string) => {
+  if (LOG_DESC[action]) return LOG_DESC[action];
+  const tail = action.replace(/^onu\.(action\.)?/, "").replace(/[-_]/g, " ");
+  return tail === "" ? action : tail.charAt(0).toUpperCase() + tail.slice(1);
+};
+
+function LastLogPopover(
+  { query, serial }: { query: UseQueryResult<OnuLog[]>; serial: string },
+) {
+  const rows = (query.data ?? []).slice(0, LOG_POPUP_ROWS);
+  const href = `/logs?q=${encodeURIComponent(serial)}`;
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button type="button"
+                className="mt-2 inline-flex items-center gap-1 text-fiber hover:underline">
+          Log aksi terakhir
+          <CaretDown size={12} aria-hidden />
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content align="start" sideOffset={4}
+          className="z-50 w-[min(26rem,calc(100vw-2rem))] rounded-md border bg-surface p-2 shadow-modal">
+          {query.isPending && <p className="text-muted">Memuat log ...</p>}
+          {query.isError && <p className="text-down">{query.error?.message}</p>}
+          {!query.isPending && !query.isError && rows.length === 0 && (
+            <p className="text-muted">Belum ada log untuk ONU ini.</p>
+          )}
+          <ul className="min-w-0">
+            {rows.map((l) => (
+              <li key={l.id} className="border-b py-1 last:border-0">
+                <Link className="text-fiber hover:underline" to={href}>{logDesc(l.action)}</Link>
+                <span className="ml-1.5 text-xs text-muted">{fmtDateTime(l.created_at)}</span>
+                {!l.success && <span className="ml-1.5 text-xs text-down">gagal</span>}
+              </li>
+            ))}
+          </ul>
+          {rows.length > 0 && (
+            <Link className="mt-1 inline-block text-xs text-fiber hover:underline" to={href}>
+              Buka di Logs
+            </Link>
+          )}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
 function ConfigureLink({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick} aria-label={label} title={label}
@@ -273,7 +343,19 @@ function RxBox({ title, value }: { title: string; value: number | null }) {
  *  skipped: tooltip per titik & zoom, tambah kalau operator memang memintanya. */
 function RxChart({ points }: { points: SignalPoint[] }) {
   const values = points.map((p) => p.rx_power_dbm).filter((v): v is number => v !== null);
-  if (values.length < 2) return <p className="py-6 text-muted">Belum cukup data histori sinyal.</p>;
+  // Satu sampel BUKAN "belum cukup data": sampler optik jalan tiap 15 menit, jadi sesaat
+  // setelah worker restart memang baru ada 1 titik. Polyline 1 titik tidak tergambar, maka
+  // titik tunggal digambar sebagai lingkaran. Pesan kosong hanya untuk 0 bacaan Rx.
+  if (values.length === 0) {
+    return (
+      <>
+        <p className="py-6 text-muted">
+          Belum ada bacaan Rx pada rentang ini (sampler optik jalan tiap 15 menit).
+        </p>
+        <StatusStrip points={points} />
+      </>
+    );
+  }
   const min = Math.min(...values, -30);
   const max = Math.max(...values, -8);
   const span = max - min || 1;
@@ -284,15 +366,45 @@ function RxChart({ points }: { points: SignalPoint[] }) {
     .filter((s): s is string => s !== null)
     .join(" ");
   return (
+    <>
     <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-32 w-full" role="img"
          aria-label={`Grafik Rx ONU, ${values.length} titik, terendah ${min.toFixed(1)} dBm`}>
       {[-25, -27].map((t) => (
         <line key={t} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
               strokeWidth="0.4" strokeDasharray="2 2" className="text-muted" />
       ))}
-      <polyline points={line} fill="none" stroke="currentColor" strokeWidth="1"
-                className="text-fiber" vectorEffect="non-scaling-stroke" />
+      {values.length === 1
+        ? <circle cx="50" cy={y(values[0])} r="1.2" className="fill-fiber" vectorEffect="non-scaling-stroke" />
+        : <polyline points={line} fill="none" stroke="currentColor" strokeWidth="1"
+                    className="text-fiber" vectorEffect="non-scaling-stroke" />}
     </svg>
+    <StatusStrip points={points} />
+    </>
+  );
+}
+
+/** Bagian `Status history` dari kartu yang sama: satu pita blok per bacaan, hijau = online,
+ *  merah = bacaan status lain (los/dying_gasp/offline). Datanya baris yang SAMA dengan
+ *  grafik Rx (`onu_signal_history`, kolom `status`), jadi tidak ada panggilan tambahan.
+ *  ponytail: pita proporsional-per-bacaan, bukan sumbu waktu nyata — jarak antar sampel
+ *  seragam (1/15 menit). skipped: skala waktu nyata, tambah kalau operator memintanya. */
+function StatusStrip({ points }: { points: SignalPoint[] }) {
+  if (points.length === 0) return null;
+  const downs = points.filter((p) => p.status !== "online").length;
+  return (
+    <div className="mt-2">
+      <div className="mb-1 flex items-center gap-2 text-xs text-muted">
+        <span>Status history</span>
+        <span className="text-faint">{points.length} bacaan · {downs} tidak online</span>
+      </div>
+      <div className="flex h-2 w-full gap-px overflow-hidden rounded-sm" role="img"
+           aria-label={`Status history ONU: ${points.length} bacaan, ${downs} tidak online`}>
+        {points.map((p, i) => (
+          <span key={i} title={`${new Date(p.sampled_at).toLocaleString("id-ID")} · ${p.status}`}
+                className={`flex-1 ${p.status === "online" ? "bg-fiber" : "bg-down"}`} />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -489,37 +601,6 @@ function LegendRow({ color, label, value }: { color: string; label: string; valu
   );
 }
 
-/** Field editable di dialog "Ubah" data pelanggan — hanya kolom database (bukan OLT). */
-type InfoForm = {
-  customer_name: string; customer_id: string; name: string; contact: string; phone: string;
-  address: string; external_id: string; zone_id: string; splitter_id: string;
-  splitter_port: string; latitude: string; longitude: string;
-};
-
-const str = (v: unknown) => (v === null || v === undefined ? "" : String(v));
-
-function infoFrom(d: Detail): InfoForm {
-  return {
-    customer_name: str(d.customer_name), customer_id: str(d.customer_id), name: str(d.name),
-    contact: str(d.contact), phone: str(d.phone), address: str(d.address),
-    external_id: str(d.external_id), zone_id: str(d.zone_id), splitter_id: str(d.splitter_id),
-    splitter_port: str(d.splitter_port), latitude: str(d.latitude), longitude: str(d.longitude),
-  };
-}
-
-/** Teks kosong dikirim sebagai null supaya kolom benar-benar dibersihkan, bukan jadi "". */
-function infoPayload(f: InfoForm) {
-  const text = (v: string) => (v.trim() === "" ? null : v.trim());
-  const num = (v: string) => (v.trim() === "" ? null : Number(v));
-  return {
-    customer_name: text(f.customer_name), customer_id: text(f.customer_id),
-    name: text(f.name), contact: text(f.contact), phone: text(f.phone),
-    address: text(f.address), external_id: text(f.external_id),
-    zone_id: num(f.zone_id), splitter_id: num(f.splitter_id),
-    splitter_port: num(f.splitter_port), latitude: num(f.latitude), longitude: num(f.longitude),
-  };
-}
-
 /** VLAN terpasang = DAFTAR, bukan satu nilai. Sumbernya seluruh `service-port` ONU di
  *  running-config (mis. 15 dan 100 sekaligus). Backend mengirimnya sebagai
  *  `service_vlans` pada detail ONU — kontrak milik track metadata ONU
@@ -591,6 +672,27 @@ function serviceVlans(d: DetailWithVlans): OnuServiceVlan[] | null {
     seen.add(v.vlan_id);
     return true;
   });
+}
+
+/** Nomor VLAN yang BENAR-BENAR terpasang di perangkat — sumber centang awal modal
+ *  "Update attached VLANs" dan VLAN WAN "Update ONU mode".
+ *
+ *  Beda dari `serviceVlans()` yang untuk TAMPILAN: di sini VLAN management TIDAK
+ *  disaring. Alasannya keselamatan trafik, bukan kosmetik: `build_attached_vlans` di
+ *  backend menulis ulang SELURUH daftar `service-port` ONU dari nilai yang dikirim.
+ *  Kalau VLAN management dibuang dari centang awal, operator yang hanya menambah satu
+ *  VLAN akan ikut MENGHAPUS service-port management ONU tanpa pernah melihatnya di
+ *  dialog. Nomornya tetap tidak tampil sebagai pilihan (opsi modal disaring
+ *  `serviceVlanOptions`), jadi tidak bisa di-uncheck — hanya ikut terkirim utuh.
+ *
+ *  `[]` saat backend belum mengirim daftar: tanpa data nyata jangan mengarang centang. */
+function attachedVlanNumbers(d: DetailWithVlans): number[] {
+  if (!Array.isArray(d.service_vlans)) return [];
+  const seen = new Set<number>();
+  for (const v of d.service_vlans) {
+    if (typeof v.vlan_id === "number") seen.add(v.vlan_id);
+  }
+  return [...seen].sort((a, b) => a - b);
 }
 
 /** View diagnostik = isi body `POST /api/onus/{sn}/diagnostics` (kontrak backend sibling). */
@@ -677,8 +779,6 @@ export function OnuDetail() {
   const range = (params.get("range") ?? "24h") as "24h" | "7d" | "30d";
   /** Modal aksi ONU (kontrak `/api/onus/{id}/actions`), satu state untuk semua modal. */
   const [modal, setModal] = useState<OnuModalState | null>(null);
-  const [editing, setEditing] = useState<null | "info">(null);
-  const [info, setInfo] = useState<InfoForm | null>(null);
   const [note, setNote] = useState("");
   /** Panel output diagnostik: satu panel, isi = hasil job view yang terakhir diminta. */
   const [diagView, setDiagView] = useState<DiagView | null>(null);
@@ -717,10 +817,6 @@ export function OnuDetail() {
       api<TrafficHistoryPoint[]>(`/api/onus/${serial}/traffic/history?range=${range}`),
     enabled: serial !== "",
   });
-  const zones = useQuery({ queryKey: ["zones"], queryFn: () => api<Zone[]>("/api/zones") });
-  const splitters = useQuery({
-    queryKey: ["splitters", "all"], queryFn: () => api<Splitter[]>("/api/splitters"),
-  });
   /** Jumlah port Ethernet/SSID/VoIP/CATV berasal dari katalog ONU Types (master data nyata),
    *  bukan angka hardcode per tipe. */
   const onuTypes = useQuery({
@@ -736,18 +832,6 @@ export function OnuDetail() {
     return () => clearTimeout(id);
   }, [live]);
   useEffect(() => () => setLive(false), []);
-
-  /** Edit data pelanggan/lokasi: kolom database saja, jadi langsung PATCH (bukan job). */
-  const saveInfo = useMutation({
-    mutationFn: (f: InfoForm) =>
-      api<Detail>(`/api/onus/${serial}/info`, { method: "PATCH", json: infoPayload(f) }),
-    onSuccess: () => {
-      setEditing(null);
-      setNote("Data pelanggan disimpan.");
-      qc.invalidateQueries({ queryKey: ["onu"] });
-      qc.invalidateQueries({ queryKey: ["onus"] });
-    },
-  });
 
   /** Diagnostik baca-saja: satu job per tombol (backend sibling), hasilnya string output. */
   const diag = useMutation({
@@ -812,7 +896,10 @@ export function OnuDetail() {
     out: Math.max(...traffic.points.map((p) => p.outMbps)),
     in: Math.max(...traffic.points.map((p) => p.inMbps)),
   };
-  /** Teks baris spesifikasi koneksi. Semuanya turunan data nyata — tidak ada nilai cadangan. */
+  /** Teks baris spesifikasi koneksi. Nilai mode datang EFEKTIF dari backend: hasil baca
+   *  CLI/running-config, atau default pemilik (`routing` / `webpage`) bila tidak terbaca —
+   *  `onu_mode_source`/`wan_mode_source` menyebut asalnya. Halaman tidak menambal sendiri. */
+  const onuMode = onuLabel(d.onu_mode);
   const wanMode = wanLabel(d.wan_mode);
   const isPppoe = (d.wan_mode ?? "").toLowerCase() === "pppoe";
   /** `webpage` = konfigurasi dilakukan di halaman web ONU, tidak ada IP WAN yang dibaca OLT. */
@@ -852,7 +939,6 @@ export function OnuDetail() {
     return `Menunggu hasil job pembacaan "${DIAG_LABEL[diagView ?? "status"]}" dari OLT ...`;
   };
 
-  const infoDialog = () => { setInfo(infoFrom(d)); setEditing("info"); };
   /** Modal lokasi: satu titik buka untuk semua baris lokasi/identitas kiri atas. */
   const locationDialog = () => setModal({ kind: "location" });
   /** Data yang dipakai modal aksi: subset detail, tanpa menyalin seluruh tipe halaman. */
@@ -861,14 +947,13 @@ export function OnuDetail() {
     id: d.id, serial_number: d.serial_number, onu_type_id: d.onu_type_id,
     external_id: d.external_id, olt_id: d.olt_id, olt_name: d.olt_name,
     slot: d.slot, port: d.port, onu_mode: d.onu_mode, wan_mode: d.wan_mode, pppoe_username: d.pppoe_username,
+    wan_vlan: d.wan_vlan ?? null, pppoe_password: d.pppoe_password ?? null,
     mgmt_ip_mode: d.mgmt_ip_mode, vlan_id: d.vlan_id, ip_address: d.ip_address,
     download_profile_name: d.download_profile_name, upload_profile_name: d.upload_profile_name,
     zone_id: d.zone_id, splitter_id: d.splitter_id, splitter_port: d.splitter_port,
     name: d.name, customer_name: d.customer_name, address: d.address, contact: d.contact,
     latitude: d.latitude, longitude: d.longitude,
-    attached_vlans: (vlanList ?? [])
-      .map((v) => v.vlan_id)
-      .filter((v): v is number => typeof v === "number"),
+    attached_vlans: attachedVlanNumbers(d),
   };
 
   return (
@@ -1041,11 +1126,13 @@ export function OnuDetail() {
                   </>
                 )
               } onEdit={() => setModal({ kind: "attached-vlans" })} />
-              {/* "Routing - WAN vlan: N" seperti acuan; nomor VLAN hanya ditempel bila ada. */}
+              {/* "Routing - WAN vlan: N" seperti acuan; nomor VLAN hanya ditempel bila ada.
+                  Nilai sudah efektif dari backend (CLI atau default `routing`), jadi "—"
+                  hanya muncul kalau backend lama/tak mengirim apa pun. */}
               <DRow label="ONU mode" value={
-                d.onu_mode === null || d.onu_mode === ""
+                onuMode === null
                   ? "—"
-                  : `${d.onu_mode}${wanVlan === null ? "" : ` - WAN vlan: ${wanVlan}`}`
+                  : `${onuMode}${wanVlan === null ? "" : ` - WAN vlan: ${wanVlan}`}`
               } onEdit={() => setModal({ kind: "onu-mode" })} />
               {/* WAN setup mode: label mode dari WAN_MODE_LABEL (huruf kapital di teks, bukan
                   CSS uppercase) + IP sebagai tautan tab baru. `webpage` tidak punya IP WAN. */}
@@ -1379,14 +1466,6 @@ export function OnuDetail() {
         <div className="flex flex-wrap items-center gap-1.5">
           <Button size="sm" variant="primary" onClick={() => setModal({ kind: "reboot" })}>Reboot</Button>
           <Button size="sm" variant="primary" onClick={() => setModal({ kind: "resync-config" })}>Resync config</Button>
-          <Button size="sm" onClick={infoDialog}>Ubah data pelanggan</Button>
-          <Button size="sm" onClick={locationDialog}>Ubah lokasi</Button>
-          <Button size="sm" onClick={() => setModal({ kind: "speed-profile" })}>Ubah speed</Button>
-          <Button size="sm" onClick={() => setModal({ kind: "attached-vlans" })}>Ubah VLAN</Button>
-          <Button size="sm" onClick={() => setModal({ kind: "move" })}>Move ONU</Button>
-          {isManager && (
-            <Button size="sm" onClick={() => setModal({ kind: "replace-sn" })}>Replace ONU / ganti SN</Button>
-          )}
           <Button size="sm" variant="primary"
                   onClick={() => setModal({ kind: d.admin_state === "disabled" ? "enable" : "disable" })}>
             {d.admin_state === "disabled" ? "Aktifkan ONU" : "Nonaktifkan ONU"}
@@ -1400,108 +1479,15 @@ export function OnuDetail() {
             <Button size="sm" variant="dangerSolid" onClick={() => setModal({ kind: "delete" })}>Hapus</Button>
           )}
         </div>
+        {/* Log aksi terakhir = POP UP di bawah baris aksi (tanpa tabel panjang di halaman).
+            Tiap entri = deskripsi aksi + tautan ke halaman Logs yang sudah tersaring serial
+            ONU ini (`/logs?q=<serial>`); isinya murni data endpoint, tanpa teks karangan. */}
+        <LastLogPopover query={logs} serial={d.serial_number} />
       </Section>
-
-      {/* 9. BAGIAN BAWAH acuan (catatan/tiket): dipisah garis dari baris aksi, lalu isinya.
-          Di Nexfiber isinya log aksi ONU — tetap memakai Panel/TableCard bersama. */}
-      <div className="border-t pt-3">
-        <Panel title="Log aksi terakhir"
-          action={<Link className="text-fiber hover:underline" to={`/logs?q=${d.serial_number}`}>
-            Buka di Logs
-          </Link>}>
-          <TableCard
-            query={logs}
-            loadingText="Memuat log ..."
-            empty="Belum ada log untuk ONU ini."
-            columns={["Waktu", "Pengguna", "Aksi", "Hasil", "Job", "Command"]}
-            row={(l: OnuLog) => (
-              <tr key={l.id} className="border-b last:border-0">
-                <td className={cell}>{fmtDateTime(l.created_at)}</td>
-                <td className={cell}>{dash(l.username)}</td>
-                <td className={`${cell} font-mono`}>{l.action}</td>
-                <td className={cell}>
-                  <span className={l.success ? "text-up" : "text-down"}>{l.success ? "Berhasil" : "Gagal"}</span>
-                </td>
-                <td className={`${cell} font-mono`}>{l.job_id === null ? "—" : `#${l.job_id}`}</td>
-                <td className={`${cell} max-w-[22rem] truncate font-mono text-xs text-muted`}
-                    title={l.raw_command ?? ""}>
-                  {dash(l.raw_command)}
-                </td>
-              </tr>
-            )}
-          />
-        </Panel>
-      </div>
 
       {/* Semua modal aksi ONU dirender satu kali di sini; isinya dipilih oleh `modal`. */}
       <OnuActionModals state={modal} onu={modalOnu} onClose={() => setModal(null)}
                        onDone={(kind, r) => setNote(r?.detail ?? `Aksi ${kind} terkirim.`)} />
-
-      {editing === "info" && info && (
-        <Drawer title="Ubah data pelanggan" busy={saveInfo.isPending} error={saveInfo.error?.message}
-          onClose={() => setEditing(null)}
-          onSubmit={() => saveInfo.mutate(info)}>
-          <Field label="Nama pelanggan">
-            <input className={input} value={info.customer_name}
-                   onChange={(e) => setInfo({ ...info, customer_name: e.target.value })} />
-          </Field>
-          <Field label="ID pelanggan">
-            <input className={input} value={info.customer_id} autoComplete="off"
-                   onChange={(e) => setInfo({ ...info, customer_id: e.target.value })} />
-          </Field>
-          <Field label="Nama/label ONU">
-            <input className={input} value={info.name}
-                   onChange={(e) => setInfo({ ...info, name: e.target.value })} />
-          </Field>
-          <Field label="Kontak">
-            <input className={input} value={info.contact}
-                   onChange={(e) => setInfo({ ...info, contact: e.target.value })} />
-          </Field>
-          <Field label="Telepon">
-            <input className={input} value={info.phone}
-                   onChange={(e) => setInfo({ ...info, phone: e.target.value })} />
-          </Field>
-          <Field label="Alamat">
-            <input className={input} value={info.address}
-                   onChange={(e) => setInfo({ ...info, address: e.target.value })} />
-          </Field>
-          <Field label="External ID">
-            <input className={input} value={info.external_id}
-                   onChange={(e) => setInfo({ ...info, external_id: e.target.value })} />
-          </Field>
-          <Field label="Zone">
-            <select className={input} value={info.zone_id}
-                    onChange={(e) => setInfo({ ...info, zone_id: e.target.value })}>
-              <option value="">Tanpa zone</option>
-              {(zones.data ?? []).map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Splitter / ODP">
-            <select className={input} value={info.splitter_id}
-                    onChange={(e) => setInfo({ ...info, splitter_id: e.target.value })}>
-              <option value="">Tanpa splitter</option>
-              {(splitters.data ?? []).map((s) => (
-                <option key={s.id} value={s.id}>{s.name}{s.zone_name ? ` · ${s.zone_name}` : ""}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Port splitter">
-            <input className={input} type="number" min={1} value={info.splitter_port}
-                   onChange={(e) => setInfo({ ...info, splitter_port: e.target.value })} />
-          </Field>
-          <Field label="Latitude">
-            <input className={input} value={info.latitude} placeholder="-6.20000"
-                   onChange={(e) => setInfo({ ...info, latitude: e.target.value })} />
-          </Field>
-          <Field label="Longitude">
-            <input className={input} value={info.longitude} placeholder="106.81666"
-                   onChange={(e) => setInfo({ ...info, longitude: e.target.value })} />
-          </Field>
-          <p className="text-muted">
-            Data ini hanya tersimpan di Nexfiber — tidak ada perintah yang dikirim ke OLT.
-          </p>
-        </Drawer>
-      )}
     </div>
   );
 }

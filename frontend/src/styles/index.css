@@ -163,6 +163,20 @@
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
 }
+/* Bottom sheet < sm: pop up naik dari tepi bawah. Ditulis di CSS (bukan utility)
+   supaya pasti menang atas `animate-[fade-in]`/`animate-[drawer-in]` milik desktop. */
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (width < 40rem) {
+  [data-radix-dialog-content][data-state="open"] {
+    animation: sheet-in 250ms ease-out;
+  }
+  [data-radix-dialog-content][data-state="closed"] {
+    animation: none;
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .hover-lift,
@@ -170,10 +184,14 @@
   .hover-lift:focus-visible,
   .entrance,
   .stagger > *,
-  [data-radix-dialog-content],
   [data-radix-popper-content-wrapper] > * {
     transition: none;
     animation: none;
     transform: none;
+  }
+  /* Dialog: matikan animasi saja — transform-nya yang memusatkan panel. */
+  [data-radix-dialog-content] {
+    transition: none;
+    animation: none;
   }
 }

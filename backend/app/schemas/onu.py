@@ -8,6 +8,13 @@ from app.core.signal import BUCKETS
 # Bucket RX: nilainya dari app.core.signal (satu definisi untuk seluruh backend).
 SignalBucket = Literal[BUCKETS]  # type: ignore[valid-type]
 OnuStatus = Literal["online", "offline", "los", "dying_gasp", "power_off", "unknown"]
+# Asal nilai mode ONU/WAN yang dikirim ke UI: "cli" = benar-benar terbaca dari
+# running-config OLT, "default" = tidak ada di CLI sehingga dipakai default pemilik.
+ModeSource = Literal["cli", "default"]
+# Default pemilik saat mode tidak terbaca di CLI (DECISIONS.md): Routing + webpage.
+# Hanya untuk tampilan/nilai awal modal; tidak pernah disimpan ke kolom `onus`.
+DEFAULT_ONU_MODE = "routing"
+DEFAULT_WAN_MODE = "webpage"
 
 
 class OnuRow(BaseModel):
@@ -35,6 +42,22 @@ class OnuRow(BaseModel):
     last_seen_at: datetime | None
     last_down_at: datetime | None
     last_down_reason: str | None
+
+class OnuServiceVlan(BaseModel):
+    """Satu VLAN layanan NYATA di perangkat (dari `service-port` ONU).
+
+    `vlan_id` = nomor VLAN di perangkat (bukan id baris `vlans`) — sengaja beda dari
+    `OnuDetail.vlan_id` yang FK master, karena VLAN perangkat belum tentu terdaftar.
+    `in_master=False` = ada di perangkat tapi belum ada di master; tetap dikirim apa
+    adanya, bukan dibuang. `is_management` HANYA dari `vlans.type == "management"` —
+    tidak ada nomor VLAN yang di-hardcode sebagai management.
+    """
+
+    vlan_id: int
+    name: str | None = None
+    is_management: bool = False
+    in_master: bool = False
+
 
 class OnuDetail(OnuRow):
     pppoe_password: str | None = None  # hanya diisi untuk role manager
@@ -69,13 +92,27 @@ class OnuDetail(OnuRow):
     srv_profile_id: str | None
     software_version: str | None
     hardware_version: str | None
+    # Mode EFEKTIF yang dipakai UI: hasil baca CLI/running-config bila ada, kalau tidak
+    # terbaca memakai default pemilik (routing + webpage). Default TIDAK pernah ditulis ke
+    # DB sebagai hasil CLI palsu — hanya diisi di respons ini, dan `*_source` menyebut
+    # asalnya ("cli" | "default"). Kelak sumber ketiga (TR-069) ikut lewat jalur yang sama.
     onu_mode: str | None
     wan_mode: str | None
+    # VLAN WAN nyata perangkat (`flow 1 ... vlan N`), nomor VLAN apa adanya — bukan FK
+    # master dan bukan diambil dari `service_vlans`. None = perangkat tidak melaporkannya.
+    wan_vlan: int | None = None
+    onu_mode_source: ModeSource = "cli"
+    wan_mode_source: ModeSource = "cli"
     mgmt_ip_mode: str | None
     pppoe_username: str | None
     latitude: float | None
     longitude: float | None
     registered_at: datetime | None
+    # VLAN layanan terpasang di perangkat, DAFTAR. `None` = belum pernah disinkron
+    # (UI harus bilang "belum tersedia", bukan menampilkan daftar kosong karangan);
+    # `[]` = ONU memang tidak punya service-port. Sumber centang awal modal
+    # "Update attached VLANs" dan VLAN WAN "Update ONU mode".
+    service_vlans: list[OnuServiceVlan] | None = None
 
 class OnuPage(BaseModel):
     items: list[OnuRow]

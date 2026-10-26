@@ -5,8 +5,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSearchParams } from "react-router";
-import { Dialog } from "radix-ui";
 import { filterInput } from "../components/crud";
+import { ModalShell } from "../components/onu/modals/ModalShell";
 import { PageTitle, fmtAgo, nf } from "../components/data";
 import { Button } from "../components/ui/button";
 import { api, qs, type LogPage, type LogRow, type Olt } from "../lib/api";
@@ -26,35 +26,28 @@ const SIZE = 50;
 
 function Detail({ log, onClose }: { log: LogRow; onClose: () => void }) {
   return (
-    <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 z-50 w-[min(640px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-md border bg-surface p-4 shadow-modal">
-          <Dialog.Title className="mb-2 text-lg font-semibold">{log.action}</Dialog.Title>
-          <dl className="mb-3 grid grid-cols-2 gap-1 text-sm">
-            <dt className="text-muted">Waktu</dt><dd>{new Date(log.created_at).toLocaleString("id-ID")}</dd>
-            <dt className="text-muted">User</dt><dd>{log.username ?? "sistem"}</dd>
-            <dt className="text-muted">OLT</dt><dd>{log.olt_name ?? "—"}</dd>
-            <dt className="text-muted">ONU</dt><dd>{log.onu_serial ?? "—"}</dd>
-            <dt className="text-muted">Hasil</dt><dd>{log.success ? "Sukses" : "Gagal"}</dd>
-          </dl>
-          {log.raw_command && (
-            <>
-              <p className="mb-1 text-xs text-muted">Command dikirim</p>
-              <pre className="mb-3 max-h-48 overflow-auto rounded-sm bg-sunken p-2 text-xs">{log.raw_command}</pre>
-            </>
-          )}
-          {log.raw_output && (
-            <>
-              <p className="mb-1 text-xs text-muted">Respons perangkat</p>
-              <pre className="mb-3 max-h-48 overflow-auto rounded-sm bg-sunken p-2 text-xs">{log.raw_output}</pre>
-            </>
-          )}
-          {!log.raw_command && !log.raw_output && <p className="mb-3 text-muted">Tidak ada command perangkat untuk aksi ini.</p>}
-          <div className="flex justify-end"><Dialog.Close asChild><Button>Tutup</Button></Dialog.Close></div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <ModalShell title={log.action} onClose={onClose} closeLabel="Tutup">
+      <dl className="mb-3 grid grid-cols-2 gap-1 text-sm">
+        <dt className="text-muted">Waktu</dt><dd>{new Date(log.created_at).toLocaleString("id-ID")}</dd>
+        <dt className="text-muted">User</dt><dd>{log.username ?? "sistem"}</dd>
+        <dt className="text-muted">OLT</dt><dd>{log.olt_name ?? "—"}</dd>
+        <dt className="text-muted">ONU</dt><dd>{log.onu_serial ?? "—"}</dd>
+        <dt className="text-muted">Hasil</dt><dd>{log.success ? "Sukses" : "Gagal"}</dd>
+      </dl>
+      {log.raw_command && (
+        <>
+          <p className="mb-1 text-xs text-muted">Command dikirim</p>
+          <pre className="mb-3 max-h-48 overflow-auto rounded-sm bg-surface p-2 text-xs">{log.raw_command}</pre>
+        </>
+      )}
+      {log.raw_output && (
+        <>
+          <p className="mb-1 text-xs text-muted">Respons perangkat</p>
+          <pre className="mb-3 max-h-48 overflow-auto rounded-sm bg-surface p-2 text-xs">{log.raw_output}</pre>
+        </>
+      )}
+      {!log.raw_command && !log.raw_output && <p className="text-muted">Tidak ada command perangkat untuk aksi ini.</p>}
+    </ModalShell>
   );
 }
 

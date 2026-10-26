@@ -153,7 +153,12 @@ export type OnuDetail = OnuRow & {
   line_profile_id: string | null; srv_profile_id: string | null;
   software_version: string | null; hardware_version: string | null;
   onu_mode: string | null; wan_mode: string | null; mgmt_ip_mode: string | null;
+  /** Asal nilai mode di atas: `cli` = terbaca running-config, `default` = tidak ada di
+   *  CLI sehingga backend memakai default (`routing` / `webpage`). */
+  onu_mode_source?: "cli" | "default"; wan_mode_source?: "cli" | "default";
   pppoe_username: string | null; pppoe_password?: string | null; latitude: number | null; longitude: number | null;
+  /** VLAN WAN nyata perangkat (`flow 1 ... vlan N`); null/undefined = tidak dilaporkan OLT. */
+  wan_vlan?: number | null;
   registered_at: string | null;
 };
 

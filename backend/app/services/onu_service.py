@@ -8,7 +8,7 @@ import io
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -25,7 +25,7 @@ from app.core.rbac import MANAGERS, scope_olt_ids
 from app.core.security import decrypt_secret, encrypt_secret
 from app.core.signal import BUCKETS, rx_bucket
 from app.drivers.base import OltDriver
-from app.drivers.onu_report import parse_pppoe
+from app.drivers.onu_report import parse_pppoe, parse_wan_vlan
 from app.drivers.types import AuthorizeRequest, DriverResult, ModifyRequest
 from app.models.job import Job
 from app.models.olt import Olt, PonPort
@@ -37,8 +37,19 @@ from app.models.user import User
 from app.models.vlan import Vlan
 from app.repositories import job_repo, olt_repo, onu_repo
 from app.repositories.activity_log_repo import log_activity
-from app.schemas.onu import AuthorizeBody, OnuDetail, OnuInfoBody, OnuLog, OnuRow, PendingOnu
+from app.schemas.onu import (
+    DEFAULT_ONU_MODE,
+    DEFAULT_WAN_MODE,
+    AuthorizeBody,
+    OnuDetail,
+    OnuInfoBody,
+    OnuLog,
+    OnuRow,
+    OnuServiceVlan,
+    PendingOnu,
+)
 from app.services import job_service, master_data_service
+from app.services.onu_device_metadata import classify_service_vlans
 
 RX_DEFAULTS = {"warn": -25.0, "crit": -27.0}  # PRD 3.4; overridable via settings.rx_threshold
 SIGNAL_RANGES = {"24h": timedelta(hours=24), "7d": timedelta(days=7), "30d": timedelta(days=30)}
@@ -92,9 +103,42 @@ async def _get_row(db: AsyncSession, serial: str, user: User):
         raise NotFoundError(f"ONU {serial} not found")
     return row
 
+async def _service_vlans(db: AsyncSession, onu: Onu) -> list[OnuServiceVlan] | None:
+    """`onus.service_vlan_ids` (nomor VLAN perangkat) + nama/tipe dari master VLAN.
+
+    `None` diteruskan apa adanya: "belum pernah disinkron" bukan "tidak punya VLAN".
+    Pencocokan master dibatasi OLT ONU ini plus VLAN global (`olt_id IS NULL`) —
+    nomor VLAN sama di OLT berbeda adalah VLAN berbeda.
+    """
+    numbers = onu.service_vlan_ids
+    if numbers is None:
+        return None
+    rows = (await db.execute(select(Vlan).where(
+        or_(Vlan.olt_id == onu.olt_id, Vlan.olt_id.is_(None))
+    ))).scalars()
+    master = {v.vlan_id: (v.name, v.type) for v in rows}
+    return [
+        OnuServiceVlan(vlan_id=v.vlan_id, name=v.name, is_management=v.is_management,
+                       in_master=v.in_master)
+        for v in classify_service_vlans([int(n) for n in numbers], master)
+    ]
+
+def _apply_mode_defaults(detail: OnuDetail) -> None:
+    """Isi mode efektif + penanda sumber. Kolom DB kosong = tidak terbaca di CLI, maka
+    pakai default pemilik (Routing / Setup via ONU webpage) HANYA di respons; DB tetap
+    kosong supaya default tidak pernah tersamar sebagai hasil baca perangkat.
+    """
+    if detail.onu_mode in (None, ""):
+        detail.onu_mode, detail.onu_mode_source = DEFAULT_ONU_MODE, "default"
+    if detail.wan_mode in (None, ""):
+        detail.wan_mode, detail.wan_mode_source = DEFAULT_WAN_MODE, "default"
+
+
 async def get_onu(db: AsyncSession, serial: str, user: User) -> OnuDetail:
     row = await _get_row(db, serial, user)
     detail = OnuDetail(**_row(*row))
+    detail.service_vlans = await _service_vlans(db, row[0])
+    _apply_mode_defaults(detail)
     # Password PPPoE = kredensial pelanggan: sama seperti running-config, manager saja.
     if row[0].pppoe_password_enc and user.role in MANAGERS:
         detail.pppoe_password = decrypt_secret(row[0].pppoe_password_enc)
@@ -597,10 +641,14 @@ async def _run_diagnostic(db: AsyncSession, job: Job, driver: OltDriver, view: s
 def _sync_wan_from_running(onu: Onu, output: str) -> None:
     """Sinkronkan kolom WAN ONU dari running-config yang baru dibaca (DB jadi cache terbaru).
 
-    Hanya PPPoE yang terdeteksi: wan_mode=pppoe, onu_mode=routing, username, dan password
-    terenkripsi (tidak pernah masuk result job / respons API). Tanpa PPPoE: tidak diubah.
+    Dua hal yang diambil: VLAN WAN (`flow 1 ... vlan N`) dan PPPoE. Masing-masing hanya
+    menulis bila perangkat memang melaporkannya; yang tidak ada dibiarkan apa adanya
+    (bukan di-NULL-kan, bukan ditebak).
     """
     found = parse_pppoe(output)
+    vlan = parse_wan_vlan(output)
+    if vlan is not None:
+        onu.wan_vlan = vlan
     if found is None:
         return
     user, password = found

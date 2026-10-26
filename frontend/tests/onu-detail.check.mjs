@@ -315,6 +315,19 @@ assert.ok(page.includes('label="TR069 Profile" value={<>Inactive'), "TR069 Profi
   assert.ok(page.includes('wanMode === null ? "—"'), "WAN setup mode kosong = —");
 });
 
+check("mode ONU/WAN dipakai apa adanya dari backend (default dihitung di sana)", () => {
+  // Halaman TIDAK boleh menambal default sendiri: tidak ada literal "routing"/"webpage"
+  // sebagai nilai cadangan (`??`/`||`) di sini. Default ada di backend
+  // (app/schemas/onu.py: DEFAULT_ONU_MODE/DEFAULT_WAN_MODE) supaya satu sumber saja.
+  assert.ok(!/\?\?\s*"(routing|webpage)"/.test(page), "halaman menambal default mode sendiri");
+  // Label mode ONU lewat peta, nilai tak dikenal tampil apa adanya (bukan error).
+  assert.ok(page.includes('const ONU_MODE_LABEL: Record<string, string> = { routing: "Routing", bridging: "Bridging" }'),
+            "peta label ONU mode hilang");
+  assert.ok(page.includes("ONU_MODE_LABEL[mode.toLowerCase()] ?? mode"), "fallback ONU mode apa adanya");
+  assert.ok(page.includes("const onuMode = onuLabel(d.onu_mode)"), "ONU mode tidak lewat onuLabel");
+  assert.ok(page.includes('onuMode === null'), "ONU mode kosong harus tetap punya cabang —");
+});
+
 check("kolom identitas memakai label persis acuan + `None` untuk nilai kosong", () => {
   const rows = [...page.matchAll(/<DRow label="([^"]+)"/g)].map((m) => m[1]);
   const left = rows.slice(0, rows.indexOf("ONU external ID") + 1);
@@ -385,6 +398,100 @@ check("blok Layanan + Aksi mengikuti pola label/nilai, tombol berbahaya tetap ma
   for (const m of ['label="Layanan"', 'label="Aksi"', 'label="Layanan VoIP"', 'label="IPTV"', 'label="CATV"']) {
     assert.ok(page.includes(m), m);
   }
+});
+
+check("6 aksi yang dibuang pemilik tidak ada lagi (tombol, handler, maupun state modal)", () => {
+  for (const label of ["Ubah data pelanggan", "Ubah lokasi", "Ubah speed", "Ubah VLAN",
+                       "Move ONU", "Replace ONU / ganti SN"]) {
+    assert.ok(!page.includes(`>${label}<`), `tombol masih ada: ${label}`);
+  }
+  // Handler + form "Ubah data pelanggan" ikut dibuang: tidak ada PATCH /info dari halaman ini.
+  for (const sym of ["infoDialog", "infoPayload", "infoFrom", "InfoForm", "saveInfo",
+                     "/info`", "setEditing"]) {
+    assert.ok(!page.includes(sym), `sisa handler: ${sym}`);
+  }
+  // Move ONU jadi modal yatim -> dibuang; modal lain yang masih dipakai tetap ada.
+  const modals = readFileSync(
+    join(here, "..", "src", "components", "onu", "modals", "OnuActionModals.tsx"), "utf8",
+  );
+  assert.ok(!modals.includes("MoveOnuModal"), "modal Move ONU masih dirender");
+  assert.ok(!/kind: "move"/.test(modals), 'state modal.kind "move" masih ada');
+  const basic = readFileSync(
+    join(here, "..", "src", "components", "onu", "modals", "BasicModals.tsx"), "utf8",
+  );
+  assert.ok(!basic.includes("MoveOnuModal"), "komponen MoveOnuModal masih ada");
+  // Modal yang titik bukanya cuma dipindah (bukan dibuang) HARUS tetap hidup.
+  for (const keep of ["SpeedProfileModal", "ReplaceSnModal", "LocationModal",
+                      "AttachedVlansModal"]) {
+    assert.ok(modals.includes(keep), `modal yang masih dipakai ikut terhapus: ${keep}`);
+  }
+});
+
+check("Log aksi terakhir = POP UP di bawah blok aksi, entri menaut ke /logs?q=<serial>", () => {
+  // Pemicunya di DALAM <Section label="Aksi">, sesudah deretan tombol.
+  const sec = page.indexOf('<Section label="Aksi">');
+  const trigger = page.indexOf("<LastLogPopover", sec);
+  assert.notEqual(trigger, -1, "pemicu pop up log tidak ada di blok Aksi");
+  assert.ok(trigger < page.indexOf("</Section>", sec), "pemicu di luar blok Aksi");
+  // Pop up nyata (Popover radix), bukan tabel yang selalu terbuka di halaman.
+  assert.ok(page.includes("<Popover.Root>") && page.includes("<Popover.Content"),
+            "tidak memakai Popover");
+  assert.ok(!page.includes('<Panel title="Log aksi terakhir"'), "tabel log lama masih dirender");
+  // Entri = deskripsi aksi + tautan ke halaman Logs tersaring serial ONU ini.
+  assert.ok(page.includes("`/logs?q=${encodeURIComponent(serial)}`"), "tautan /logs?q=<serial>");
+  assert.ok(page.includes('"onu.update_info": "Update location details"'),
+            "deskripsi aksi diturunkan dari action backend");
+  // Isinya dari endpoint log ONU yang sudah ada, bukan endpoint baru.
+  assert.ok(page.includes("/logs?limit="), "sumber log bukan endpoint ONU yang ada");
+});
+
+// --------------------------------------- centang awal "Update attached VLANs"
+
+check("centang awal modal VLAN = VLAN terpasang dari backend, bukan daftar tampilan", () => {
+  // Bug nyata: modal selalu terbuka tanpa centang karena backend tidak pernah mengirim
+  // daftar VLAN terpasang. Sumbernya sekarang field `service_vlans` (kontrak backend).
+  assert.ok(page.includes("attached_vlans: attachedVlanNumbers(d)"),
+            "centang modal tidak diambil dari attachedVlanNumbers");
+  const fn = page.slice(page.indexOf("function attachedVlanNumbers"),
+                        page.indexOf("/** View diagnostik"));
+  assert.ok(fn.includes("d.service_vlans"), "sumber centang bukan field service_vlans");
+  // Tanpa data nyata jangan mengarang centang.
+  assert.ok(fn.includes('if (!Array.isArray(d.service_vlans)) return [];'),
+            "daftar belum dikirim backend harus jadi [] bukan tebakan");
+  // KESELAMATAN TRAFIK: perintah backend menulis ULANG seluruh service-port dari nilai
+  // yang dikirim, jadi VLAN management TIDAK boleh disaring dari centang awal — kalau
+  // disaring, menambah satu VLAN ikut menghapus service-port management ONU.
+  assert.ok(!fn.includes("isManagementVlan"),
+            "VLAN management disaring dari centang: submit akan menghapus layanan itu");
+});
+
+check("daftar VLAN terpasang dipakai juga sebagai VLAN WAN 'Update ONU mode'", () => {
+  // Satu sumber untuk dua modal: jangan ada daftar VLAN terpasang versi kedua.
+  assert.ok(page.includes("const vlanList = serviceVlans(d)"),
+            "daftar VLAN tampilan tidak lagi dari serviceVlans");
+  const decl = (page.match(/d\.service_vlans/g) ?? []).length;
+  assert.ok(decl >= 2, `service_vlans harus jadi sumber bersama, ditemukan ${decl}`);
+});
+
+check("kartu Signal & Status history tidak menyerah pada satu sampel", () => {
+  const chart = page.slice(page.indexOf("function RxChart"), page.indexOf("function StatusStrip"));
+  // BUG NYATA (2026-10-26): ambang `values.length < 2` membuat kartu menulis "Belum cukup
+  // data histori sinyal" padahal ada 1 bacaan Rx — sampler optik hanya jalan tiap 15 menit,
+  // jadi sesaat setelah worker restart titiknya memang baru satu.
+  assert.ok(!chart.includes("values.length < 2"),
+            "ambang 2 titik kembali: satu bacaan Rx akan dianggap 'belum cukup data'");
+  assert.ok(chart.includes("values.length === 0"),
+            "pesan kosong harus hanya untuk 0 bacaan Rx");
+  assert.ok(chart.includes("values.length === 1") && chart.includes("<circle"),
+            "satu titik harus digambar sebagai lingkaran (polyline 1 titik tidak terlihat)");
+  // Judul kartu menjanjikan 'Status history', jadi pita status harus benar-benar dirender.
+  assert.ok(page.includes('ChartCard title="Signal &amp; Status history"'),
+            "judul kartu berubah: perbarui pemeriksaan ini");
+  assert.ok((page.match(/<StatusStrip points=\{points\} \/>/g) ?? []).length >= 2,
+            "pita Status history tidak dirender di kedua cabang RxChart");
+  const strip = page.slice(page.indexOf("function StatusStrip"));
+  assert.ok(strip.includes('p.status === "online"'),
+            "pita status tidak memakai kolom status dari onu_signal_history");
 });
 
 console.log(`\n${passed} pemeriksaan lulus`);

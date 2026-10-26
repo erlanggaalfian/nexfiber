@@ -255,6 +255,48 @@ async def test_adopt_inventory_never_overwrites_operator_metadata():
     assert existing.status == "online"  # status tetap ikut perangkat
 
 
+async def test_adopt_inventory_writes_wan_vlan_from_device_to_existing_onu():
+    """VLAN WAN perangkat (`flow 1 ... vlan N`) menimpa kolom DB: perangkat sumber kebenaran.
+
+    Data uji SINTETIS (serial TESTSN..., bukan data pelanggan).
+    """
+    from datetime import UTC, datetime
+
+    class _ExistingOnu:
+        serial_number = "TESTSN00000002"
+        pon_port_id = onu_index = None
+        status = "unknown"
+        last_sync_at = last_seen_at = None
+        onu_type = None
+        admin_state = "enabled"
+        name = description = None
+        wan_vlan = 999  # nilai lama, harus tergantikan
+
+    existing = _ExistingOnu()
+
+    class _DbWithRow(_Db):
+        async def execute(self, stmt):
+            text = str(stmt)
+            if "pon_ports" in text and text.strip().lower().startswith("select"):
+                return iter(self.pon_rows)
+
+            class _R(_Result):
+                def scalars(self_inner):
+                    return iter([existing])
+
+            return _R()
+
+    inv = OltInventory(
+        onus=[OnuSnapshot(slot=6, port=1, onu_id=1, serial_number="TESTSN00000002",
+                          status="online", wan_vlan=15)],
+        vlan_ids=[],
+    )
+    out = await sync_service._adopt_inventory(_DbWithRow(), _Olt(), _InventoryDriver(inv),
+                                              datetime.now(UTC))
+    assert existing.wan_vlan == 15
+    assert out["onus_with_wan_vlan"] == 1
+
+
 async def test_adopt_inventory_skips_unknown_pon_port():
     from datetime import UTC, datetime
 
