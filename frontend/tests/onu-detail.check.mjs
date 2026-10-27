@@ -278,6 +278,8 @@ check("field yang dibuang pemilik tidak pernah dirender", () => {
   // 6 kemunculan ipLive: definisi (sumber tunggal, fallback d.ip_address) + 3 penjaga
   // (Mgmt IP pemisah/tautan + WAN) + 2 prop IpLink. Tanpa baris "IP" sendiri.
   assert.equal((render.match(/ipLive/g) ?? []).length, 6, "ipLive dipakai di luar tautan");
+  // d.ip_address muncul 1x: fallback definisi ipLive. Guard useEffect memakai
+  // `onu.data?.ip_address` (bukan `d.ip_address`) supaya sumber tampilan tetap lewat ipLive.
   assert.equal((render.match(/d\.ip_address/g) ?? []).length, 1, "sumber IP harus lewat ipLive");
   assert.ok(!/<DRow label="(IP|IP address|Alamat IP)"/.test(page), "ada baris IP sendiri");
 });

@@ -980,7 +980,12 @@ export function OnuDetail() {
       .then((r) => setLiveIp(r.ip_address ?? null))
       .catch(() => {});
   };
-  useEffect(fetchIp, [onu.data?.id]);
+  // Refresh IP HANYA saat dibuka bila IP belum ada di cache DB (`ip_address` null) —
+  // kalau sudah ada, tampilkan langsung dari cache, jangan tunggu SSH ke OLT.
+  useEffect(() => {
+    if (onu.data?.id && !onu.data?.ip_address) fetchIp();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onu.data?.id]);
   const signal = useQuery({
     queryKey: ["onu", serial, "signal", srange],
     queryFn: () => api<SignalPoint[]>(`/api/onus/${serial}/signal?range=${srange}`),
