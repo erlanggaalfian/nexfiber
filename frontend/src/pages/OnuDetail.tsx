@@ -3,8 +3,10 @@
  *  Tata letak mengikuti desain acuan `design/onu-detail-stitch.html` + screenshot aplikasi
  *  referensi (grid label rata-kanan bold / nilai): bagian atas TIGA blok berjudul dalam dua
  *  kolom (kiri `Identitas`; kanan `Jaringan & layanan` + `Status perangkat` berisi panel LED
- *  yang sejajar dengan barisnya) → baris tombol `Diagnostik` (+ panel LIVE realtime saat LIVE
- *  aktif) → dua kartu `Trafik/Sinyal` → tabel Profil Kecepatan → Port Ethernet → WiFi →
+ *  yang sejajar dengan barisnya) → section `Diagnostik` gaya mock (judul + sub di kolom
+ *  140px, tombol operasi kiri-kanan judul, + panel LIVE realtime saat LIVE aktif) →
+ *  section `Trafik & Histori Sinyal` (dua kartu grafik + toggle rentang) → tabel Profil
+ *  Kecepatan → Port Ethernet → WiFi →
  *  Layanan (VoIP/IPTV/CATV) → Aksi siklus hidup → Log aksi.
  *
  *  Label baris mengikuti TABEL RENAME pemilik (Bahasa Indonesia: `Tipe ONU`,
@@ -46,7 +48,7 @@ import {
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { Popover } from "radix-ui";
 import { OnuRearPanel } from "../components/onu/OnuRearPanel";
 import {
@@ -65,8 +67,11 @@ import { DONE, useJob } from "../lib/jobs";
 import { cleanProfileName } from "../lib/profileName";
 import { deltaMbps, type TrafficPoint, type TrafficSample } from "../lib/traffic";
 
+type RangeKey = "24h" | "7d" | "30d";
 const RANGES = [["24h", "24 jam"], ["7d", "7 hari"], ["30d", "30 hari"]] as const;
-const RANGE_TITLE = { "24h": "24 jam terakhir", "7d": "7 hari terakhir", "30d": "30 hari terakhir" } as const;
+const RANGE_TITLE: Record<RangeKey, string> = {
+  "24h": "24 jam terakhir", "7d": "7 hari terakhir", "30d": "30 hari terakhir",
+};
 /** Interval auto-refresh detail ONU dari database saat LIVE aktif. */
 const LIVE_MS = 15_000;
 /** Interval sampel counter trafik saat LIVE aktif (proposal §5: 5 detik, bukan 3). */
@@ -79,8 +84,10 @@ const TRAFFIC_KEEP = 120;
 const LOG_POPUP_ROWS = 5;
 
 const dash = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
-const dbm = (v: number | null) => (v === null ? "—" : `${Number(v).toFixed(2)} dBm`);
 const mbps = (v: number) => `${v < 10 ? v.toFixed(2) : v.toFixed(1)} Mbps`;
+/** Nilai legenda statistik memakai desimal koma seperti gaya pemilik (`5,38 Mbps · 0,28`). */
+const comma = (v: number, digits: number) => v.toFixed(digits).replace(".", ",");
+const mbpsId = (v: number) => `${comma(v, v < 10 ? 2 : 1)} Mbps`;
 
 /** Nilai kosong baris spesifikasi koneksi: konvensi `dash()` ("—") yang diredupkan. */
 const DASH = <span className="text-faint">—</span>;
@@ -407,13 +414,13 @@ function RxChart({ points }: { points: SignalPoint[] }) {
   const range = `${fmtDateTime(points[0].sampled_at)} → ${fmtDateTime(points[points.length - 1].sampled_at)}`;
   return (
     <>
-    <div className="flex gap-2">
+    <div className="my-2 flex gap-2.5">
       {/* Label sumbu Y di luar SVG: SVG non-uniform scale, teks di dalamnya ikut melar. */}
-      <div className="flex h-40 w-12 shrink-0 flex-col justify-between py-0.5 text-right font-mono text-[10px] text-faint">
+      <div className="flex h-36 w-8 shrink-0 flex-col justify-between py-1 text-right font-mono text-[10px] text-faint">
         {ticks.map((t, i) => <span key={i}>{t.toFixed(1)}</span>)}
       </div>
-      <div className="min-w-0 grow">
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-40 w-full" role="img"
+      <div className="min-w-0 grow rounded-sm border border-line/40 bg-sunken/20 p-1">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-36 w-full" role="img"
              aria-label={`Grafik Rx ONU dan OLT, ${all.length} titik, terendah ${min.toFixed(1)} dBm`}>
           {ticks.map((t, i) => (
             <line key={i} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
@@ -434,7 +441,7 @@ function RxChart({ points }: { points: SignalPoint[] }) {
                           className={s.line} vectorEffect="non-scaling-stroke" />;
           })}
         </svg>
-        <p className="mt-1 flex flex-wrap justify-center gap-x-1 text-center font-mono text-[10px] text-faint">
+        <p className="mt-1.5 flex justify-between px-1 font-mono text-[10px] text-faint">
           <span>dBm</span><span>{range}</span>
         </p>
       </div>
@@ -454,11 +461,11 @@ function StatusStrip({ points }: { points: SignalPoint[] }) {
   const downs = points.filter((p) => p.status !== "online").length;
   return (
     <div className="mt-2">
-      <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-        <span>Status history</span>
-        <span className="text-faint">{points.length} bacaan · {downs} tidak online</span>
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+        <span className="text-xs font-medium">Status History (Uptime)</span>
+        <span className="font-mono text-[10px] text-faint">{points.length} bacaan · {downs} tidak online</span>
       </div>
-      <div className="flex h-2 w-full gap-px overflow-hidden rounded-sm" role="img"
+      <div className="flex h-2 w-full gap-px overflow-hidden rounded-full bg-sunken" role="img"
            aria-label={`Status history ONU: ${points.length} bacaan, ${downs} tidak online`}>
         {points.map((p, i) => (
           <span key={i} title={`${new Date(p.sampled_at).toLocaleString("id-ID")} · ${p.status}`}
@@ -563,13 +570,13 @@ function TrafficHistoryChart({ points }: { points: TrafficHistoryPoint[] }) {
   };
   const span = `${fmtDateTime(points[0].sampled_at)} → ${fmtDateTime(points[points.length - 1].sampled_at)}`;
   return (
-    <div className="flex gap-2">
+    <div className="my-2 flex gap-2.5">
       {/* Label sumbu Y di luar SVG: SVG-nya non-uniform scale, teks di dalamnya ikut melar. */}
-      <div className="flex h-40 w-12 shrink-0 flex-col justify-between py-0.5 text-right font-mono text-[10px] text-faint">
+      <div className="flex h-36 w-8 shrink-0 flex-col justify-between py-1 text-right font-mono text-[10px] text-faint">
         {[...ticks].reverse().map((t, i) => <span key={i}>{axisTick(t)}</span>)}
       </div>
-      <div className="min-w-0 grow">
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-40 w-full" role="img"
+      <div className="min-w-0 grow rounded-sm border border-line/40 bg-sunken/20 p-1">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-36 w-full" role="img"
              aria-label={`Grafik histori trafik, ${rated.length} sampel, puncak ${peak.toFixed(2)} Mbps`}>
           {ticks.map((t) => (
             <line key={t} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
@@ -584,7 +591,7 @@ function TrafficHistoryChart({ points }: { points: TrafficHistoryPoint[] }) {
                       strokeWidth="1.2" className="text-fiber" vectorEffect="non-scaling-stroke" />
           ))}
         </svg>
-        <p className="mt-1 flex flex-wrap justify-center gap-x-1 text-center font-mono text-[10px] text-faint">
+        <p className="mt-1.5 flex justify-between px-1 font-mono text-[10px] text-faint">
           <span>Mbps</span><span>{span}</span>
         </p>
       </div>
@@ -638,17 +645,20 @@ function LiveRow(
   );
 }
 
-/** Kartu grafik acuan (`.graph-item`): kotak putih berangka 1px, radius kecil, dua kartu
- *  sejajar lebar sama. Latar permukaan (bukan sunken) seperti interior grafik acuan. */
+/** Kartu grafik acuan mock (`.graph-item`): kotak berangka 1px, judul tebal kiri + pemilih
+ *  rentang kanan, latar permukaan seperti interior grafik. */
 function ChartCard(
-  { title, note, children, legend }:
-  { title: string; note?: string; children: React.ReactNode; legend?: React.ReactNode },
+  { title, toggle, children, legend }:
+  { title: string; toggle?: React.ReactNode; children: React.ReactNode; legend?: React.ReactNode },
 ) {
   return (
-    <div className="min-w-0 flex-1 rounded-sm border bg-surface p-2.5">
-      <CardHead title={title} note={note} />
+    <div className="min-w-0 rounded-sm border bg-surface p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-bold text-ink">{title}</h3>
+        {toggle}
+      </div>
       {children}
-      {legend && <div className="mt-2 grid gap-1 border-t pt-2 text-xs text-muted">{legend}</div>}
+      {legend && <div className="mt-3 grid gap-1.5 border-t pt-2.5 text-xs">{legend}</div>}
     </div>
   );
 }
@@ -656,11 +666,32 @@ function ChartCard(
 function LegendRow({ color, label, value }: { color: string; label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="flex items-center gap-1.5">
-        <span aria-hidden className={`inline-block h-2.5 w-2.5 rounded-sm ${color}`} />
+      <span className="flex items-center gap-2 text-muted">
+        <span aria-hidden className={`inline-block size-2 rounded-full ${color}`} />
         {label}
       </span>
-      <span className="font-mono text-ink">{value}</span>
+      <span className="font-mono font-medium text-ink">{value}</span>
+    </div>
+  );
+}
+
+/** Toggle rentang 24 jam / 7 hari / 30 hari gaya mock (segmen; aktif = permukaan + fiber).
+ *  State lokal per kartu grafik; sumber data tetap endpoint histori/sinyal yang ada.
+ *  Target sentuh 44px di mobile, segmen mengecil di desktop. */
+function RangeToggle(
+  { value, onChange, aria }: { value: RangeKey; onChange: (v: RangeKey) => void; aria: string },
+) {
+  return (
+    <div role="tablist" aria-label={aria} className="flex flex-wrap gap-1 rounded-sm border bg-sunken/40 p-0.5">
+      {RANGES.map(([v, label]) => (
+        <button key={v} type="button" role="tab" aria-selected={value === v}
+          onClick={() => onChange(v)}
+          className={`min-h-11 rounded-sm px-2 py-0.5 text-xs sm:min-h-0 ${value === v
+            ? "bg-surface font-semibold text-fiber"
+            : "font-medium text-muted hover:text-ink"}`}>
+          {label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -837,25 +868,13 @@ const detailPath = (param: string) =>
 
 export function OnuDetail() {
   const { id: routeKey = "" } = useParams();
-  const [params, setParams] = useSearchParams();
   const qc = useQueryClient();
   const { isManager } = useAuth();
-  const range = (params.get("range") ?? "24h") as "24h" | "7d" | "30d";
-  /** Rentang Signal terpisah dari Traffic (query `?srange=`): memilih 7 hari di kartu
-   *  Traffic tidak boleh ikut mengubah Signal & Status history. */
-  const srange = (params.get("srange") ?? "24h") as "24h" | "7d" | "30d";
-  /** Tab rentang 24 jam / 7 hari / 30 hari, satu per kartu grafik (param URL sendiri). */
-  const RangeTabs = ({ param, value, aria }: { param: string; value: "24h" | "7d" | "30d"; aria: string }) => (
-    <div className="mb-2 flex gap-1" role="tablist" aria-label={aria}>
-      {RANGES.map(([v, label]) => (
-        <button key={v} type="button" role="tab" aria-selected={value === v}
-          onClick={() => { const p = new URLSearchParams(params); p.set(param, v); setParams(p, { replace: true }); }}
-          className={`border-b-2 px-2 py-1 text-xs ${value === v ? "border-fiber font-semibold text-fiber" : "border-transparent text-muted hover:text-ink"}`}>
-          {label}
-        </button>
-      ))}
-    </div>
-  );
+  /** Rentang tiap kartu grafik = state lokal toggle (24 jam / 7 hari / 30 hari); memilih
+   *  rentang di kartu Trafik tidak mengubah kartu Sinyal, begitu pula sebaliknya. Sumber
+   *  data tetap endpoint histori/sinyal yang ada — rentang lain menampilkan apa adanya. */
+  const [range, setRange] = useState<RangeKey>("24h");
+  const [srange, setSrange] = useState<RangeKey>("24h");
   /** Modal aksi ONU (kontrak `/api/onus/{id}/actions`), satu state untuk semua modal. */
   const [modal, setModal] = useState<OnuModalState | null>(null);
   const [note, setNote] = useState("");
@@ -1233,12 +1252,17 @@ export function OnuDetail() {
         </div>
       </div>
 
-      {/* 2. BARIS TOMBOL `Diagnostik`: label `dl` di kiri, deretan tombol terisi penuh di
-          kanan (acuan: biru untuk tiga diagnostik, abu untuk TR-069 mati, hijau untuk LIVE!).
-          DATAR tanpa kartu, sama seperti acuan. Logika/handler diagnostik tidak diubah —
-          tetap lewat job CLI backend, dan running-config tetap manager-only. */}
-      <Section label="Diagnostik">
-          <div className="min-w-0 grow">
+      {/* 2. `Diagnostik` gaya mock pemilik: judul + sub "Operasi & status live" di kolom
+          140px kiri, tombol operasi hijau mengisi baris, TR-069 mati + LIVE! di ujung kanan.
+          Logika/handler diagnostik TIDAK diubah — tetap lewat job CLI backend, dan
+          running-config tetap manager-only. */}
+      <section className="entrance rounded-sm border bg-surface p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="lg:w-[140px] lg:shrink-0">
+            <h2 className="text-base font-bold text-fiber">Diagnostik</h2>
+            <p className="mt-0.5 text-xs text-faint">Operasi & status live</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 grow">
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-1.5">
               <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex sm:flex-wrap sm:gap-1.5">
                 <Button className="min-h-11 w-full sm:min-h-0 sm:w-auto" size="sm" variant="fiber"
@@ -1280,6 +1304,8 @@ export function OnuDetail() {
                 </Button>
               </div>
             </div>
+          </div>
+        </div>
             {diagMsg && (
               <p className="mt-2 text-sm text-amber" role="status">{diagMsg}</p>
             )}
@@ -1327,21 +1353,26 @@ export function OnuDetail() {
                 </pre>
               </>
             )}
-          </div>
-      </Section>
+      </section>
 
-      {/* 3. `Trafik/Sinyal` acuan: dua kartu grafik berdampingan 50/50 (`.graphs-container`
-          flex), menumpuk penuh di bawah 768px seperti aturan `@media` acuan. */}
-      <Section label="Trafik/Sinyal">
-        <div className="stagger flex flex-col gap-4 lg:flex-row">
+      {/* 3. `Trafik & Histori Sinyal` gaya mock: judul + "Rentang ..." di kanan, dua kartu
+          grafik sejajar lg:grid-cols-2 (menumpuk di bawah lg). Sumber data tetap endpoint
+          histori/sinyal yang ada; grafik hanya menggambar sampel yang benar-benar tersimpan. */}
+      <section className="entrance rounded-sm border bg-surface p-4">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
+          <h2 className="text-base font-bold text-fiber">Trafik & Histori Sinyal</h2>
+          <span className="font-mono text-xs text-muted">Rentang {RANGE_TITLE[range]}</span>
+        </div>
+        <div className="stagger grid gap-5 lg:grid-cols-2">
           <ChartCard title={`Trafik ${RANGE_TITLE[range]}`}
+            toggle={<RangeToggle value={range} onChange={setRange} aria="Rentang histori trafik" />}
             legend={
               <>
                 <LegendRow color="bg-fiber" label={`Download maks · rata-rata (${range})`}
-                  value={tStats ? `${mbps(tStats.downMax)} · ${mbps(tStats.downAvg)}` : "—"} />
+                  value={tStats ? `${mbpsId(tStats.downMax)} · ${mbpsId(tStats.downAvg)}` : "—"} />
                 <LegendRow color="bg-amber" label={`Upload maks · rata-rata (${range})`}
-                  value={tStats ? `${mbps(tStats.upMax)} · ${mbps(tStats.upAvg)}` : "—"} />
-                <LegendRow color="bg-sunken" label="Sampel dengan laju terbaca"
+                  value={tStats ? `${mbpsId(tStats.upMax)} · ${mbpsId(tStats.upAvg)}` : "—"} />
+                <LegendRow color="bg-line-strong" label="Sampel dengan laju terbaca"
                   value={tStats ? String(tStats.count) : "0"} />
               </>
             }>
@@ -1349,7 +1380,6 @@ export function OnuDetail() {
                 sekali, 2 bulkwalk per OLT) dan disimpan di `onu_traffic_history`. Halaman
                 ini hanya menggambar sampel yang ADA — pesan kosong hanya muncul kalau
                 sampelnya memang belum terkumpul. */}
-            <RangeTabs param="range" value={range} aria="Rentang histori trafik" />
             {trafficHistory.isPending ? (
               <Skeleton text="Memuat histori trafik ..." rows={2} />
             ) : trafficHistory.isError ? (
@@ -1365,25 +1395,19 @@ export function OnuDetail() {
             )}
           </ChartCard>
           <ChartCard title={`Sinyal ${RANGE_TITLE[srange]}`}
+            toggle={<RangeToggle value={srange} onChange={setSrange} aria="Rentang histori sinyal" />}
             legend={
               <>
-                <LegendRow color="bg-fiber" label="ONU Rx 1490nm" value={dbm(d.rx_power_dbm)} />
-                <LegendRow color="bg-amber" label="OLT Rx 1310nm" value={dbm(d.olt_rx_power_dbm)} />
-                {stats && (
-                  <LegendRow color="bg-fiber" label={`ONU Rx ${srange} min · rata-rata · maks`}
-                    value={`${stats.min.toFixed(1)} · ${stats.avg.toFixed(1)} · ${stats.max.toFixed(1)}`} />
-                )}
-                {oltStats && (
-                  <LegendRow color="bg-amber" label={`OLT Rx ${srange} min · rata-rata · maks`}
-                    value={`${oltStats.min.toFixed(1)} · ${oltStats.avg.toFixed(1)} · ${oltStats.max.toFixed(1)}`} />
-                )}
-                {stats && (
-                  <LegendRow color="bg-sunken" label={`Bacaan tidak online (${srange})`}
-                    value={`${stats.downs} / ${stats.count}`} />
-                )}
+                <LegendRow color="bg-fiber" label="ONU Rx 1490nm (min · rata-rata · maks)"
+                  value={stats
+                    ? `${comma(stats.min, 1)} · ${comma(stats.avg, 1)} · ${comma(stats.max, 1)}`
+                    : "—"} />
+                <LegendRow color="bg-amber" label="OLT Rx 1310nm (min · rata-rata · maks)"
+                  value={oltStats
+                    ? `${comma(oltStats.min, 1)} · ${comma(oltStats.avg, 1)} · ${comma(oltStats.max, 1)}`
+                    : "—"} />
               </>
             }>
-            <RangeTabs param="srange" value={srange} aria="Rentang histori sinyal" />
             {signal.isPending ? (
               <Skeleton text="Memuat histori sinyal ..." rows={2} />
             ) : signal.isError ? (
@@ -1399,7 +1423,7 @@ export function OnuDetail() {
             )}
           </ChartCard>
         </div>
-      </Section>
+      </section>
 
       <Section label="Profil Kecepatan">
         <div className="hidden border md:block">

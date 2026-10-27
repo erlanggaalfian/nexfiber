@@ -95,10 +95,10 @@ check("urutan blok mengikuti desain: 3 blok atas, baris Diagnostik, trafik, prof
     'label="OLT"',
     'title="Jaringan & layanan"',
     'title="Status perangkat"',
-    // Baris tombol diagnostik memakai <Section label="Diagnostik"> (nama lama "Status"
-    // dipakai blok Status perangkat, jadi tidak boleh tabrakan).
-    '<Section label="Diagnostik">',
-    'label="Trafik/Sinyal"',
+    // Diagnostik / Trafik & Histori Sinyal kini section gaya mock pemilik dengan <h2>
+    // literal (judul + sub / kolom rentang), bukan <Section label>; blok lain tetap <Section>.
+    '>Diagnostik</h2>',
+    '>Trafik & Histori Sinyal</h2>',
     'label="Profil Kecepatan"',
     'label="Port Ethernet"',
     'label="WiFi"',
@@ -185,7 +185,7 @@ check("bucket sinyal tidak dihitung ulang: pakai rxBucket/RX_BUCKETS bersama", (
 });
 
 check("penanda TR-069 tidak jadi tombol aktif (prasyarat ACS internal belum ada)", () => {
-  const i = page.indexOf("TR-069\n              </Button>");
+  const i = page.search(/TR-069\s*<\/Button>/);
   assert.notEqual(i, -1, "tombol TR-069 hilang");
   const btn = page.slice(i - 260, i);
   assert.ok(btn.includes("disabled"), "tombol TR-069 tanpa disabled");
@@ -354,7 +354,7 @@ check("panel LIVE hanya dirender saat LIVE aktif, Pps/Avg size '—' tanpa count
   const i = page.indexOf('<CardHead title="LIVE traffic"');
   assert.notEqual(i, -1, "panel LIVE hilang");
   assert.ok(page.slice(i - 400, i).includes("{live && ("), "panel LIVE tanpa penjaga `live`");
-  assert.ok(i < page.indexOf('label="Trafik/Sinyal"'), "panel harus sebelum kartu trafik");
+  assert.ok(i < page.indexOf(">Trafik & Histori Sinyal</h2>"), "panel harus sebelum kartu trafik");
   // Upload = out_octets (keluar dari ONU), download = in_octets — kontrak backend.
   assert.ok(page.includes('label="U Speed"') && page.includes("latest?.outMbps"), "U Speed = out");
   assert.ok(page.includes('label="D Speed"') && page.includes("latest?.inMbps"), "D Speed = in");
