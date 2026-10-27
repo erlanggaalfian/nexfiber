@@ -878,6 +878,17 @@ export function OnuDetail() {
   });
   /** Satu-satunya identitas untuk semua operasi: serial dari respons detail. */
   const serial = onu.data?.serial_number ?? "";
+  /** IP terbaca perangkat (POST /api/onus/{id}/refresh-ip, sumber `show gpon remote-onu
+   *  ip-host`) untuk tautan buka tab baru di baris Setup WAN / Mgmt IP. null = belum terbaca. */
+  const [liveIp, setLiveIp] = useState<string | null>(null);
+  const fetchIp = () => {
+    const id = onu.data?.id;
+    if (!id) return;
+    api<{ ip_address: string | null }>(`/api/onus/${id}/refresh-ip`, { method: "POST" })
+      .then((r) => setLiveIp(r.ip_address ?? null))
+      .catch(() => {});
+  };
+  useEffect(fetchIp, [onu.data?.id]);
   const signal = useQuery({
     queryKey: ["onu", serial, "signal", srange],
     queryFn: () => api<SignalPoint[]>(`/api/onus/${serial}/signal?range=${srange}`),
@@ -959,6 +970,7 @@ export function OnuDetail() {
     return <ErrorState message={onu.error?.message ?? "Gagal memuat ONU"} onRetry={() => onu.refetch()} />;
   }
   const d = onu.data;
+  const ipLive = liveIp ?? d.ip_address;
   const stats = rxStats(signal.data ?? [], "rx_power_dbm");
   const oltStats = rxStats(signal.data ?? [], "olt_rx_power_dbm");
   const tStats = trafficStats(trafficHistory.data ?? []);
@@ -1115,7 +1127,7 @@ export function OnuDetail() {
                 wanMode === null ? DASH : (
                   <>
                     <span>{wanMode}</span>
-                    {wanHasIp && d.ip_address && <IpLink ip={d.ip_address} />}
+                    {wanHasIp && ipLive && <IpLink ip={ipLive} />}
                   </>
                 )
               } onEdit={() => setModal({ kind: "onu-mode" })} />
@@ -1137,9 +1149,9 @@ export function OnuDetail() {
                     <span>
                       {mgmtMode}
                       {d.mgmt_vlan != null && ` - vlan: ${d.mgmt_vlan}`}
-                      {d.ip_address && " - "}
+                      {ipLive && " - "}
                     </span>
-                    {d.ip_address && <IpLink ip={d.ip_address} />}
+                    {ipLive && <IpLink ip={ipLive} />}
                   </>
                 )
               } onEdit={isManager ? () => setModal({ kind: "mgmt-ip" }) : undefined} />
@@ -1180,7 +1192,7 @@ export function OnuDetail() {
                 <>
                   <StatusBadge status={statusKey} reason={d.last_down_reason} withLabel />
                   <span className="font-mono text-xs text-muted">{fmtDistance(d.distance_m)}</span>
-                  <Button size="sm" variant="quiet" onClick={() => onu.refetch()} disabled={onu.isFetching}>
+                  <Button size="sm" variant="quiet" onClick={() => { onu.refetch(); fetchIp(); }} disabled={onu.isFetching}>
                     {onu.isFetching ? "Memuat ..." : "Muat ulang"}
                   </Button>
                   {live && (

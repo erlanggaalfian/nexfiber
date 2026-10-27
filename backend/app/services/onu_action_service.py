@@ -23,6 +23,7 @@ from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.exceptions import ValidationAppError as ValidationError
 from app.core.rbac import MANAGERS, scope_olt_ids
 from app.drivers import zte_onu_actions as za
+from app.drivers.onu_report import parse_current_ip
 from app.models.olt import Olt, PonPort
 from app.models.onu import Onu
 from app.models.onu_type import OnuType
@@ -131,6 +132,34 @@ async def update_location(db: AsyncSession, onu_id: int, body: dict, user: User)
               if k in OnuInfoBody.model_fields and v is not None}
     info = OnuInfoBody.model_validate(fields)
     return await onu_service.update_info(db, onu.serial_number, info, user)
+
+
+async def refresh_ip(db: AsyncSession, onu_id: int, user: User) -> dict:
+    """Ambil IP ONU terbaca dari perangkat (`show gpon remote-onu ip-host`), simpan ke DB.
+
+    Read-only ke perangkat. `onus.ip_address` hanya diisi bila perangkat melaporkan IP;
+    yang tidak melapor dibiarkan apa adanya (tidak pernah dikosongkan/ditebak).
+    """
+    from app.drivers.factory import build_driver
+
+    onu, pon = await _onu_and_pon(db, onu_id, user)
+    olt = await db.get(Olt, onu.olt_id)
+    if olt.vendor != "zte":
+        raise NotImplementedError(f"Vendor {olt.vendor} belum didukung untuk refresh-ip")
+    if onu.onu_index is None:
+        raise ValidationError("ONU belum punya onu_index di OLT")
+    iface = f"gpon-onu_1/{pon.slot}/{pon.port}:{onu.onu_index}"
+    raw = await build_driver(olt).fetch_onu_ip_host(pon.slot, pon.port, onu.onu_index)
+    ip = parse_current_ip(raw)
+    if ip:
+        onu.ip_address = ip
+    await log_activity(
+        db, action="onu.read_ip_host", entity_type="onu", entity_id=str(onu.id),
+        success=True, user_id=user.id, olt_id=onu.olt_id, onu_id=onu.id,
+        raw_command=f"show gpon remote-onu ip-host {iface}",
+    )
+    await db.commit()
+    return {"ip_address": ip}
 
 
 def _build_commands(kind: str, onu: Onu, pon: PonPort, body: dict,

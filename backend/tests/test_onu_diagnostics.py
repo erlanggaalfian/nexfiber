@@ -611,6 +611,14 @@ def test_parse_pppoe_from_running_config():
     assert parse_pppoe("  ip-host 2 ip 10.0.0.2 mask 255.255.255.0") is None
 
 
+def test_parse_current_ip_from_ip_host_report():
+    from app.drivers.onu_report import parse_current_ip
+    assert parse_current_ip(IP_HOST) == "10.0.0.9"
+    assert parse_current_ip("") is None
+    assert parse_current_ip("Current IP address: 0.0.0.0") is None
+    assert parse_current_ip("tanpa baris IP sama sekali") is None
+
+
 def test_sync_wan_from_running_sets_pppoe_and_keeps_secret_encrypted():
     from types import SimpleNamespace
     from app.core.security import decrypt_secret

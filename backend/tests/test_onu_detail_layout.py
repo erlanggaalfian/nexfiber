@@ -25,19 +25,19 @@ def src() -> str:
 
 
 def test_block_order_matches_reference_layout(src: str):
-    """Blok harus muncul dalam urutan referensi: grid identitas, Status, Trafik/Sinyal,
+    """Blok harus muncul dalam urutan referensi: grid identitas, Diagnostik, Trafik/Sinyal,
     Profil Kecepatan, Port Ethernet, WiFi, VoIP, CATV, baris aksi."""
     labels = re.findall(r'<Section label="([^"]+)"', src)
     # Baris tombol "Status" kini memakai <Section> yang sama seperti blok lain: pada
     # halaman referensi SELURUH halaman adalah satu `<dl>` panjang dengan label kolom
     # kiri, jadi baris Status tidak lagi jadi kartu dengan markup sendiri.
-    # "Traffic/Signal" memakai judul persis aplikasi referensi (permintaan pemilik).
+    # "Diagnostik" / "Trafik/Sinyal" = label Indonesia hasil rename persetujuan pemilik.
     assert labels == [
-        "Status", "Traffic/Signal", "Profil Kecepatan", "Port Ethernet", "WiFi", "Layanan",
+        "Diagnostik", "Trafik/Sinyal", "Profil Kecepatan", "Port Ethernet", "WiFi", "Layanan",
         "Aksi",
     ], labels
     # Grid identitas dua kolom mendahului seluruh Section, baris aksi sesudahnya.
-    assert src.index("lg:grid-cols-2") < src.index('<Section label="Status"')
+    assert src.index("lg:grid-cols-2") < src.index('<Section label="Diagnostik"')
     assert src.index('<Section label="WiFi"') < src.index("Restore factory")
 
 
@@ -48,14 +48,14 @@ def test_identity_grid_keeps_reference_field_order(src: str):
     # Shelf/Slot/Port/Kanal/Tx ONU + Board/GPON channel sengaja dibuang (permintaan user).
     assert left[:2] == ["OLT", "ONU"], left[:2]
     assert not {"Shelf", "Slot", "Port", "Kanal", "Tx ONU", "Board", "GPON channel"} & set(rows)
-    # Label kolom identitas memakai teks persis aplikasi referensi (bahasa Inggris).
+    # Label kolom identitas memakai teks Indonesia (rename persetujuan pemilik 2026-10-27).
     assert left[:13] == [
-        "OLT", "ONU", "SN", "ONU type", "Configuration Preset", "Zone", "Splitter", "Sector",
-        "Name", "Address or comment", "Contact", "Authorization date", "ONU external ID",
+        "OLT", "ONU", "SN", "Tipe ONU", "Preset konfigurasi", "Nama pelanggan", "Alamat",
+        "Kontak", "Zona", "Splitter", "Sektor", "ID eksternal", "Tanggal otorisasi",
     ], left[:13]
     right = rows[rows.index("Lokasi") + 1 :]
-    # Baris spesifikasi koneksi, juga label persis referensi.
-    for label in ("TR069 Profile", "Mgmt IP", "Attached VLANs", "ONU mode", "WAN setup mode"):
+    # Baris spesifikasi koneksi, juga label hasil rename.
+    for label in ("Profil TR069", "Mgmt IP", "VLAN terpasang", "Mode ONU", "Setup WAN"):
         assert label in right, label
 
 
@@ -90,7 +90,9 @@ def test_phase2_menus_are_labelled_not_fake_buttons(src: str):
     tr = src.index("TR-069\n              </Button>")
     assert "disabled" in src[tr - 260 : tr]
     assert "onClick" not in src[tr - 260 : tr]
-    assert "tr069" not in src.lower().replace("tr-069", "").replace("tr069 profile", "")
+    # Komentar bebas menyebut apa pun; yang dijaga isi JSX/identitasnya.
+    nocomment = re.sub(r"/\*.*?\*/", "", src.lower(), flags=re.S)
+    assert "tr069" not in nocomment.replace("tr-069", "").replace("profil tr069", "")
     # Kolom aksi port Ethernet tidak boleh jadi <Button ... onClick=...>
     port_block = src[src.index('<Section label="Port Ethernet"') : src.index('<Section label="WiFi"')]
     assert "<Button" not in port_block

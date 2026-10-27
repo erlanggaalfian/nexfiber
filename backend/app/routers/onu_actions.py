@@ -4,6 +4,7 @@ Kontrak (frontend bergantung, nama field TIDAK boleh berubah):
   GET  /api/onus/{id}/actions        -> {actions:[{kind, supported, writes_device, note?}]}
   GET  /api/onus/{id}/config-options -> isi dropdown semua modal
   PUT  /api/onus/{id}/location       -> OnuDetail (hanya DB Nexfiber, tanpa perangkat)
+  POST /api/onus/{id}/refresh-ip     -> {ip_address: str|null} (read-only, satu perintah)
   POST /api/onus/{id}/actions/{kind} -> {ok, executed, detail, commands:[str tanpa sandi]}
 
 Router terpisah dari `onus.py` (yang berkunci serial) karena kontrak ini berkunci id DB.
@@ -58,6 +59,13 @@ async def list_actions(onu_id: int, db: AsyncSession = Depends(get_db),
 async def config_options(onu_id: int, db: AsyncSession = Depends(get_db),
                          user: User = Depends(get_current_user)) -> dict:
     return await onu_action_service.config_options(db, onu_id, user)
+
+
+@router.post("/{onu_id}/refresh-ip")
+async def refresh_ip(onu_id: int, db: AsyncSession = Depends(get_db),
+                     user: User = Depends(get_current_user)) -> dict:
+    """IP ONU terbaca perangkat untuk tautan Detail ONU; read-only, tanpa `confirm`."""
+    return await onu_action_service.refresh_ip(db, onu_id, user)
 
 
 @router.put("/{onu_id}/location", response_model=OnuDetail)

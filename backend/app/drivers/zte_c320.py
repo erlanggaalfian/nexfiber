@@ -811,6 +811,13 @@ class ZteC320Driver(OltDriver):
             raw_command=" ; ".join(commands),
         )
 
+    async def fetch_onu_ip_host(self, slot: int, port: int, onu_id: int) -> str:
+        """Output mentah `show gpon remote-onu ip-host` — sumber IP yang terbaca perangkat
+        untuk tautan buka tab baru di Detail ONU (baris Setup WAN / Mgmt IP)."""
+        iface = f"gpon-onu_1/{slot}/{port}:{onu_id}"
+        async with self._open_cli() as cli:
+            return await cli.show(f"show gpon remote-onu ip-host {iface}")
+
     async def fetch_onu_running_config(self, slot: int, port: int, onu_id: int) -> OnuReport:
         """3 blok tombol `Show running-config`, dipisah `!`.
 

@@ -105,6 +105,12 @@ class OltDriver(ABC):
     async def fetch_onu_status_report(self, slot: int, port: int, onu_id: int) -> OnuReport:
         """Laporan read-only 9 blok untuk tombol `Status` di Detail ONU."""
 
+    async def fetch_onu_ip_host(self, slot: int, port: int, onu_id: int) -> str:
+        """Output mentah `show gpon remote-onu ip-host` (read-only, satu perintah).
+        # ponytail: default non-abstrak supaya FakeDriver di tes tidak wajib mengisi;
+        # naikkan jadi @abstractmethod saat vendor selain ZTE muncul."""
+        raise NotImplementedError
+
     @abstractmethod
     async def fetch_onu_running_config(self, slot: int, port: int, onu_id: int) -> OnuReport:
         """Running-config ONU 3 blok (registrasi + interface + pon-onu-mng), read-only.

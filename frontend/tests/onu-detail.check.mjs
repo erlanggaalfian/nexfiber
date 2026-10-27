@@ -267,8 +267,10 @@ check("field yang dibuang pemilik tidak pernah dirender", () => {
   // IP hanya muncul sebagai TAUTAN (komponen IpLink) di baris Mgmt IP / WAN setup mode:
   // dua penjaga + dua props, tidak ada baris "IP" sendiri.
   assert.ok(page.includes("href={`http://${ip}`}"), "IP harus jadi tautan lewat IpLink");
-  // 5 kemunculan: Mgmt IP (penjaga pemisah, penjaga tautan, prop) + WAN (penjaga, prop).
-  assert.equal((render.match(/d\.ip_address/g) ?? []).length, 5, "IP dipakai di luar tautan");
+  // 6 kemunculan ipLive: definisi (sumber tunggal, fallback d.ip_address) + 3 penjaga
+  // (Mgmt IP pemisah/tautan + WAN) + 2 prop IpLink. Tanpa baris "IP" sendiri.
+  assert.equal((render.match(/ipLive/g) ?? []).length, 6, "ipLive dipakai di luar tautan");
+  assert.equal((render.match(/d\.ip_address/g) ?? []).length, 1, "sumber IP harus lewat ipLive");
   assert.ok(!/<DRow label="(IP|IP address|Alamat IP)"/.test(page), "ada baris IP sendiri");
 });
 

@@ -111,6 +111,19 @@ def optical_block(attenuation: str, olt_rx_dbm: float | None) -> str:
     return line if body == NOT_REPORTED else f"{body}\n{line}"
 
 
+def parse_current_ip(output: str) -> str | None:
+    """IP terbaca dari laporan `show gpon remote-onu ip-host` (baris `Current IP address`).
+
+    Beberapa blok `Host ID` bisa muncul; ambil IP pertama yang bukan 0.0.0.0.
+    Laporan kosong / tanpa IP = None — tidak pernah menebak.
+    """
+    found = re.findall(r"Current IP address:\s*(\d+\.\d+\.\d+\.\d+)", output or "", re.I)
+    for ip in found:
+        if ip != "0.0.0.0":
+            return ip
+    return None
+
+
 def status_report(*, attenuation: str, catv: str, detail_info: str, ip_host: str,
                   eth: str, vlan: str, voip: str, macs: str,
                   olt_rx_dbm: float | None = None) -> str:
