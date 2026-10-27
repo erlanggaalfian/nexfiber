@@ -193,8 +193,12 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
         if pon_port_id is None:
             skipped += 1
             continue
+        # Hanya kandidat VLAN management (aturan keras: chip "Mgmt IP" tidak boleh pernah
+        # menampilkan IP di luar VLAN management). Pilih deterministik: kandidat pertama
+        # yang membawa IP, urutan seperti dilaporkan perangkat; tanpa kandidat ber-IP,
+        # mode kandidat pertama tetap dipakai dan kolom IP dibiarkan apa adanya.
         management = [row for row in snap.management_ips or [] if row[0] in management_vlans]
-        mgmt = management[0] if len(management) == 1 else None
+        mgmt = next((row for row in management if row[2]), management[0] if management else None)
         if mgmt:
             with_management += 1
         onu = existing.get(snap.serial_number)
@@ -242,7 +246,8 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
             # milik management. Nomor VLAN management tampil dari `service_vlans`
             # (is_management) di detail, lihat `OnuDetail.mgmt_vlan`.
             onu.mgmt_ip_mode = mgmt[1]
-            onu.ip_address = mgmt[2]
+            if mgmt[2]:  # tanpa IP dilaporkan -> dibiarkan apa adanya, tidak dikosongkan
+                onu.ip_address = mgmt[2]
         if snap.status == "online":
             onu.last_seen_at = now
         updated += 1

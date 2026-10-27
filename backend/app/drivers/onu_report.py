@@ -111,16 +111,36 @@ def optical_block(attenuation: str, olt_rx_dbm: float | None) -> str:
     return line if body == NOT_REPORTED else f"{body}\n{line}"
 
 
-def parse_current_ip(output: str) -> str | None:
-    """IP terbaca dari laporan `show gpon remote-onu ip-host` (baris `Current IP address`).
+_HOST_BLOCK_RE = re.compile(r"host\s+id\s*:\s*(\d+)(.*?)(?=host\s+id\s*:|$)", re.I | re.S)
 
-    Beberapa blok `Host ID` bisa muncul; ambil IP pertama yang bukan 0.0.0.0.
-    Laporan kosong / tanpa IP = None — tidak pernah menebak.
+
+def _host_vlan_map(running: str) -> dict[int, int]:
+    """VLAN tiap `ip-host N` dari pasangan running-config `ip-host N` ↔ `gemport N flow F`
+    ↔ `flow F ... vlan V` (aturan sama dengan `parse_management_ip`, DECISIONS.md).
+    Host tanpa pasangan lengkap dilewati."""
+    text = running or ""
+    flows = {int(f): int(v) for f, v in _FLOW_RE.findall(text)}
+    gems = {int(g): int(f) for g, f in _GEM_FLOW_RE.findall(text)}
+    hosts = {int(n) for n, _ in _IPHOST_RE.findall(text)}
+    return {n: flows[gems[n]] for n in hosts if n in gems and gems[n] in flows}
+
+
+def parse_current_ip(report: str, running: str, management_vlans: set[int]) -> str | None:
+    """IP terbaca dari laporan `show gpon remote-onu ip-host` (blok `Host ID`, baris
+    `Current IP address`) yang BISA dipasangkan ke VLAN management.
+
+    Laporan TIDAK memuat baris VLAN — pemetaan `Host ID` -> VLAN lewat pasangan
+    running-config (`Host ID` = `ip-host N`, lihat `_host_vlan_map`). Aturan keras:
+    hanya IP di VLAN bertanda management yang boleh disimpan/ditampilkan; blok yang
+    tidak bisa dipasangkan dilewati (lebih baik tidak ada IP daripada IP non-management).
+    Laporan kosong / tanpa IP valid = None — tidak pernah menebak.
     """
-    found = re.findall(r"Current IP address:\s*(\d+\.\d+\.\d+\.\d+)", output or "", re.I)
-    for ip in found:
-        if ip != "0.0.0.0":
-            return ip
+    vlans = _host_vlan_map(running)
+    for block in _HOST_BLOCK_RE.finditer(report or ""):
+        ip = re.search(r"Current IP address:\s*(\d+\.\d+\.\d+\.\d+)", block.group(2), re.I)
+        if (ip and ip.group(1) != "0.0.0.0"
+                and vlans.get(int(block.group(1))) in management_vlans):
+            return ip.group(1)
     return None
 
 

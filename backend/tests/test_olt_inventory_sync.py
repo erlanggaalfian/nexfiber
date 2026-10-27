@@ -349,6 +349,130 @@ async def test_adopt_inventory_management_does_not_touch_primary_vlan():
     assert out["onus_with_management_ip"] == 1
 
 
+from datetime import UTC, datetime  # noqa: E402  (blok tes management di bawah)
+
+
+class _ExistingOnu(SimpleNamespace):
+    """Baris ONU existing minimal untuk jalur update management (data sintetis)."""
+
+    def __init__(self, serial, ip=None):
+        super().__init__(serial_number=serial, pon_port_id=None, onu_index=None,
+                         status="unknown", last_sync_at=None, last_seen_at=None,
+                         onu_type=None, admin_state="enabled", name=None,
+                         description=None, wan_vlan=None, pppoe_username=None,
+                         vlan_id=42, mgmt_ip_mode=None, ip_address=ip)
+
+
+def _mgmt_db(existing, mgmt_vlan_ids):
+    """`_Db` + master VLAN management (angka bebas, bukan tetap 100); existing=None = insert."""
+    class _DbMgmt(_Db):
+        async def execute(self, stmt):
+            text = str(stmt)
+            if "FROM vlans" in text:
+                class _Rv(_Result):
+                    def scalars(self_inner):
+                        return iter([SimpleNamespace(id=i, vlan_id=v, type="management",
+                                                    olt_id=None)
+                                     for i, v in enumerate(mgmt_vlan_ids, 1)])
+                return _Rv()
+            if (existing is not None and "FROM onus" in text
+                    and text.strip().lower().startswith("select")):
+                class _Ro(_Result):
+                    def scalars(self_inner):
+                        return iter([existing])
+                return _Ro()
+            return await super().execute(stmt)
+    return _DbMgmt()
+
+
+async def test_adopt_inventory_insert_fills_ip_from_management_vlan():
+    """1 IP management -> `ip_address` terisi di jalur insert (dulu hanya bila tepat satu)."""
+    inv = OltInventory(
+        onus=[OnuSnapshot(slot=6, port=1, onu_id=1, serial_number="TESTSN00000021",
+                          status="online", management_ips=[(23, "static", "10.23.0.9")])],
+        vlan_ids=[])
+    db = _mgmt_db(None, [23])
+    out = await sync_service._adopt_inventory(db, _Olt(), _InventoryDriver(inv),
+                                              datetime.now(UTC))
+    assert out["onus_added"] == 1
+    assert db.added[0].ip_address == "10.23.0.9"
+    assert db.added[0].mgmt_ip_mode == "static"
+
+
+async def test_adopt_inventory_many_management_ips_takes_first_reported():
+    """2+ IP management -> kandidat pertama urutan dilaporkan perangkat, deterministik."""
+    inv = OltInventory(
+        onus=[OnuSnapshot(slot=6, port=1, onu_id=1, serial_number="TESTSN00000022",
+                          status="online",
+                          management_ips=[(2310, "static", "10.31.0.2"),
+                                          (23, "static", "10.23.0.8"),
+                                          (2310, "static", "10.31.0.3")])],
+        vlan_ids=[])
+    db = _mgmt_db(None, [23, 2310])
+    await sync_service._adopt_inventory(db, _Olt(), _InventoryDriver(inv), datetime.now(UTC))
+    assert db.added[0].ip_address == "10.31.0.2"
+
+
+async def test_adopt_inventory_update_takes_first_management_ip():
+    """Jalur update sama aturannya: 2+ IP management -> yang pertama, menimpa nilai lama."""
+    existing = _ExistingOnu("TESTSN00000005", ip="10.50.0.7")
+    inv = OltInventory(
+        onus=[OnuSnapshot(slot=6, port=1, onu_id=1, serial_number="TESTSN00000005",
+                          status="online",
+                          management_ips=[(231, "static", "10.21.0.2"),
+                                          (231, "static", "10.21.0.3")])],
+        vlan_ids=[])
+    out = await sync_service._adopt_inventory(_mgmt_db(existing, [231]), _Olt(),
+                                              _InventoryDriver(inv), datetime.now(UTC))
+    assert existing.ip_address == "10.21.0.2"
+    assert out["onus_updated"] == 1
+
+
+async def test_adopt_inventory_no_management_ip_never_clears_ip():
+    """0 IP management -> ip_address tidak disentuh (tidak dikosongkan/ditebak)."""
+    existing = _ExistingOnu("TESTSN00000005", ip="10.50.0.7")
+    inv = OltInventory(
+        onus=[OnuSnapshot(slot=6, port=1, onu_id=1, serial_number="TESTSN00000005",
+                          status="online", management_ips=[(77, "static", "192.0.2.7")])],
+        vlan_ids=[])
+    await sync_service._adopt_inventory(_mgmt_db(existing, [231]), _Olt(),
+                                        _InventoryDriver(inv), datetime.now(UTC))
+    assert existing.ip_address == "10.50.0.7"  # IP non-management tidak menimpa
+
+    existing2 = _ExistingOnu("TESTSN00000005", ip="10.50.0.7")
+    inv2 = OltInventory(
+        onus=[OnuSnapshot(slot=6, port=1, onu_id=1, serial_number="TESTSN00000005",
+                          status="online", management_ips=[(231, "dhcp", None)])],
+        vlan_ids=[])
+    await sync_service._adopt_inventory(_mgmt_db(existing2, [231]), _Olt(),
+                                        _InventoryDriver(inv2), datetime.now(UTC))
+    assert existing2.ip_address == "10.50.0.7"  # tanpa IP dilaporkan -> dibiarkan apa adanya
+
+
+async def test_adopt_inventory_only_management_vlan_ip_is_stored():
+    """IP non-management tidak pernah masuk `ip_address` — insert maupun update."""
+    inv = OltInventory(
+        onus=[OnuSnapshot(slot=6, port=1, onu_id=1, serial_number="TESTSN00000023",
+                          status="online",
+                          management_ips=[(77, "static", "192.0.2.7"),
+                                          (2310, "static", "10.31.0.9")])],
+        vlan_ids=[])
+    db = _mgmt_db(None, [23, 2310])
+    await sync_service._adopt_inventory(db, _Olt(), _InventoryDriver(inv), datetime.now(UTC))
+    assert db.added[0].ip_address == "10.31.0.9"
+
+    existing = _ExistingOnu("TESTSN00000024", ip="10.50.0.7")
+    inv2 = OltInventory(
+        onus=[OnuSnapshot(slot=6, port=1, onu_id=1, serial_number="TESTSN00000024",
+                          status="online",
+                          management_ips=[(77, "static", "192.0.2.7"),
+                                          (2310, "static", "10.31.0.9")])],
+        vlan_ids=[])
+    await sync_service._adopt_inventory(_mgmt_db(existing, [23, 2310]), _Olt(),
+                                        _InventoryDriver(inv2), datetime.now(UTC))
+    assert existing.ip_address == "10.31.0.9"
+
+
 async def test_adopt_inventory_skips_unknown_pon_port():
     from datetime import UTC, datetime
 
