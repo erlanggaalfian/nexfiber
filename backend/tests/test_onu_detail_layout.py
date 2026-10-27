@@ -25,19 +25,24 @@ def src() -> str:
 
 
 def test_block_order_matches_reference_layout(src: str):
-    """Blok harus muncul dalam urutan referensi: grid identitas, Diagnostik, Trafik/Sinyal,
-    Profil Kecepatan, Port Ethernet, WiFi, VoIP, CATV, baris aksi."""
+    """Blok harus muncul dalam urutan referensi: grid identitas, Diagnostik,
+    Trafik & Histori Sinyal, Profil Kecepatan, Port Ethernet, WiFi, VoIP, CATV, baris aksi."""
     labels = re.findall(r'<Section label="([^"]+)"', src)
     # Baris tombol "Status" kini memakai <Section> yang sama seperti blok lain: pada
     # halaman referensi SELURUH halaman adalah satu `<dl>` panjang dengan label kolom
     # kiri, jadi baris Status tidak lagi jadi kartu dengan markup sendiri.
-    # "Diagnostik" / "Trafik/Sinyal" = label Indonesia hasil rename persetujuan pemilik.
+    # "Diagnostik" / "Trafik & Histori Sinyal" = section gaya mock pemilik (judul <h2>
+    # literal, judul + sub / kolom rentang), blok lain tetap <Section label>.
     assert labels == [
-        "Diagnostik", "Trafik/Sinyal", "Profil Kecepatan", "Port Ethernet", "WiFi", "Layanan",
-        "Aksi",
+        "Profil Kecepatan", "Port Ethernet", "WiFi", "Layanan", "Aksi",
     ], labels
-    # Grid identitas dua kolom mendahului seluruh Section, baris aksi sesudahnya.
-    assert src.index("lg:grid-cols-12") < src.index('<Section label="Diagnostik"')
+    marks = ["Diagnostik</h2>", "Trafik & Histori Sinyal</h2>"] + [
+        f'<Section label="{label}"' for label in labels
+    ]
+    at = [src.index(m) for m in marks]
+    assert at == sorted(at), marks
+    # Grid identitas dua kolom mendahului seluruh section, baris aksi sesudahnya.
+    assert src.index("lg:grid-cols-12") < src.index("Diagnostik</h2>")
     assert src.index('<Section label="WiFi"') < src.index("Restore factory")
 
 
@@ -87,9 +92,11 @@ def test_phase2_menus_are_labelled_not_fake_buttons(src: str):
     sama dengan referensi), dan TR-069 kini hadir sebagai tombol `disabled` — keduanya tetap
     tidak menembak endpoint apa pun."""
     assert "Akses remote WAN" not in src
-    tr = src.index("TR-069\n              </Button>")
-    assert "disabled" in src[tr - 260 : tr]
-    assert "onClick" not in src[tr - 260 : tr]
+    tr = re.search(r"TR-069\s*</Button>", src)
+    assert tr, "tombol TR-069 hilang"
+    window = src[tr.start() - 260 : tr.start()]
+    assert "disabled" in window
+    assert "onClick" not in window
     # Komentar bebas menyebut apa pun; yang dijaga isi JSX/identitasnya.
     nocomment = re.sub(r"/\*.*?\*/", "", src.lower(), flags=re.S)
     assert "tr069" not in nocomment.replace("tr-069", "").replace("profil tr069", "")
