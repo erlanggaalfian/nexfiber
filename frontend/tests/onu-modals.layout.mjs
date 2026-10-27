@@ -109,7 +109,7 @@ const CASES = [
   ["reboot", (p) => p.getByRole("button", { name: "Reboot" }).first().click(), "Reboot"],
   ["disable", (p) => p.getByRole("button", { name: "Nonaktifkan ONU" }).click(), "Disable ONU"],
   ["resync", (p) => p.getByRole("button", { name: "Resync config" }).first().click(), "Recreate OLT config for this ONU"],
-  ["restore-factory", (p) => p.getByRole("button", { name: "Restore factory" }).click(), "Restore to factory defaults"],
+  ["restore-factory", (p) => p.getByRole("button", { name: "Restore default" }).click(), "Restore to factory defaults"],
   ["delete", (p) => p.getByRole("button", { name: "Hapus" }).click(), "Delete"],
 ];
 

@@ -33,12 +33,12 @@ def test_block_order_matches_reference_layout(src: str):
     # kiri, jadi baris Status tidak lagi jadi kartu dengan markup sendiri.
     # "Diagnostik" / "Trafik/Sinyal" = label Indonesia hasil rename persetujuan pemilik.
     assert labels == [
-        "Diagnostik", "Trafik/Sinyal", "Profil Kecepatan", "Port Ethernet", "WiFi", "Layanan",
-        "Aksi",
+        "Diagnostik", "Trafik/Sinyal", "Profil Kecepatan", "Port Ethernet", "WiFi",
+        "Layanan Tambahan", "Aksi ONU",
     ], labels
     # Grid identitas dua kolom mendahului seluruh Section, baris aksi sesudahnya.
     assert src.index("lg:grid-cols-2") < src.index('<Section label="Diagnostik"')
-    assert src.index('<Section label="WiFi"') < src.index("Restore factory")
+    assert src.index('<Section label="WiFi"') < src.index("Restore default")
 
 
 def test_identity_grid_keeps_reference_field_order(src: str):
