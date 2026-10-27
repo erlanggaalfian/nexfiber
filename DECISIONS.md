@@ -208,3 +208,15 @@ pakai 1 baris = 1 pasang down+up).
   dipakai. `onus.vlan_id` (VLAN utama, kolom "Update VLAN") TIDAK disentuh oleh
   sinkron management — nomor VLAN management tampil dari `service_vlans`
   (is_management).
+
+## IP terbaca perangkat (tautan di baris Setup WAN / Mgmt IP)
+
+- Sumber IP = `show gpon remote-onu ip-host <ifname>`, baris `Current IP address`
+  (perangkat = sumber kebenaran). `parse_current_ip()` mengambil IP pertama yang
+  bukan 0.0.0.0; tanpa laporan / tanpa IP = None (tidak menebak).
+- Diambil on-demand (POST `/api/ons/{onu_id}/refresh-ip`, read-only, satu perintah,
+  tanpa `confirm`) saat halaman Detail ONU dibuka dan saat "Muat ulang"; hasilnya
+  disimpan ke `onus.ip_address` bila terbaca, nilai lama tidak pernah dikosongkan.
+- Baris Setup WAN dan Mgmt IP menampilkannya sebagai tautan `http://<ip>` yang
+  membuka tab baru (komponen `IpLink`). Frontend memakai satu sumber `ipLive`
+  (fallback `d.ip_address`).
