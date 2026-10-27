@@ -212,11 +212,15 @@ pakai 1 baris = 1 pasang down+up).
 ## IP terbaca perangkat (tautan di baris Setup WAN / Mgmt IP)
 
 - Sumber IP = `show gpon remote-onu ip-host <ifname>`, baris `Current IP address`
-  (perangkat = sumber kebenaran). `parse_current_ip()` mengambil IP pertama yang
-  bukan 0.0.0.0; tanpa laporan / tanpa IP = None (tidak menebak).
-- Diambil on-demand (POST `/api/ons/{onu_id}/refresh-ip`, read-only, satu perintah,
-  tanpa `confirm`) saat halaman Detail ONU dibuka dan saat "Muat ulang"; hasilnya
-  disimpan ke `onus.ip_address` bila terbaca, nilai lama tidak pernah dikosongkan.
+  per blok `Host ID` (perangkat = sumber kebenaran). Laporan TIDAK memuat VLAN —
+  verifikasi lewat pasangan running-config (`Host ID` = `ip-host N`, aturan §
+  "Management & VoIP IP"). Aturan keras (keputusan user): hanya IP yang terpasang
+  ke VLAN bertanda `type == "management"` yang boleh disimpan/ditampilkan;
+  tidak bisa dipasangkan = None (tidak menebak/menyimpan, nilai lama bertahan).
+- Diambil on-demand (POST `/api/ons/{onu_id}/refresh-ip`, read-only, dua perintah
+  satu sesi CLI, tanpa `confirm`) saat halaman Detail ONU dibuka bila
+  `onus.ip_address` masih kosong, dan saat "Muat ulang"; hanya IP terverifikasi
+  VLAN management yang disimpan, nilai lama tidak pernah dikosongkan.
 - Baris Setup WAN dan Mgmt IP menampilkannya sebagai tautan `http://<ip>` yang
   membuka tab baru (komponen `IpLink`). Frontend memakai satu sumber `ipLive`
   (fallback `d.ip_address`).

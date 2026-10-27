@@ -8,6 +8,8 @@ Fixture SENGAJA memakai nilai sintetis untuk apa pun yang berbentuk kredensial
 boleh disalin ke repo.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
 from app.core.exceptions import ConflictError, ForbiddenError, ValidationAppError
@@ -58,6 +60,44 @@ Host ID: 1
 MAC address: 0011.2233.4455
 Current IP address: 10.0.0.9
 Current mask: 255.255.255.0
+"""
+
+# Dua blok Host (format laporan nyata: TANPA baris VLAN — VLAN dari pasangan running-config).
+IP_HOST_MIXED = """\
+Host ID: 1
+MAC address: 0011.2233.4455
+Current IP address: 192.0.2.7
+Current mask: 255.255.255.0
+Host ID: 2
+MAC address: 0011.2233.4466
+Current IP address: 10.31.0.9
+Current mask: 255.255.255.0
+"""
+
+# Pasangan running-config (format nyata, DECISIONS.md): ip-host 1 -> gemport 1 flow 1
+# -> vlan 77 (non-management); ip-host 2 -> gemport 2 flow 2 -> vlan 2310 (management).
+RUNNING_MIXED = """\
+pon-onu-mng gpon-onu_1/6/1:7
+  ip-host 1 dhcp-enable enable
+  ip-host 2 dhcp-enable enable
+!
+interface gpon-onu_1/6/1:7
+  gemport 1 flow 1
+  gemport 2 flow 2
+  flow 1 pri 0 vlan 77
+  flow 2 pri 0 vlan 2310
+!
+"""
+
+# Host 1 satu-satunya -> vlan 23 (management).
+RUNNING_ONE = """\
+pon-onu-mng gpon-onu_1/6/1:7
+  ip-host 1 dhcp-enable enable
+!
+interface gpon-onu_1/6/1:7
+  gemport 1 flow 1
+  flow 1 pri 0 vlan 23
+!
 """
 
 ETH = """\
@@ -611,12 +651,100 @@ def test_parse_pppoe_from_running_config():
     assert parse_pppoe("  ip-host 2 ip 10.0.0.2 mask 255.255.255.0") is None
 
 
-def test_parse_current_ip_from_ip_host_report():
+def test_parse_current_ip_only_from_management_vlan():
+    """Aturan keras: hanya IP yang bisa dipasangkan ke VLAN management (pasangan
+    `ip-host N` ↔ `gemport N flow F` ↔ `flow F ... vlan V`, DECISIONS.md)."""
     from app.drivers.onu_report import parse_current_ip
-    assert parse_current_ip(IP_HOST) == "10.0.0.9"
-    assert parse_current_ip("") is None
-    assert parse_current_ip("Current IP address: 0.0.0.0") is None
-    assert parse_current_ip("tanpa baris IP sama sekali") is None
+    # Host 1 -> vlan 77 (non-management) dilewati; Host 2 -> vlan 2310 dipakai.
+    assert parse_current_ip(IP_HOST_MIXED, RUNNING_MIXED, {23, 2310}) == "10.31.0.9"
+    assert parse_current_ip(IP_HOST_MIXED, RUNNING_MIXED, {23}) is None
+    assert parse_current_ip(IP_HOST, RUNNING_ONE, {23}) == "10.0.0.9"
+    # Tanpa pasangan running-config tidak bisa diverifikasi -> None,
+    # bukan IP pertama yang kebetulan ada.
+    assert parse_current_ip(IP_HOST, "", {23}) is None
+    assert parse_current_ip("", RUNNING_MIXED, {2310}) is None
+    assert parse_current_ip("Host ID: 1\nCurrent IP address: 0.0.0.0", RUNNING_ONE, {23}) is None
+
+
+class _RefreshDb:
+    """Session minimal `refresh_ip`: OLT vendor zte + master VLAN management apa adanya."""
+
+    def __init__(self, mgmt_vlan_ids):
+        self.mgmt_vlan_ids = mgmt_vlan_ids
+        self.committed = False
+
+    async def get(self, model, key):
+        return SimpleNamespace(vendor="zte")
+
+    async def execute(self, stmt):
+        vlans = [SimpleNamespace(vlan_id=v) for v in self.mgmt_vlan_ids]
+
+        class _R:
+            def scalars(self_inner):
+                return iter(vlans)
+        return _R()
+
+    def add(self, obj):
+        pass
+
+    async def flush(self):
+        pass
+
+    async def commit(self):
+        self.committed = True
+
+
+def _stub_refresh(monkeypatch, onu, report, running=""):
+    from app.services import onu_action_service
+
+    async def _fake_onu_and_pon(db, onu_id, user):
+        return onu, SimpleNamespace(slot=6, port=1)
+
+    class _Driver:
+        async def fetch_onu_ip_host(self, slot, port, onu_id):
+            return report, running
+
+    monkeypatch.setattr(onu_action_service, "_onu_and_pon", _fake_onu_and_pon)
+    monkeypatch.setattr("app.drivers.factory.build_driver", lambda olt: _Driver())
+
+
+async def test_refresh_ip_never_saves_unverifiable_ip(monkeypatch):
+    """IP tanpa pasangan running-config tidak bisa dipasangkan ke VLAN management ->
+    tidak pernah disimpan/dikembalikan; `ip_address` valid tidak ditimpa, yang kosong
+    tidak ditebak (chip "Mgmt IP" tidak boleh pernah menampilkan IP di luar VLAN
+    management)."""
+    from types import SimpleNamespace
+
+    from app.services import onu_action_service
+    onu = SimpleNamespace(id=5, olt_id=31, onu_index=7, ip_address="10.50.0.7")
+    _stub_refresh(monkeypatch, onu, IP_HOST, "")  # 10.0.0.9 tanpa pasangan running-config
+    out = await onu_action_service.refresh_ip(_RefreshDb({2310}), 5, SimpleNamespace(id=1))
+    assert onu.ip_address == "10.50.0.7"  # 10.0.0.9 tidak pernah masuk
+    assert out == {"ip_address": "10.50.0.7"}
+
+    kosong = SimpleNamespace(id=6, olt_id=31, onu_index=8, ip_address=None)
+    _stub_refresh(monkeypatch, kosong, IP_HOST, "")
+    out = await onu_action_service.refresh_ip(_RefreshDb({2310}), 6, SimpleNamespace(id=1))
+    assert kosong.ip_address is None  # tidak menebak
+    assert out == {"ip_address": None}
+
+
+async def test_refresh_ip_saves_only_management_vlan_ip(monkeypatch):
+    """Blok Host yang pasangannya VLAN non-management tidak pernah tersimpan walau
+    dilaporkan perangkat; yang tersimpan hanya Host di VLAN management."""
+    from types import SimpleNamespace
+
+    from app.services import onu_action_service
+    onu = SimpleNamespace(id=5, olt_id=31, onu_index=7, ip_address=None)
+    _stub_refresh(monkeypatch, onu, IP_HOST_MIXED, RUNNING_MIXED)  # Host 1 vlan 77, Host 2 vlan 2310
+    out = await onu_action_service.refresh_ip(_RefreshDb({23, 2310}), 5, SimpleNamespace(id=1))
+    assert onu.ip_address == "10.31.0.9"  # Host 1 (192.0.2.7) tidak pernah masuk
+    assert out == {"ip_address": "10.31.0.9"}
+
+    wan = SimpleNamespace(id=6, olt_id=31, onu_index=8, ip_address="10.50.0.7")
+    _stub_refresh(monkeypatch, wan, IP_HOST_MIXED, RUNNING_MIXED)
+    await onu_action_service.refresh_ip(_RefreshDb({23}), 6, SimpleNamespace(id=1))
+    assert wan.ip_address == "10.50.0.7"  # tak ada host di VLAN management -> tak ditimpa
 
 
 def test_sync_wan_from_running_sets_pppoe_and_keeps_secret_encrypted():
