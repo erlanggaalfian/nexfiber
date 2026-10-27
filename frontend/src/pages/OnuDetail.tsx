@@ -1,24 +1,26 @@
 /** Detail ONU — PRD 3.4.6. Satu halaman (tidak ada halaman detail kedua).
  *
- *  Tata letak mengikuti desain acuan `design/onu-detail-stitch.html` + screenshot aplikasi
- *  referensi (grid label rata-kanan bold / nilai): bagian atas TIGA blok berjudul dalam dua
- *  kolom (kiri `Identitas`; kanan `Jaringan & layanan` + `Status perangkat` berisi panel LED
- *  yang sejajar dengan barisnya) → baris tombol `Diagnostik` (+ panel LIVE realtime saat LIVE
- *  aktif) → dua kartu `Trafik/Sinyal` → tabel Profil Kecepatan → Port Ethernet → WiFi →
+ *  Tata letak mengikuti mock pemilik `onu-detail-mock.html` (grid label rata-kanan bold /
+ *  nilai): bagian atas BLOK `Status Perangkat` full-width (kartu `Level Sinyal Rx` dua
+ *  kolom + kartu telemetri 6 baris) → dua kolom `Identitas` | `Jaringan & Layanan`
+ *  (`lg:col-span-6`) → baris tombol `Diagnostik` (+ panel LIVE realtime saat LIVE aktif)
+ *  → dua kartu `Trafik/Sinyal` → tabel Profil Kecepatan → Port Ethernet → WiFi →
  *  Layanan (VoIP/IPTV/CATV) → Aksi siklus hidup → Log aksi.
  *
  *  Label baris mengikuti TABEL RENAME pemilik (Bahasa Indonesia: `Tipe ONU`,
  *  `Preset konfigurasi`, `VLAN terpasang`, `Mode ONU`, `Setup WAN`, ...); akronim teknis
- *  (OLT/ONU/SN/PPPoE/TR069/VLAN/WiFi/IP) tetap. Kredensial PPPoE jadi satu baris dengan
- *  satu tombol mata (mask `**********` tetap).
+ *  (OLT/ONU/SN/PPPoE/TR069/VLAN/WiFi/IP) tetap. Kredensial PPPoE DUA baris terpisah
+ *  (`Username PPPoE` / `Password PPPoE`); kata sandi mask default `**********` dengan
+ *  satu tombol mata.
  *
  *  Penyesuaian pemilik terhadap desain acuan (sengaja TIDAK diikuti):
  *  - Shelf/Board, Slot, Port, GPON channel, Tx ONU, suhu, tegangan, MAC TIDAK ditampilkan;
  *  - Rx null = "LOS", tidak pernah digambar sebagai angka (mis. −30) yang tidak dibaca;
  *  - kolom identitas yang memang kosong ditulis `None` miring seperti acuan; baris
  *    spesifikasi koneksi memakai `Inactive`/"—" sesuai aturan pemilik;
- *  - baris kredensial PPPoE hanya muncul saat `wan_mode === "pppoe"`; username dan kata
- *    sandi tampil apa adanya dari backend (tanpa nilai kata sandi: `Hanya untuk manager`);
+ *  - baris kredensial PPPoE hanya muncul saat `wan_mode === "pppoe"`; username tampil apa
+ *    adanya dari backend dan kata sandi selalu mask default (buka lewat tombol mata; tanpa
+ *    nilai dari backend: `Hanya untuk manager`);
  *  - `Pps`/`Avg size` di panel LIVE = "—": kontrak counter backend hanya octet, tidak ada
  *    counter paket. Tidak ada OID/CLI baru yang ditambahkan ke perangkat untuk ini;
  *  - kartu `Traffic history` menggambar sampel bps yang BENAR-BENAR tersimpan di DB
@@ -149,12 +151,19 @@ function Section(
   );
 }
 
-/** Blok berjudul bagian atas (Identitas / Jaringan & layanan / Status perangkat): kartu
- *  permukaan dengan judul fiber gaya Section, isinya baris label/nilai yang padat. */
-function Block({ title, children }: { title: string; children: React.ReactNode }) {
+/** Blok berjudul bagian atas (Status Perangkat / Identitas / Jaringan & Layanan): kartu
+ *  permukaan dengan judul fiber gaya Section, isinya baris label/nilai yang padat.
+ *  `action` = isi kanan judul (badge status + tombol `Muat ulang` pada blok Status). */
+function Block(
+  { title, action, children, className = "" }:
+  { title: string; action?: React.ReactNode; children: React.ReactNode; className?: string },
+) {
   return (
-    <section className="rounded-sm border bg-surface p-2.5">
-      <h2 className="mb-1.5 text-lg font-semibold leading-[22px] text-fiber">{title}</h2>
+    <section className={`rounded-sm border bg-surface p-2.5 ${className}`}>
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold leading-[22px] text-fiber">{title}</h2>
+        {action}
+      </div>
       {children}
     </section>
   );
@@ -166,13 +175,15 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
  *  tampil di mobile (target sentuh 44x44), di desktop baru muncul saat baris di-hover /
  *  difokus (tetap bisa di-tab, `focus-visible`). `aria-label`-nya label baris itu sendiri. */
 function DRow(
-  { label, value, onEdit }: { label: string; value: React.ReactNode; onEdit?: () => void },
+  { label, value, dot, onEdit }:
+  { label: string; value: React.ReactNode; dot?: "up" | "warn" | "down" | "idle"; onEdit?: () => void },
 ) {
   const shape = `group relative grid w-full lg:grid-cols-[140px_1fr] lg:items-baseline ${ROW_GAP} ${onEdit ? "min-h-[44px] lg:min-h-0" : ""}`;
   return (
     <div className={shape}>
       <span className={`font-semibold ${ROW_LH} text-ink lg:text-right`}>{label}</span>
       <span className={`flex min-w-0 flex-wrap items-center gap-1.5 pr-11 ${ROW_LH} text-muted`}>
+        {dot && <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[dot]}`} />}
         {value}
       </span>
       {onEdit && (
@@ -185,6 +196,38 @@ function DRow(
           <Pencil size={12} aria-hidden />
         </button>
       )}
+    </div>
+  );
+}
+
+/** Titik status kecil baris telemetri (mock): `up` = normal, `down` = bermasalah,
+ *  `warn` = nilai yang belum dikenal aplikasi, null = kosong (tanpa titik). Hanya peta
+ *  tampilan — nilai asli tetap dikirim backend apa adanya. */
+const stateTone = (v: unknown): "up" | "warn" | "down" | null => {
+  const s = (v === null || v === undefined ? "" : String(v)).trim().toLowerCase();
+  if (s === "") return null;
+  if (["match", "matched", "configured", "success", "online", "ok", "up"].includes(s)) return "up";
+  if (["mismatch", "unconfigured", "failed", "error", "offline", "los", "down"].includes(s)) return "down";
+  return "warn";
+};
+/** Warna titik status statis (Tailwind perlu literal kelas, bukan string yang disusun saat
+ *  jalan). `idle` = abu netral untuk status pasif (mis. TR069 Inactive). */
+const TONE_DOT = { up: "bg-up", warn: "bg-warn", down: "bg-down", idle: "bg-idle" } as const;
+
+/** Baris telemetri blok `Status Perangkat`: grid label 140px yang sama dengan DRow, plus
+ *  titik status kecil di depan nilai berstatus. Bukan DRow: baris ini tanpa titik edit
+ *  dan labelnya bukan baris identitas/spesifikasi. */
+function TRow(
+  { label, dot, children }:
+  { label: string; dot?: "up" | "warn" | "down" | null; children: React.ReactNode },
+) {
+  return (
+    <div className={`grid w-full py-1 lg:grid-cols-[140px_1fr] lg:items-baseline ${ROW_GAP} ${ROW_LH}`}>
+      <span className={`font-semibold ${ROW_LH} text-ink lg:text-right`}>{label}</span>
+      <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-muted">
+        {dot && <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[dot]}`} />}
+        {children}
+      </span>
     </div>
   );
 }
@@ -285,40 +328,39 @@ function CardHead({ title, note, action }: { title: string; note?: string; actio
   );
 }
 
-/** Kredensial PPPoE dalam SATU baris (username + kata sandi) dengan satu tombol mata:
- *  keduanya tersembunyi default (pola desain acuan — teks `**********` panjang tetap
- *  supaya panjang nilai nyata tidak ikut terbaca). Hanya menampilkan nilai yang MEMANG
- *  dikirim backend; tanpa nilai kata sandi tetap keterangan jujur `Hanya untuk manager`. */
-function PppoeCredentials({ user, password }: { user: string | null; password: string | null }) {
+/** Kata sandi PPPoE: selalu MASK default `**********` — nilai asli tidak pernah tampil
+ *  begitu halaman termuat; tombol mata membuka/menutupnya (nilai MEMANG dari backend
+ *  `d.pppoe_password`, manager-only menurut RBAC backend). Tanpa nilai kata sandi tetap
+ *  keterangan jujur `Hanya untuk manager`, tanpa tombol mata — tidak diganti contoh. */
+function PppoePassword({ password }: { password: string | null }) {
   const [shown, setShown] = useState(false);
+  if (!password) return <span className="text-faint">Hanya untuk manager</span>;
   return (
     <>
-      <span className={shown ? "" : "tracking-wider"}>
-        {shown ? (user ?? "—") : "**********"}
-      </span>
-      <span className="text-faint">Password PPPoE</span>
-      <span className={shown && password ? "" : "tracking-wider"}>
-        {password ? (shown ? password : "**********") : (
-          <span className="text-faint">Hanya untuk manager</span>
-        )}
+      <span className={`font-mono text-ink ${shown ? "" : "tracking-wider"}`}>
+        {shown ? password : "**********"}
       </span>
       <button type="button" onClick={() => setShown(!shown)}
               aria-pressed={shown}
-              className="text-fiber hover:underline"
+              aria-label={shown ? "Sembunyikan kata sandi PPPoE" : "Tampilkan kata sandi PPPoE"}
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-sm text-fiber hover:bg-sunken md:min-h-0 md:min-w-0"
               title={shown ? "Sembunyikan" : "Tampilkan"}>
         {shown ? <EyeSlash size={14} aria-hidden /> : <Eye size={14} aria-hidden />}
-        <span className="sr-only">{shown ? "Sembunyikan kredensial PPPoE" : "Tampilkan kredensial PPPoE"}</span>
       </button>
     </>
   );
 }
 
 /** Tautan ke alamat IP perangkat: tab baru + ikon keluar seperti acuan. Dipakai untuk
- *  IP WAN dan IP manajemen; `http://` karena yang dituju halaman web ONU di LAN. */
-function IpLink({ ip }: { ip: string }) {
+ *  IP WAN dan IP manajemen; `http://` karena yang dituju halaman web ONU di LAN.
+ *  `title` = tooltip judul tautan (mock), `className` = gaya chip pemanggil. */
+function IpLink(
+  { ip, title, className = "inline-flex items-center gap-1 text-fiber hover:underline" }:
+  { ip: string; title?: string; className?: string },
+) {
   return (
-    <a className="inline-flex items-center gap-1 text-fiber hover:underline" href={`http://${ip}`}
-       target="_blank" rel="noopener noreferrer">
+    <a className={className} href={`http://${ip}`}
+       target="_blank" rel="noopener noreferrer" title={title}>
       {ip}
       <ArrowSquareOut size={12} aria-hidden />
     </a>
@@ -345,27 +387,30 @@ function rxStats(points: SignalPoint[], field: "rx_power_dbm" | "olt_rx_power_db
   };
 }
 
-/** Satu kotak sinyal Rx = `.so-meter` acuan: kotak kecil (±140px, rangka 1px, radius 4px,
- *  latar permukaan) berisi nama arah di atas dan nilai besar di bawah. Lebar acuan 140px
- *  pada basis 15px; diskalakan ke basis 13px Nexfiber -> 122px. Bucket & warna tetap dari
- *  RX_BUCKETS bersama (tidak pernah dihitung ulang di halaman ini). */
+/** Satu kartu sinyal Rx (mock `.so-meter` versi baru): nama arah + badge bucket di atas,
+ *  nilai mono besar di bawah. Lebar mengikuti grid dua kolom induknya. Bucket & warna
+ *  tetap dari RX_BUCKETS bersama (tidak pernah dihitung ulang di halaman ini). */
 function RxBox({ title, value }: { title: string; value: number | null }) {
   const b = rxBucket(value);
   const meta = b ? RX_BUCKETS[b] : null;
-  // Nilai kritis ditonjolkan merah kuat (tebal + `text-down`) supaya terbaca sekilas.
+  // Nilai kritis ditonjolkan merah kuat supaya terbaca sekilas.
   const strong = b === "critical";
+  const tone = b === "good" ? "text-up" : b ? "text-warn" : "text-muted";
   return (
-    <div className="flex w-[122px] shrink-0 flex-col rounded-sm border bg-surface px-2 pt-0.5 pb-1.5">
-      <span className="truncate text-xs text-muted" title={title}>{title}</span>
-      <span className="flex items-baseline gap-1">
-        <span className={`font-mono text-lg ${strong ? "font-bold text-down" : `font-semibold ${meta ? meta.color.replace("bg-", "text-") : "text-muted"}`}`}>
+    <div className="min-w-0 rounded-sm border bg-surface p-3">
+      {/* flex-wrap: di 390px badge bisa turun baris — label tak pernah dipotong (mock). */}
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1.5">
+        <span className="text-xs font-medium leading-tight text-muted" title={title}>{title}</span>
+        <span className={`shrink-0 rounded-sm border border-line bg-sunken px-1.5 py-0.5 text-[10px] font-semibold ${strong ? "text-down" : tone}`}>
+          {meta ? meta.label : "LOS"}
+        </span>
+      </div>
+      <div className="flex items-baseline gap-1.5">
+        <span className={`font-mono text-2xl font-bold ${strong ? "text-down" : tone}`}>
           {value === null ? "LOS" : value.toFixed(2)}
         </span>
         {value !== null && <span className="font-mono text-xs text-faint">dBm</span>}
-      </span>
-      <span className={`text-xs ${meta ? meta.color.replace("bg-", "text-") : "text-muted"}`}>
-        {meta ? meta.label : "LOS"}
-      </span>
+      </div>
     </div>
   );
 }
@@ -1054,11 +1099,63 @@ export function OnuDetail() {
         <p className="text-muted" role="status">{note}</p>
       )}
 
-      {/* 1. BAGIAN ATAS: tiga blok berjudul dalam dua kolom (kiri `Identitas`; kanan
-          `Jaringan & layanan` + `Status perangkat`). Menumpuk jadi tiga kartu bertumpuk
-          di bawah `lg`. Nilai kosong tetap `None` miring (blok identitas) atau "—" redup. */}
-      <div className="entrance grid gap-x-4 gap-y-3 lg:grid-cols-2 lg:items-start">
-        <Block title="Identitas">
+      {/* 1. BAGIAN ATAS mengikuti mock: blok `Status Perangkat` full-width (kartu `Level
+          Sinyal Rx` dua kolom + kartu telemetri 6 baris), lalu dua blok bersebelahan
+          `Identitas` | `Jaringan & Layanan` (masing-masing `lg:col-span-6` pada grid 12
+          kolom). Menumpuk berurutan di bawah `lg`. Nilai kosong tetap `None` miring (blok
+          identitas) atau "—" redup. */}
+      <Block
+        title="Status Perangkat"
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge status={statusKey} reason={d.last_down_reason} withLabel />
+            {live && (
+              <span className="font-mono text-xs text-fiber">auto-refresh {LIVE_MS / 1000}s</span>
+            )}
+            <Button size="sm" variant="quiet" onClick={() => { onu.refetch(); fetchIp(); }} disabled={onu.isFetching}>
+              {onu.isFetching ? "Memuat ..." : "Muat ulang"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          {/* Kartu Level Sinyal Rx: DUA kolom (ONU Rx 1490nm / OLT Rx 1310nm), nilai mono
+              besar + badge bucket berwarna; rentang normal di kanan judul kartu. */}
+          <div>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-muted">Level Sinyal Rx</span>
+              <span className="font-mono text-[11px] text-faint">Normal −8,0 s/d −27,0 dBm</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <RxBox title="ONU Rx 1490nm" value={d.rx_power_dbm} />
+              <RxBox title="OLT Rx 1310nm" value={d.olt_rx_power_dbm} />
+            </div>
+          </div>
+          {/* Telemetri 6 baris dalam satu kartu (mock): label grid 140px, titik status kecil
+              untuk nilai berstatus, nilai kosong "—" redup. */}
+          <div className="divide-y divide-line rounded-sm border bg-sunken px-3 text-xs">
+            <TRow label="Jarak kabel" dot={d.distance_m != null ? "up" : null}>
+              <span className="font-mono">{d.distance_m != null ? fmtDistance(d.distance_m) : DASH}</span>
+            </TRow>
+            <TRow label="Status match" dot={stateTone(d.match_state)}>{orDash(d.match_state)}</TRow>
+            <TRow label="Status konfigurasi" dot={stateTone(d.config_state)}>{orDash(d.config_state)}</TRow>
+            <TRow label="Bias laser">
+              {d.bias_current_ma === null ? DASH : (
+                <span className="font-mono">{`${Number(d.bias_current_ma).toFixed(2)} mA`}</span>
+              )}
+            </TRow>
+            <TRow label="Terakhir online">
+              {d.last_seen_at ? <span className="font-mono">{fmtDateTime(d.last_seen_at)}</span> : DASH}
+            </TRow>
+            <TRow label="Terakhir down">
+              {d.last_down_at ? `${dash(d.last_down_reason)} · ${fmtDateTime(d.last_down_at)}` : DASH}
+            </TRow>
+          </div>
+        </div>
+      </Block>
+
+      <div className="entrance grid gap-4 lg:grid-cols-12 lg:items-start">
+        <Block title="Identitas" className="lg:col-span-6">
           <div className="flex flex-col gap-1">
             <DRow label="OLT" value={
               <Link className="text-fiber hover:underline" to={`/olt/${d.olt_id}`}>{d.olt_name}</Link>
@@ -1114,123 +1211,92 @@ export function OnuDetail() {
           </div>
         </Block>
 
-        <div className="flex min-w-0 flex-col gap-3">
-          <Block title="Jaringan & layanan">
-            <div className="flex flex-col gap-1">
-              {/* Mode ONU: nilai efektif dari backend (CLI atau default `routing`), cukup
-                  modenya saja — nomor VLAN sudah tampil di baris VLAN terpasang. */}
-              <DRow label="Mode ONU" value={onuMode === null ? DASH : onuMode}
-                    onEdit={() => setModal({ kind: "onu-mode" })} />
-              {/* Setup WAN: label mode dari WAN_MODE_LABEL (huruf kapital di teks, bukan
-                  CSS uppercase) + IP sebagai tautan tab baru. `webpage` tidak punya IP WAN. */}
-              <DRow label="Setup WAN" value={
-                wanMode === null ? DASH : (
-                  <>
-                    <span>{wanMode}</span>
-                    {wanHasIp && ipLive && <IpLink ip={ipLive} />}
-                  </>
-                )
-              } onEdit={() => setModal({ kind: "onu-mode" })} />
-              {/* Kredensial PPPoE hanya untuk mode pppoe; static/dhcp/webpage menyembunyikan
-                  baris ini sepenuhnya. Username + kata sandi jadi SATU baris dengan satu
-                  tombol mata; kata sandi hanya tampil bila backend mengirimnya (manager). */}
-              {isPppoe && (
-                <DRow label="Username PPPoE" value={
-                  d.pppoe_username || d.pppoe_password
-                    ? <PppoeCredentials user={d.pppoe_username ?? null} password={d.pppoe_password ?? null} />
-                    : DASH
-                } />
-              )}
-              {/* Mgmt IP mengikuti acuan: "<Static|DHCP> - vlan: N - IP". Mode kosong berarti
-                  belum terbaca dari perangkat, bukan fakta `Inactive`. */}
-              <DRow label="Mgmt IP" value={
-                mgmtMode === null ? <span className="text-faint">— (belum terbaca)</span> : (
-                  <>
-                    <span>
-                      {mgmtMode}
-                      {d.mgmt_vlan != null && ` - vlan: ${d.mgmt_vlan}`}
-                      {ipLive && " - "}
-                    </span>
-                    {ipLive && <IpLink ip={ipLive} />}
-                  </>
-                )
-              } onEdit={isManager ? () => setModal({ kind: "mgmt-ip" }) : undefined} />
-              <DRow label="VLAN terpasang" value={
-                vlanList === null ? (
-                  <>
-                    <span>{dash(d.vlan_number)}</span>
-                    <span className="text-faint">daftar lengkap belum dikirim backend</span>
-                  </>
-                ) : vlanList.length === 0 ? (
-                  DASH
-                ) : (
-                  <>
-                    {vlanList.map((v) => (
-                      <span key={v.vlan_id} className="rounded-sm bg-sunken px-1.5 py-0.5"
-                            title={v.name ?? undefined}>
-                        {v.vlan_id}
-                        {v.in_master === false && <span className="ml-0.5 text-warn">*</span>}
-                      </span>
-                    ))}
-                    {vlanList.some((v) => v.in_master === false) && (
-                      <span className="text-faint">* belum terdaftar di master VLAN</span>
-                    )}
-                  </>
-                )
-              } onEdit={() => setModal({ kind: "attached-vlans" })} />
-              {/* Nexfiber belum punya profil ACS/TR-069 internal (DECISIONS.md), jadi nilainya
-                  selalu `Inactive` apa adanya — bukan badge "via Mgmt IP" milik aplikasi lain. */}
-              <DRow label="Profil TR069" value={<>Inactive <span className="text-faint">· Segera rilis</span></>} />
-              <DRow label="Otentikasi" value={d.auth_type === "loid" ? `LOID · ${dash(d.loid)}` : d.auth_type.toUpperCase()} />
-            </div>
-          </Block>
-
-          <Block title="Status perangkat">
-            <div className="flex flex-col gap-1">
-              {/* Baris status acuan: lencana status + jarak + muat ulang. */}
-              <DRow label="Status" value={
+        <Block title="Jaringan & Layanan" className="lg:col-span-6">
+          <div className="flex flex-col gap-1">
+            {/* Panel Port Fisik (mock) = versi padat OnuRearPanel: PON menyala, LAN1..N,
+                Reset, Power + chip "1 PON · N LAN". Hanya bila katalog ONU Types tahu
+                jumlah port nyatanya — lebih baik kosong daripada port karangan. */}
+            {specs && (specs.eth_ports > 0 || specs.voip_ports > 0) && (
+              <OnuRearPanel ethPorts={specs.eth_ports} voipPorts={specs.voip_ports}
+                            online={d.status === "online" && d.admin_state !== "disabled"} />
+            )}
+            {/* Mgmt IP mengikuti mock: "<Static|DHCP> - vlan: N" + chip IP hijau menuju
+                Web GUI ONU. Mode kosong berarti belum terbaca dari perangkat, bukan fakta
+                `Inactive`. */}
+            <DRow label="Mgmt IP" value={
+              mgmtMode === null ? <span className="text-faint">— (belum terbaca)</span> : (
                 <>
-                  <StatusBadge status={statusKey} reason={d.last_down_reason} withLabel />
-                  <span className="font-mono text-xs text-muted">{fmtDistance(d.distance_m)}</span>
-                  <Button size="sm" variant="quiet" onClick={() => { onu.refetch(); fetchIp(); }} disabled={onu.isFetching}>
-                    {onu.isFetching ? "Memuat ..." : "Muat ulang"}
-                  </Button>
-                  {live && (
-                    <span className="font-mono text-xs text-fiber">auto-refresh {LIVE_MS / 1000}s</span>
+                  <span>
+                    {mgmtMode}
+                    {d.mgmt_vlan != null && ` - vlan: ${d.mgmt_vlan}`}
+                  </span>
+                  {ipLive && (
+                    <IpLink ip={ipLive} title={`Buka Web GUI ONU (${ipLive})`}
+                            className="inline-flex items-center gap-1 rounded-sm border border-up bg-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-up hover:bg-surface" />
                   )}
                 </>
-              } />
-              {/* Level sinyal Rx acuan = DUA kotak kecil berdampingan (`.so-meter`, masing-
-                  masing ±140px, rangka 1px, radius 4px); nilai kritis merah kuat. */}
-              <div className={`grid lg:grid-cols-[140px_1fr] lg:items-baseline ${ROW_GAP}`}>
-                <span className={`font-semibold ${ROW_LH} text-ink lg:text-right`}>Level sinyal Rx</span>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap gap-1.5">
-                    <RxBox title="ONU Rx 1490nm" value={d.rx_power_dbm} />
-                    <RxBox title="OLT Rx 1310nm" value={d.olt_rx_power_dbm} />
-                  </div>
-                  <p className="mt-0.5 text-xs text-faint">Normal −8,0 s/d −27,0 dBm</p>
-                </div>
-              </div>
-              <DRow label="Status match" value={orDash(d.match_state)} />
-              <DRow label="Status konfigurasi" value={orDash(d.config_state)} />
-              <DRow label="Bias laser" value={
-                d.bias_current_ma === null ? DASH : `${Number(d.bias_current_ma).toFixed(2)} mA`
-              } />
-              <DRow label="Terakhir online" value={d.last_seen_at ? fmtDateTime(d.last_seen_at) : DASH} />
-              <DRow label="Terakhir down" value={d.last_down_at
-                ? `${dash(d.last_down_reason)} · ${fmtDateTime(d.last_down_at)}` : DASH} />
-            </div>
-            {/* Panel LED masuk ke dalam blok, sejajar rapi dengan isi blok — bukan melayang
-                di pojok kolom. Hanya bila katalog ONU Types tahu jumlah port nyatanya. */}
-            {specs && (specs.eth_ports > 0 || specs.voip_ports > 0) && (
-              <div className="mt-2 w-fit max-w-full">
-                <OnuRearPanel ethPorts={specs.eth_ports} voipPorts={specs.voip_ports}
-                              online={d.status === "online" && d.admin_state !== "disabled"} />
-              </div>
+              )
+            } onEdit={isManager ? () => setModal({ kind: "mgmt-ip" }) : undefined} />
+            {/* Nexfiber belum punya profil ACS/TR-069 internal (DECISIONS.md), jadi nilainya
+                selalu `Inactive` apa adanya dengan titik netral — bukan badge "via Mgmt IP"
+                milik aplikasi lain. */}
+            <DRow label="Profil TR069" value={<>Inactive <span className="text-faint">· Segera rilis</span></>} dot="idle" />
+            <DRow label="Otentikasi" value={d.auth_type === "loid" ? `LOID · ${dash(d.loid)}` : d.auth_type.toUpperCase()} />
+            <DRow label="VLAN terpasang" value={
+              vlanList === null ? (
+                <>
+                  <span>{dash(d.vlan_number)}</span>
+                  <span className="text-faint">daftar lengkap belum dikirim backend</span>
+                </>
+              ) : vlanList.length === 0 ? (
+                DASH
+              ) : (
+                <>
+                  {vlanList.map((v) => (
+                    <span key={v.vlan_id} className="rounded-sm bg-sunken px-1.5 py-0.5"
+                          title={v.name ?? undefined}>
+                      {v.vlan_id}
+                      {v.in_master === false && <span className="ml-0.5 text-warn">*</span>}
+                    </span>
+                  ))}
+                  {vlanList.some((v) => v.in_master === false) && (
+                    <span className="text-faint">* belum terdaftar di master VLAN</span>
+                  )}
+                </>
+              )
+            } onEdit={() => setModal({ kind: "attached-vlans" })} />
+            {/* Mode ONU: nilai efektif dari backend (CLI atau default `routing`), cukup
+                modenya saja — nomor VLAN sudah tampil di baris VLAN terpasang. */}
+            <DRow label="Mode ONU" value={onuMode === null ? DASH : onuMode}
+                  onEdit={() => setModal({ kind: "onu-mode" })} />
+            {/* Setup WAN: label mode dari WAN_MODE_LABEL (huruf kapital di teks, bukan
+                CSS uppercase) + chip IP tab baru. `webpage` tidak punya IP WAN. */}
+            <DRow label="Setup WAN" value={
+              wanMode === null ? DASH : (
+                <>
+                  <span>{wanMode}</span>
+                  {wanHasIp && ipLive && (
+                    <IpLink ip={ipLive} title="Buka IP WAN modem di tab baru"
+                            className="inline-flex items-center gap-1 rounded-sm bg-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-fiber hover:bg-surface hover:underline" />
+                  )}
+                </>
+              )
+            } onEdit={() => setModal({ kind: "onu-mode" })} />
+            {/* Kredensial PPPoE hanya untuk mode pppoe; static/dhcp/webpage menyembunyikan
+                dua baris ini sepenuhnya. DUA baris terpisah (mock): username apa adanya dari
+                backend, kata sandi mask default + tombol mata. Keduanya disunting lewat modal
+                "Update ONU mode" (satu form untuk mode WAN + kredensial PPPoE). */}
+            {isPppoe && (
+              <>
+                <DRow label="Username PPPoE" value={
+                  d.pppoe_username ? <span className="font-mono text-ink">{d.pppoe_username}</span> : DASH
+                } onEdit={() => setModal({ kind: "onu-mode" })} />
+                <DRow label="Password PPPoE" value={<PppoePassword password={d.pppoe_password ?? null} />}
+                      onEdit={() => setModal({ kind: "onu-mode" })} />
+              </>
             )}
-          </Block>
-        </div>
+          </div>
+        </Block>
       </div>
 
       {/* 2. BARIS TOMBOL `Diagnostik`: label `dl` di kiri, deretan tombol terisi penuh di

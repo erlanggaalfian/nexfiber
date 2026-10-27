@@ -88,13 +88,14 @@ check("sampel tanpa kemajuan waktu / lebar counter berubah ditolak", () => {
 
 // ------------------------------------------------------------ bentuk halaman
 
-check("urutan blok mengikuti desain: 3 blok atas, baris Diagnostik, trafik, profil, port, wifi, aksi", () => {
+check("urutan blok mengikuti mock: Status Perangkat full-width dulu, Identitas | Jaringan & Layanan, baris Diagnostik, trafik, profil, port, wifi, aksi", () => {
   const order = [
-    // Bagian atas kini TIGA blok berjudul (Identitas | Jaringan & layanan | Status perangkat).
+    // Bagian atas kini: blok `Status Perangkat` full-width lebih dulu, lalu dua blok
+    // bersebelahan (Identitas | Jaringan & Layanan, masing-masing `lg:col-span-6`).
+    'title="Status Perangkat"',
     'title="Identitas"',
     'label="OLT"',
-    'title="Jaringan & layanan"',
-    'title="Status perangkat"',
+    'title="Jaringan & Layanan"',
     // Baris tombol diagnostik memakai <Section label="Diagnostik"> (nama lama "Status"
     // dipakai blok Status perangkat, jadi tidak boleh tabrakan).
     '<Section label="Diagnostik">',
@@ -231,7 +232,7 @@ check("tidak ada branding/contoh data dari desain yang disalin", () => {
 
 check("satu markup untuk dua ukuran: tabel bisa digulir, kolom menumpuk, toolbar membungkus", () => {
   assert.ok(page.includes("overflow-x-auto"), "tabel digulir di layar kecil");
-  assert.ok(page.includes("lg:grid-cols-2"), "kartu atas dua kolom di lg");
+  assert.ok(page.includes("lg:grid-cols-12"), "kartu atas dua kolom (grid 12 kolom lg) di lg");
   assert.ok(page.includes("flex-wrap"), "toolbar membungkus");
   assert.ok(!/max-w-\[\d+px\]/.test(page), "lebar viewport di-hardcode");
 });
@@ -292,11 +293,11 @@ check("mode setup WAN: 4 mode acuan dipetakan, nilai tak dikenal apa adanya", ()
 });
 
 check("baris PPPoE hanya untuk mode pppoe; kredensial dari backend (manager)", () => {
-  // Username + kata sandi kini SATU baris dengan satu tombol mata.
+  // Username + kata sandi kini DUA baris terpisah (mock), password mask default + tombol mata.
   const i = page.lastIndexOf('label="Username PPPoE"');
   assert.notEqual(i, -1, "baris PPPoE hilang");
   assert.ok(page.slice(i - 600, i).includes("{isPppoe && ("), "baris PPPoE tanpa penjaga mode");
-  assert.ok(page.includes(">Password PPPoE<"), "label Password PPPoE hilang dari baris gabungan");
+  assert.ok(page.includes('label="Password PPPoE"'), "baris Password PPPoE terpisah hilang");
   assert.ok(page.includes('const isPppoe = (d.wan_mode ?? "").toLowerCase() === "pppoe"'),
             "penjaga mode pppoe");
   assert.ok(page.includes("d.pppoe_password"), "kata sandi PPPoE tidak dirender");

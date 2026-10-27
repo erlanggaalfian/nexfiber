@@ -37,7 +37,7 @@ def test_block_order_matches_reference_layout(src: str):
         "Aksi",
     ], labels
     # Grid identitas dua kolom mendahului seluruh Section, baris aksi sesudahnya.
-    assert src.index("lg:grid-cols-2") < src.index('<Section label="Diagnostik"')
+    assert src.index("lg:grid-cols-12") < src.index('<Section label="Diagnostik"')
     assert src.index('<Section label="WiFi"') < src.index("Restore factory")
 
 
