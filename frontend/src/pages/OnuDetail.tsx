@@ -143,9 +143,22 @@ const ROW_LH = "leading-[19px]";
 /** Satu baris `dt`/`dd` acuan: label kolom kiri **rata kanan bold**, isi di kanan.
  *  TANPA kartu/rangka — acuan memakai `<dl>` datar di atas latar halaman, bukan panel. */
 function Section(
-  { label, note, children, className = "" }:
-  { label: string; note?: string; children: React.ReactNode; className?: string },
+  { label, note, action, card = false, children, className = "" }:
+  { label: string; note?: string; action?: React.ReactNode; card?: boolean; children: React.ReactNode; className?: string },
 ) {
+  // Varian kartu (mock Detail ONU pemilik): judul fiber + catatan/aksi di kepala kartu,
+  // isi padat di dalam bingkai permukaan. Dipakai blok Profil Kecepatan ke bawah.
+  if (card) {
+    return (
+      <section className={`entrance rounded-md border bg-surface p-4 transition-colors hover:border-line-strong ${className}`}>
+        <div className="mb-3 flex items-center justify-between gap-2 border-b border-line pb-2.5">
+          <h2 className="text-lg font-semibold leading-[22px] text-fiber">{label}</h2>
+          {action ?? (note ? <span className="font-mono text-xs text-muted">{note}</span> : null)}
+        </div>
+        {children}
+      </section>
+    );
+  }
   return (
     <section className={`entrance flex flex-col gap-1 lg:flex-row lg:items-start ${ROW_GAP} ${className}`}>
       <div className={`${LABEL_W} lg:shrink-0 lg:text-right`}>
@@ -239,15 +252,8 @@ function TRow(
   );
 }
 
-/** Tabel acuan = `table-bordered table-striped table-condensed`: rangka 1px di sekeliling,
- *  kepala kolom **bold** dengan garis bawah, baris ganjil berlatar, padding rapat
- *  (acuan 5px @15px -> 4px pada basis 13px Nexfiber). Perataan kolom TIDAK ikut di kelas
- *  dasar: `text-left`/`text-center` ditempel per kolom, karena dua utilitas perataan
- *  Tailwind punya kekhususan sama (urutan kelas di JSX tidak menentukan pemenang). */
-const THEAD = "border-b px-1.5 py-1 align-bottom font-semibold";
-const TCELL = "px-1.5 py-1 align-top";
-/** Baris ganjil berlatar (`table-striped`); tanpa garis antar-baris seperti acuan. */
-const TROW = "odd:bg-sunken";
+/** Tabel acuan = `table-bordered table-striped table-condensed` memakai kelas literal per
+ *  tabel (kontrak "satu markup dua ukuran"), bukan konstanta yang disusun. */
 
 /** Kolom `Action` tabel acuan: TAUTAN "Configure" berikon plus, bukan tombol penuh.
  *  `aria-label` tetap menyebut port supaya titik buka modal tetap bisa ditunjuk pembaca
@@ -279,7 +285,7 @@ function LastLogPopover(
     <Popover.Root>
       <Popover.Trigger asChild>
         <button type="button"
-                className="mt-2 inline-flex items-center gap-1 text-fiber hover:underline">
+                className="inline-flex items-center gap-1.5 rounded border border-line bg-sunken/40 px-2.5 py-1 text-xs font-medium text-fiber transition-colors hover:bg-sunken min-h-11 sm:min-h-0">
           Log aksi terakhir
           <CaretDown size={12} aria-hidden />
         </button>
@@ -1491,27 +1497,29 @@ export function OnuDetail() {
         </div>
       </section>
 
-      <Section label="Profil Kecepatan">
-        <div className="hidden border md:block">
-          <table className="w-full table-fixed border-collapse">
+      {/* 5. SPEED PROFILE (mock pemilik): 3 kolom, nama profil mono hijau + nama asli
+          perangkat kecil abu dalam kurung. */}
+      <Section label="Profil Kecepatan" note="Rate-limit QoS" card>
+        <div className="mb-2 hidden overflow-x-auto rounded border border-line md:block">
+          <table className="w-full table-fixed border-collapse text-left">
             <thead>
-              <tr>
-                <th className={`${THEAD} w-[42%] text-left`}>Download</th>
-                <th className={`${THEAD} w-[42%] text-left`}>Upload</th>
-                <th className={`${THEAD} w-[16%] text-center`}>Aksi</th>
+              <tr className="border-b border-line bg-sunken text-muted">
+                <th className="w-[42%] px-4 py-2.5 font-semibold">Download</th>
+                <th className="w-[42%] px-4 py-2.5 font-semibold">Upload</th>
+                <th className="w-[16%] px-4 py-2.5 text-center font-semibold">Aksi</th>
               </tr>
             </thead>
-            <tbody>
-              <tr className={TROW}>
-                <td className={`${TCELL} font-mono text-fiber`}>
-                  {dash(d.download_profile_name)}
-                  <span className="ml-2 text-muted">{dash(cleanProfileName(d.line_profile_id))}</span>
+            <tbody className="divide-y divide-line/60">
+              <tr className="hover:bg-sunken/40">
+                <td className="px-4 py-2.5 font-mono">
+                  <span className="font-semibold text-fiber">{dash(d.download_profile_name)}</span>
+                  <span className="ml-2 text-xs text-faint">({dash(cleanProfileName(d.line_profile_id))})</span>
                 </td>
-                <td className={`${TCELL} font-mono text-fiber`}>
-                  {dash(d.upload_profile_name)}
-                  <span className="ml-2 text-muted">{dash(cleanProfileName(d.srv_profile_id))}</span>
+                <td className="px-4 py-2.5 font-mono">
+                  <span className="font-semibold text-fiber">{dash(d.upload_profile_name)}</span>
+                  <span className="ml-2 text-xs text-faint">({dash(cleanProfileName(d.srv_profile_id))})</span>
                 </td>
-                <td className={`${TCELL} text-center`}>
+                <td className="px-4 py-2.5 text-center">
                   <ConfigureLink label="Konfigurasi profil kecepatan"
                                  onClick={() => setModal({ kind: "speed-profile" })} />
                 </td>
@@ -1523,12 +1531,12 @@ export function OnuDetail() {
           <div className="min-w-0">
             <p className="text-xs text-muted">Download</p>
             <p className="truncate font-mono text-fiber">{dash(d.download_profile_name)}</p>
-            <p className="truncate font-mono text-xs text-muted">{dash(cleanProfileName(d.line_profile_id))}</p>
+            <p className="truncate font-mono text-xs text-faint">({dash(cleanProfileName(d.line_profile_id))})</p>
           </div>
           <div className="min-w-0 border-l pl-3">
             <p className="text-xs text-muted">Upload</p>
             <p className="truncate font-mono text-fiber">{dash(d.upload_profile_name)}</p>
-            <p className="truncate font-mono text-xs text-muted">{dash(cleanProfileName(d.srv_profile_id))}</p>
+            <p className="truncate font-mono text-xs text-faint">({dash(cleanProfileName(d.srv_profile_id))})</p>
           </div>
           <div className="col-span-2 mt-1 flex justify-end">
             <ConfigureLink label="Konfigurasi profil kecepatan"
@@ -1537,29 +1545,31 @@ export function OnuDetail() {
         </div>
       </Section>
 
-      <Section label="Port Ethernet" note={specs ? specs.name : undefined}>
+      {/* 6. Port Ethernet + WiFi sejajar dua kolom (mock pemilik), kartu padat di mobile. */}
+      <div className="grid items-start gap-5 lg:grid-cols-2">
+        <Section label="Port Ethernet" note={specs ? specs.name : undefined} card>
         {specs && specs.eth_ports > 0 ? (
           <>
-            <div className="hidden border md:block">
-              <table className="w-full table-fixed border-collapse">
+            <div className="mb-2 hidden overflow-x-auto rounded border border-line md:block">
+              <table className="w-full table-fixed border-collapse text-left">
                 <thead>
-                  <tr>
-                    <th className={`${THEAD} w-[32%] text-left`}>Port</th>
-                    <th className={`${THEAD} w-[30%] text-left`}>Status</th>
-                    <th className={`${THEAD} w-[22%] text-left`}>Mode</th>
-                    <th className={`${THEAD} w-[16%] text-center`}>Aksi</th>
+                  <tr className="border-b border-line bg-sunken text-muted">
+                    <th className="w-[30%] px-3 py-2 font-semibold">Port</th>
+                    <th className="w-[30%] px-3 py-2 font-semibold">Status</th>
+                    <th className="w-[20%] px-3 py-2 font-semibold">Mode</th>
+                    <th className="w-[20%] px-3 py-2 text-center font-semibold">Aksi</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-line/60">
                   {Array.from({ length: specs.eth_ports }, (_, i) => (
-                    <tr key={i} className={TROW}>
-                      <td className={TCELL}>
+                    <tr key={i} className="hover:bg-sunken/40">
+                      <td className="px-3 py-2">
                         <span className="font-semibold text-ink">LAN {i + 1}</span>
-                        <span className="ml-2 font-mono text-xs text-muted">eth_0/{i + 1}</span>
+                        <span className="ml-1.5 font-mono text-xs text-faint">eth_0/{i + 1}</span>
                       </td>
-                      <td className={`${TCELL} text-muted`}>Belum dibaca</td>
-                      <td className={`${TCELL} font-mono`}>LAN</td>
-                      <td className={`${TCELL} text-center`}>
+                      <td className="px-3 py-2 text-muted">Belum dibaca</td>
+                      <td className="px-3 py-2 font-mono font-medium">LAN</td>
+                      <td className="px-3 py-2 text-center">
                         <ConfigureLink label={`Konfigurasi eth_0/${i + 1}`}
                                        onClick={() => setModal({ kind: "eth-port", port: i + 1 })} />
                       </td>
@@ -1586,9 +1596,9 @@ export function OnuDetail() {
                 </article>
               ))}
             </div>
-            <p className="mt-1.5 inline-block rounded-sm bg-sunken px-2 py-1 text-xs text-muted">
+            <span className="inline-block rounded border border-line bg-sunken px-2 py-0.5 text-xs text-muted">
               Belum dibaca dari OLT
-            </p>
+            </span>
           </>
         ) : (
           <span className="text-muted">
@@ -1597,27 +1607,27 @@ export function OnuDetail() {
         )}
       </Section>
 
-      <Section label="WiFi" note={specs ? `${specs.wifi_ssids} SSID` : undefined}>
+      <Section label="WiFi" note={specs ? `${specs.wifi_ssids} SSID` : undefined} card>
         {specs && specs.wifi_ssids > 0 ? (
           <>
-            <div className="hidden border md:block">
-              <table className="w-full table-fixed border-collapse">
+            <div className="mb-2 hidden overflow-x-auto rounded border border-line md:block">
+              <table className="w-full table-fixed border-collapse text-left">
                 <thead>
-                  <tr>
-                    <th className={`${THEAD} w-[38%] text-left`}>Radio</th>
-                    <th className={`${THEAD} w-[46%] text-left`}>Status</th>
-                    <th className={`${THEAD} w-[16%] text-center`}>Aksi</th>
+                  <tr className="border-b border-line bg-sunken text-muted">
+                    <th className="w-[40%] px-3 py-2 font-semibold">Radio</th>
+                    <th className="w-[40%] px-3 py-2 font-semibold">Status</th>
+                    <th className="w-[20%] px-3 py-2 text-center font-semibold">Aksi</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-line/60">
                   {Array.from({ length: specs.wifi_ssids }, (_, i) => (
-                    <tr key={i} className={TROW}>
-                      <td className={TCELL}>
+                    <tr key={i} className="hover:bg-sunken/40">
+                      <td className="px-3 py-2">
                         <span className="font-semibold text-ink">SSID {i + 1}</span>
-                        <span className="ml-2 font-mono text-xs text-muted">wifi_0/{i + 1}</span>
+                        <span className="ml-1.5 font-mono text-xs text-faint">wifi_0/{i + 1}</span>
                       </td>
-                      <td className={`${TCELL} text-muted`}>Belum dibaca</td>
-                      <td className={`${TCELL} text-center`}>
+                      <td className="px-3 py-2 text-muted">Belum dibaca</td>
+                      <td className="px-3 py-2 text-center">
                         <ConfigureLink label={`Konfigurasi wifi_0/${i + 1}`}
                                        onClick={() => setModal({ kind: "wifi-port", port: i + 1 })} />
                       </td>
@@ -1641,78 +1651,107 @@ export function OnuDetail() {
                 </article>
               ))}
             </div>
-            <p className="mt-1.5 inline-block rounded-sm bg-sunken px-2 py-1 text-xs text-muted">
+            <span className="inline-block rounded border border-line bg-sunken px-2 py-0.5 text-xs text-muted">
               Perlu TR-069
-            </p>
+            </span>
           </>
         ) : (
           <span className="text-muted">Tidak ada SSID WiFi</span>
         )}
-      </Section>
+        </Section>
+      </div>
 
-      {/* 7. LAYANAN SEKUNDER acuan (`VoIP`, `IPTV`, `CATV` di bawah tabel WiFi): baris
-          label/nilai biasa. Hanya nilai nyata dari katalog ONU Types; yang backend-nya
-          belum ada ditandai "Segera", tidak dikarang. */}
-      <Section label="Layanan">
+      {/* 7. Layanan Tambahan (mock pemilik): VoIP/CATV hanya nilai nyata dari katalog ONU
+          Types; yang tidak didukung tipe ONUnya ditulis miring redup, yang backend-nya
+          belum ada diberi lencana "Segera", tidak dikarang. */}
+      <Section label="Layanan Tambahan" card>
         <div className="flex flex-col">
           <DRow label="Layanan VoIP" value={
             specs
-              ? (specs.voip_ports > 0 ? `${specs.voip_ports} port` : "Tidak didukung tipe ONU")
+              ? (specs.voip_ports > 0
+                  ? `${specs.voip_ports} port`
+                  : <span className="text-faint italic">Tidak didukung tipe ONU</span>)
               : <span className="text-faint">Tipe ONU belum terdaftar</span>
           } onEdit={specs && specs.voip_ports > 0
             ? () => setModal({ kind: "voip-enable", port: 1 })
             : undefined} />
-          <DRow label="IPTV" value={<span className="text-faint">Segera</span>}
-                onEdit={() => setModal({ kind: "iptv" })} />
+          <DRow label="IPTV" value={
+            <span className="inline-flex items-center rounded border border-amber/30 bg-amber/10 px-2 py-0.5 text-xs font-medium text-amber">
+              Segera
+            </span>
+          } onEdit={() => setModal({ kind: "iptv" })} />
           <DRow label="CATV" value={
             specs?.catv
               ? <span className="text-up">Didukung</span>
               : specs
-                ? "Tidak didukung tipe ONU"
+                ? <span className="text-faint italic">Tidak didukung tipe ONU</span>
                 : <span className="text-faint">Tipe ONU belum terdaftar</span>
           } />
         </div>
       </Section>
 
-      {/* 8. Aksi siklus hidup: operasi rutin dan aksi destruktif dipisah menjadi dua grup.
-          Semua tetap membuka modal konfirmasi; tombol merusak tetap manager-only. */}
-      <Section label="Aksi">
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start">
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-1.5" aria-label="Aksi operasional">
-            <Button className="min-h-11 w-full sm:min-h-0 sm:w-auto" size="sm" variant="primary"
-                    onClick={() => setModal({ kind: "reboot" })}>
-              Reboot
-            </Button>
-            <Button className="min-h-11 w-full sm:min-h-0 sm:w-auto" size="sm" variant="primary"
-                    onClick={() => setModal({ kind: "resync-config" })}>
-              Resync config
-            </Button>
+      {/* 8. Aksi ONU (mock pemilik): dua panel sejajar, rutin vs destruktif. Semua tetap
+          membuka modal konfirmasi yang sudah ada (payload/endpoint tidak berubah), tombol
+          merusak tetap manager-only. "Log aksi terakhir" = pop up dari tombol di kepala
+          section, entri menaut ke `/logs?q=<serial>`. */}
+      <Section label="Aksi ONU" card action={<LastLogPopover query={logs} serial={d.serial_number} />}>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="flex flex-col justify-between rounded-md border bg-sunken/20 p-3.5">
+            <div>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-muted">Aksi Operasional</span>
+                <span className="font-mono text-xs text-faint">Rutin &amp; sinkronisasi</span>
+              </div>
+              <p className="mb-3 text-xs text-faint">
+                Tindakan pemeliharaan standar tanpa menghapus profil langganan pelanggan.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 border-t border-line/60 pt-2"
+                 aria-label="Aksi operasional">
+              <Button className="min-h-11 grow sm:grow-0" size="sm" variant="secondary"
+                      onClick={() => setModal({ kind: "reboot" })}>
+                Reboot
+              </Button>
+              <Button className="min-h-11 grow sm:grow-0" size="sm" variant="secondary"
+                      onClick={() => setModal({ kind: "resync-config" })}>
+                Resync config
+              </Button>
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:ml-auto sm:flex sm:flex-wrap sm:justify-end sm:gap-1.5"
-               aria-label="Aksi destruktif">
-            <Button className="min-h-11 w-full sm:min-h-0 sm:w-auto" size="sm"
-                    variant={d.admin_state === "disabled" ? "secondary" : "danger"}
-                    onClick={() => setModal({ kind: d.admin_state === "disabled" ? "enable" : "disable" })}>
-              {d.admin_state === "disabled" ? "Aktifkan ONU" : "Nonaktifkan ONU"}
-            </Button>
-            {isManager && (
-              <Button className="min-h-11 w-full sm:min-h-0 sm:w-auto" size="sm" variant="danger"
-                      onClick={() => setModal({ kind: "restore-factory" })}>
-                Restore factory
+          <div className="flex flex-col justify-between rounded-md border border-down/30 bg-down/5 p-3.5">
+            <div>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-down">Aksi Destruktif</span>
+                <span className="rounded border border-down/30 bg-down/10 px-1.5 py-0.5 text-xs font-semibold text-down">
+                  Zona Kritis
+                </span>
+              </div>
+              <p className="mb-3 text-xs text-faint">
+                Operasi dapat memutus layanan Internet dan mereset konfigurasi ONU.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 border-t border-line/60 pt-2"
+                 aria-label="Aksi destruktif">
+              <Button className="min-h-11 grow sm:grow-0" size="sm"
+                      variant={d.admin_state === "disabled" ? "secondary" : "danger"}
+                      onClick={() => setModal({ kind: d.admin_state === "disabled" ? "enable" : "disable" })}>
+                {d.admin_state === "disabled" ? "Aktifkan ONU" : "Nonaktifkan ONU"}
               </Button>
-            )}
-            {isManager && (
-              <Button className="min-h-11 w-full sm:min-h-0 sm:w-auto" size="sm" variant="dangerSolid"
-                      onClick={() => setModal({ kind: "delete" })}>
-                Hapus
-              </Button>
-            )}
+              {isManager && (
+                <Button className="min-h-11 grow sm:grow-0" size="sm" variant="danger"
+                        onClick={() => setModal({ kind: "restore-factory" })}>
+                  Restore default
+                </Button>
+              )}
+              {isManager && (
+                <Button className="min-h-11 grow sm:grow-0" size="sm" variant="danger"
+                        onClick={() => setModal({ kind: "delete" })}>
+                  Hapus
+                </Button>
+              )}
+            </div>
           </div>
         </div>
-        {/* Log aksi terakhir = POP UP di bawah baris aksi (tanpa tabel panjang di halaman).
-            Tiap entri = deskripsi aksi + tautan ke halaman Logs yang sudah tersaring serial
-            ONU ini (`/logs?q=<serial>`); isinya murni data endpoint, tanpa teks karangan. */}
-        <LastLogPopover query={logs} serial={d.serial_number} />
       </Section>
 
       {/* Semua modal aksi ONU dirender satu kali di sini; isinya dipilih oleh `modal`. */}

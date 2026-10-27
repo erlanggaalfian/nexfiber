@@ -34,7 +34,7 @@ def test_block_order_matches_reference_layout(src: str):
     # "Diagnostik" / "Trafik & Histori Sinyal" = section gaya mock pemilik (judul <h2>
     # literal, judul + sub / kolom rentang), blok lain tetap <Section label>.
     assert labels == [
-        "Profil Kecepatan", "Port Ethernet", "WiFi", "Layanan", "Aksi",
+        "Profil Kecepatan", "Port Ethernet", "WiFi", "Layanan Tambahan", "Aksi ONU",
     ], labels
     marks = ["Diagnostik</h2>", "Trafik & Histori Sinyal</h2>"] + [
         f'<Section label="{label}"' for label in labels
@@ -43,7 +43,7 @@ def test_block_order_matches_reference_layout(src: str):
     assert at == sorted(at), marks
     # Grid identitas dua kolom mendahului seluruh section, baris aksi sesudahnya.
     assert src.index("lg:grid-cols-12") < src.index("Diagnostik</h2>")
-    assert src.index('<Section label="WiFi"') < src.index("Restore factory")
+    assert src.index('<Section label="WiFi"') < src.index("Restore default")
 
 
 def test_identity_grid_keeps_reference_field_order(src: str):

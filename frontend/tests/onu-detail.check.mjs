@@ -103,7 +103,7 @@ check("urutan blok mengikuti mock: Status Perangkat full-width dulu, Identitas |
     'label="Profil Kecepatan"',
     'label="Port Ethernet"',
     'label="WiFi"',
-    "Restore factory",
+    "Restore default",
   ];
   const at = order.map((m) => {
     const i = page.indexOf(m);
@@ -403,7 +403,7 @@ check("ilustrasi panel belakang dari katalog ONU Types, tidak digambar saat tipe
 });
 
 check("blok Layanan + Aksi mengikuti pola label/nilai, tombol berbahaya tetap manager-only", () => {
-  for (const m of ['label="Layanan"', 'label="Aksi"', 'label="Layanan VoIP"', 'label="IPTV"', 'label="CATV"']) {
+  for (const m of ['label="Layanan Tambahan"', 'label="Aksi ONU"', 'label="Layanan VoIP"', 'label="IPTV"', 'label="CATV"']) {
     assert.ok(page.includes(m), m);
   }
 });
@@ -435,9 +435,9 @@ check("6 aksi yang dibuang pemilik tidak ada lagi (tombol, handler, maupun state
   }
 });
 
-check("Log aksi terakhir = POP UP di bawah blok aksi, entri menaut ke /logs?q=<serial>", () => {
-  // Pemicunya di DALAM <Section label="Aksi">, sesudah deretan tombol.
-  const sec = page.indexOf('<Section label="Aksi">');
+check("Log aksi terakhir = POP UP dari tombol kepala blok Aksi ONU, entri menaut ke /logs?q=<serial>", () => {
+  // Pemicunya di DALAM <Section label="Aksi ONU"> (tombol di kanan judul, acuan mock).
+  const sec = page.indexOf('<Section label="Aksi ONU"');
   const trigger = page.indexOf("<LastLogPopover", sec);
   assert.notEqual(trigger, -1, "pemicu pop up log tidak ada di blok Aksi");
   assert.ok(trigger < page.indexOf("</Section>", sec), "pemicu di luar blok Aksi");
