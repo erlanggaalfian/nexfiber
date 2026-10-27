@@ -102,7 +102,7 @@ check("urutan blok mengikuti mock: Status Perangkat full-width dulu, Identitas |
     '>Trafik & Histori Sinyal</h2>',
     'label="Profil Kecepatan"',
     'label="Port Ethernet"',
-    'label="WiFi"',
+    'label="WiFi (WLAN)"',
     "Restore default",
   ];
   const at = order.map((m) => {
@@ -237,15 +237,22 @@ check("satu markup untuk dua ukuran: tabel bisa digulir, kolom menumpuk, toolbar
   assert.ok(!/max-w-\[\d+px\]/.test(page), "lebar viewport di-hardcode");
 });
 
+check("deep-link rentang grafik: baca ?range / ?srange, tulis balik saat toggle dipakai", () => {
+  assert.ok(page.includes('params.get(key)'), "nilai awal dibaca dari URL");
+  assert.ok(page.includes('next.set(key, v)'), "perubahan toggle ditulis ke URL");
+  assert.ok(page.includes('{ replace: true }'), "tanpa entri history baru");
+});
+
 // ------------------------------------------- tata letak desain acuan (design/onu-detail-stitch)
 
-check("grid label/nilai: label rata kanan bold di lg+, menumpuk satu kolom di bawah lg", () => {
+check("grid label/nilai: label tebal redup rata kiri, menumpuk satu kolom di bawah lg", () => {
   const fn = page.slice(page.indexOf("function DRow"), page.indexOf("const THEAD"));
   // Ambang pindah dari `sm` ke `lg`: acuan menumpuk label di atas nilai sampai 1000px
   // (`@media (min-width:1000px)` pada `.dl-horizontal`), dan `lg` (1024px) adalah
   // breakpoint terdekat yang sudah ada di repo.
-  assert.ok(fn.includes("lg:text-right"), "label rata kanan");
+  assert.ok(!fn.includes("lg:text-right"), "label rata kiri (mock)");
   assert.ok(fn.includes("font-semibold"), "label bold");
+  assert.ok(fn.includes("text-muted"), "label redup (mock)");
   // Grid 12-kolom diganti kolom label berlebar tetap seperti `dl-horizontal` acuan
   // (label 160px @15px -> 140px pada basis 13px Nexfiber).
   assert.ok(fn.includes("lg:grid-cols-[140px_1fr]"), "kolom label lebar tetap di lg+");

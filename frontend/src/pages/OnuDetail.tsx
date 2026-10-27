@@ -50,8 +50,9 @@ import {
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { Popover } from "radix-ui";
+import { TitleIcon } from "../components/onu/icons";
 import { OnuRearPanel } from "../components/onu/OnuRearPanel";
 import {
   OnuActionModals, type ModalOnu, type OnuModalState,
@@ -140,7 +141,7 @@ const ROW_GAP = "lg:gap-x-[18px]";
 /** Tinggi baris acuan: line-height 1.4286 × ukuran font badan (13px) = 19px. */
 const ROW_LH = "leading-[19px]";
 
-/** Satu baris `dt`/`dd` acuan: label kolom kiri **rata kanan bold**, isi di kanan.
+/** Satu baris `dt`/`dd` acuan: label kolom kiri **tebal redup rata kiri (mock)**, isi di kanan.
  *  TANPA kartu/rangka — acuan memakai `<dl>` datar di atas latar halaman, bukan panel. */
 function Section(
   { label, note, action, card = false, children, className = "" }:
@@ -152,7 +153,9 @@ function Section(
     return (
       <section className={`entrance rounded-md border bg-surface p-4 transition-colors hover:border-line-strong ${className}`}>
         <div className="mb-3 flex items-center justify-between gap-2 border-b border-line pb-2.5">
-          <h2 className="text-lg font-semibold leading-[22px] text-fiber">{label}</h2>
+          <h2 className="flex items-center gap-2 text-base font-bold text-fiber">
+            <TitleIcon title={label} />{label}
+          </h2>
           {action ?? (note ? <span className="font-mono text-xs text-muted">{note}</span> : null)}
         </div>
         {children}
@@ -163,7 +166,9 @@ function Section(
     <section className={`entrance flex flex-col gap-1 lg:flex-row lg:items-start ${ROW_GAP} ${className}`}>
       <div className={`${LABEL_W} lg:shrink-0 lg:text-right`}>
         {/* Judul fiber jadi jangkar pindai tanpa menambah garis atau panel. */}
-        <h2 className="text-lg font-semibold leading-[22px] text-fiber">{label}</h2>
+        <h2 className="flex items-center gap-2 text-base font-bold text-fiber">
+          <TitleIcon title={label} />{label}
+        </h2>
         {note && <p className="font-mono text-xs text-faint">{note}</p>}
       </div>
       <div className="min-w-0 grow">{children}</div>
@@ -179,9 +184,11 @@ function Block(
   { title: string; action?: React.ReactNode; children: React.ReactNode; className?: string },
 ) {
   return (
-    <section className={`rounded-sm border bg-surface p-2.5 ${className}`}>
-      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold leading-[22px] text-fiber">{title}</h2>
+    <section className={`entrance rounded-md border bg-surface p-4 transition-colors hover:border-line-strong ${className}`}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2.5">
+        <h2 className="flex items-center gap-2 text-base font-bold text-fiber">
+          <TitleIcon title={title} />{title}
+        </h2>
         {action}
       </div>
       {children}
@@ -189,8 +196,8 @@ function Block(
   );
 }
 
-/** Baris label/nilai di dalam blok. Bentuknya sama dengan Section (label rata kanan bold
- *  pada kolom 140px, nilai di kanan) supaya kolom label halaman lurus; menumpuk jadi satu
+/** Baris label/nilai di dalam blok. Bentuknya sama dengan Section (label tebal redup rata
+ *  kiri pada kolom 140px, nilai di kanan) supaya kolom label halaman lurus; menumpuk jadi satu
  *  kolom di bawah `lg` seperti acuan. Ikon pensil = satu-satunya titik buka modal: selalu
  *  tampil di mobile (target sentuh 44x44), di desktop baru muncul saat baris di-hover /
  *  difokus (tetap bisa di-tab, `focus-visible`). `aria-label`-nya label baris itu sendiri. */
@@ -201,7 +208,7 @@ function DRow(
   const shape = `group relative grid w-full lg:grid-cols-[140px_1fr] lg:items-baseline ${ROW_GAP} ${onEdit ? "min-h-[44px] lg:min-h-0" : ""}`;
   return (
     <div className={shape}>
-      <span className={`font-semibold ${ROW_LH} text-ink lg:text-right`}>{label}</span>
+      <span className={`font-semibold ${ROW_LH} text-muted`}>{label}</span>
       <span className={`flex min-w-0 flex-wrap items-center gap-1.5 pr-11 ${ROW_LH} text-muted`}>
         {dot && <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[dot]}`} />}
         {value}
@@ -243,7 +250,7 @@ function TRow(
 ) {
   return (
     <div className={`grid w-full py-1 lg:grid-cols-[140px_1fr] lg:items-baseline ${ROW_GAP} ${ROW_LH}`}>
-      <span className={`font-semibold ${ROW_LH} text-ink lg:text-right`}>{label}</span>
+      <span className={`font-semibold ${ROW_LH} text-muted`}>{label}</span>
       <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-muted">
         {dot && <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[dot]}`} />}
         {children}
@@ -366,13 +373,12 @@ function PppoePassword({ password }: { password: string | null }) {
 
 /** Tautan ke alamat IP perangkat: tab baru + ikon keluar seperti acuan. Dipakai untuk
  *  IP WAN dan IP manajemen; `http://` karena yang dituju halaman web ONU di LAN.
- *  `title` = tooltip judul tautan (mock), `className` = gaya chip pemanggil. */
-function IpLink(
-  { ip, title, className = "inline-flex items-center gap-1 text-fiber hover:underline" }:
-  { ip: string; title?: string; className?: string },
-) {
+ *  `title` = tooltip judul tautan (mock). Chip seragam `bg-sunken border border-line
+ *  text-fiber` untuk kedua baris (mock). */
+function IpLink({ ip, title }: { ip: string; title?: string }) {
   return (
-    <a className={className} href={`http://${ip}`}
+    <a className="inline-flex items-center gap-1 rounded border border-line bg-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-fiber hover:bg-surface"
+       href={`http://${ip}`}
        target="_blank" rel="noopener noreferrer" title={title}>
       {ip}
       <ArrowSquareOut size={12} aria-hidden />
@@ -410,7 +416,7 @@ function RxBox({ title, value }: { title: string; value: number | null }) {
   const strong = b === "critical";
   const tone = b === "good" ? "text-up" : b ? "text-warn" : "text-muted";
   return (
-    <div className="min-w-0 rounded-sm border bg-surface p-3">
+    <div className="min-w-0 rounded-md border bg-surface p-3 shadow-xs">
       {/* flex-wrap: di 390px badge bisa turun baris — label tak pernah dipotong (mock). */}
       <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1.5">
         <span className="text-xs font-medium leading-tight text-muted" title={title}>{title}</span>
@@ -703,7 +709,7 @@ function ChartCard(
   { title: string; toggle?: React.ReactNode; children: React.ReactNode; legend?: React.ReactNode },
 ) {
   return (
-    <div className="min-w-0 rounded-sm border bg-surface p-3">
+    <div className="min-w-0 rounded-md border bg-surface p-3.5">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-bold text-ink">{title}</h3>
         {toggle}
@@ -738,7 +744,7 @@ function RangeToggle(
         <button key={v} type="button" role="tab" aria-selected={value === v}
           onClick={() => onChange(v)}
           className={`min-h-11 rounded-sm px-2 py-0.5 text-xs sm:min-h-0 ${value === v
-            ? "bg-surface font-semibold text-fiber"
+            ? "bg-surface font-semibold text-fiber shadow-xs"
             : "font-medium text-muted hover:text-ink"}`}>
           {label}
         </button>
@@ -923,9 +929,25 @@ export function OnuDetail() {
   const { isManager } = useAuth();
   /** Rentang tiap kartu grafik = state lokal toggle (24 jam / 7 hari / 30 hari); memilih
    *  rentang di kartu Trafik tidak mengubah kartu Sinyal, begitu pula sebaliknya. Sumber
-   *  data tetap endpoint histori/sinyal yang ada — rentang lain menampilkan apa adanya. */
-  const [range, setRange] = useState<RangeKey>("24h");
-  const [srange, setSrange] = useState<RangeKey>("24h");
+   *  data tetap endpoint histori/sinyal yang ada — rentang lain menampilkan apa adanya.
+   *  Nilai awal dibaca dari query URL `?range` / `?srange` (deep-link), lalu ditulis balik
+   *  saat toggle dipakai — state tetap lokal, URL hanya untuk membagikan tautan. */
+  const [params, setParams] = useSearchParams();
+  const rangeFromUrl = (key: string): RangeKey => {
+    const v = params.get(key);
+    return v === "7d" || v === "30d" ? v : "24h";
+  };
+  const [range, setRange] = useState<RangeKey>(() => rangeFromUrl("range"));
+  const [srange, setSrange] = useState<RangeKey>(() => rangeFromUrl("srange"));
+  /** Tulis balik rentang ke URL (replace, tanpa entri history baru). */
+  const pickRange = (key: "range" | "srange", set: (v: RangeKey) => void) => (v: RangeKey) => {
+    set(v);
+    setParams((p) => {
+      const next = new URLSearchParams(p);
+      next.set(key, v);
+      return next;
+    }, { replace: true });
+  };
   /** Modal aksi ONU (kontrak `/api/onus/{id}/actions`), satu state untuk semua modal. */
   const [modal, setModal] = useState<OnuModalState | null>(null);
   const [note, setNote] = useState("");
@@ -1158,7 +1180,7 @@ export function OnuDetail() {
           </div>
           {/* Telemetri 6 baris dalam satu kartu (mock): label grid 140px, titik status kecil
               untuk nilai berstatus, nilai kosong "—" redup. */}
-          <div className="divide-y divide-line rounded-sm border bg-sunken px-3 text-xs">
+          <div className="divide-y divide-line rounded-md border bg-sunken/20 px-3.5 text-xs">
             <TRow label="Jarak kabel" dot={d.distance_m != null ? "up" : null}>
               <span className="font-mono">{d.distance_m != null ? fmtDistance(d.distance_m) : DASH}</span>
             </TRow>
@@ -1180,7 +1202,8 @@ export function OnuDetail() {
       </Block>
 
       <div className="entrance grid gap-4 lg:grid-cols-12 lg:items-start">
-        <Block title="Identitas" className="lg:col-span-6">
+        <Block title="Identitas" className="lg:col-span-6"
+               action={<span className="font-mono text-xs text-faint">ID: {d.id}</span>}>
           <div className="flex flex-col gap-1">
             <DRow label="OLT" value={
               <Link className="text-fiber hover:underline" to={`/olt/${d.olt_id}`}>{d.olt_name}</Link>
@@ -1190,7 +1213,7 @@ export function OnuDetail() {
                 {onuIf}
               </Link>
             } />
-            <DRow label="SN" value={<span className="font-semibold text-fiber">{d.serial_number}</span>}
+            <DRow label="SN" value={<span className="rounded border border-line bg-sunken px-1.5 py-0.5 font-mono font-semibold text-fiber">{d.serial_number}</span>}
                   onEdit={isManager ? () => setModal({ kind: "replace-sn" }) : undefined} />
             <DRow label="Tipe ONU" value={orNone(d.onu_type)}
                   onEdit={isManager ? () => setModal({ kind: "onu-type" }) : undefined} />
@@ -1256,8 +1279,7 @@ export function OnuDetail() {
                     {d.mgmt_vlan != null && ` - vlan: ${d.mgmt_vlan}`}
                   </span>
                   {ipLive && (
-                    <IpLink ip={ipLive} title={`Buka Web GUI ONU (${ipLive})`}
-                            className="inline-flex items-center gap-1 rounded-sm border border-up bg-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-up hover:bg-surface" />
+                    <IpLink ip={ipLive} title={`Buka Web GUI ONU (${ipLive})`} />
                   )}
                 </>
               )
@@ -1278,9 +1300,9 @@ export function OnuDetail() {
               ) : (
                 <>
                   {vlanList.map((v) => (
-                    <span key={v.vlan_id} className="rounded-sm bg-sunken px-1.5 py-0.5"
+                    <span key={v.vlan_id} className="inline-flex items-center rounded border border-line bg-sunken px-2 py-0.5 font-mono font-semibold text-ink"
                           title={v.name ?? undefined}>
-                      {v.vlan_id}
+                      VLAN {v.vlan_id}
                       {v.in_master === false && <span className="ml-0.5 text-warn">*</span>}
                     </span>
                   ))}
@@ -1301,8 +1323,7 @@ export function OnuDetail() {
                 <>
                   <span>{wanMode}</span>
                   {wanHasIp && ipLive && (
-                    <IpLink ip={ipLive} title="Buka IP WAN modem di tab baru"
-                            className="inline-flex items-center gap-1 rounded-sm bg-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-fiber hover:bg-surface hover:underline" />
+                    <IpLink ip={ipLive} title="Buka IP WAN modem di tab baru" />
                   )}
                 </>
               )
@@ -1328,10 +1349,10 @@ export function OnuDetail() {
           140px kiri, tombol operasi hijau mengisi baris, TR-069 mati + LIVE! di ujung kanan.
           Logika/handler diagnostik TIDAK diubah — tetap lewat job CLI backend, dan
           running-config tetap manager-only. */}
-      <section className="entrance rounded-sm border bg-surface p-4">
+      <section className="entrance rounded-md border bg-surface p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="lg:w-[140px] lg:shrink-0">
-            <h2 className="text-base font-bold text-fiber">Diagnostik</h2>
+            <h2 className="flex items-center gap-1.5 text-base font-bold text-fiber"><TitleIcon title="Diagnostik" />Diagnostik</h2>
             <p className="mt-0.5 text-xs text-faint">Operasi & status live</p>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3 grow">
@@ -1430,14 +1451,14 @@ export function OnuDetail() {
       {/* 3. `Trafik & Histori Sinyal` gaya mock: judul + "Rentang ..." di kanan, dua kartu
           grafik sejajar lg:grid-cols-2 (menumpuk di bawah lg). Sumber data tetap endpoint
           histori/sinyal yang ada; grafik hanya menggambar sampel yang benar-benar tersimpan. */}
-      <section className="entrance rounded-sm border bg-surface p-4">
+      <section className="entrance rounded-md border bg-surface p-4">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
-          <h2 className="text-base font-bold text-fiber">Trafik & Histori Sinyal</h2>
+          <h2 className="flex items-center gap-2 text-base font-bold text-fiber"><TitleIcon title="Trafik & Histori Sinyal" />Trafik & Histori Sinyal</h2>
           <span className="font-mono text-xs text-muted">Rentang {RANGE_TITLE[range]}</span>
         </div>
         <div className="stagger grid gap-5 lg:grid-cols-2">
           <ChartCard title={`Trafik ${RANGE_TITLE[range]}`}
-            toggle={<RangeToggle value={range} onChange={setRange} aria="Rentang histori trafik" />}
+            toggle={<RangeToggle value={range} onChange={pickRange("range", setRange)} aria="Rentang histori trafik" />}
             legend={
               <>
                 <LegendRow color="bg-fiber" label={`Download maks · rata-rata (${range})`}
@@ -1467,7 +1488,7 @@ export function OnuDetail() {
             )}
           </ChartCard>
           <ChartCard title={`Sinyal ${RANGE_TITLE[srange]}`}
-            toggle={<RangeToggle value={srange} onChange={setSrange} aria="Rentang histori sinyal" />}
+            toggle={<RangeToggle value={srange} onChange={pickRange("srange", setSrange)} aria="Rentang histori sinyal" />}
             legend={
               <>
                 <LegendRow color="bg-fiber" label="ONU Rx 1490nm (min · rata-rata · maks)"
@@ -1607,7 +1628,7 @@ export function OnuDetail() {
         )}
       </Section>
 
-      <Section label="WiFi" note={specs ? `${specs.wifi_ssids} SSID` : undefined} card>
+      <Section label="WiFi (WLAN)" note={specs ? `${specs.wifi_ssids} SSID` : undefined} card>
         {specs && specs.wifi_ssids > 0 ? (
           <>
             <div className="mb-2 hidden overflow-x-auto rounded border border-line md:block">
@@ -1718,11 +1739,11 @@ export function OnuDetail() {
               </Button>
             </div>
           </div>
-          <div className="flex flex-col justify-between rounded-md border border-down/30 bg-down/5 p-3.5">
+          <div className="flex flex-col justify-between rounded-md border border-down p-3.5">
             <div>
               <div className="mb-1.5 flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-down">Aksi Destruktif</span>
-                <span className="rounded border border-down/30 bg-down/10 px-1.5 py-0.5 text-xs font-semibold text-down">
+                <span className="rounded border border-down px-1.5 py-0.5 text-xs font-semibold text-down">
                   Zona Kritis
                 </span>
               </div>
