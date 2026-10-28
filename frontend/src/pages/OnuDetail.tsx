@@ -1833,8 +1833,8 @@ export function OnuDetail() {
         </div>
       </Section>
 
-      {/* 6. Port Ethernet + WiFi sejajar dua kolom (mock pemilik), kartu padat di mobile. */}
-      <div className="grid items-start gap-3 lg:grid-cols-2">
+      {/* 6. Port Ethernet + WiFi susun atas-bawah (permintaan user 2026-10-29, bukan sejajar). */}
+      <div className="grid items-start gap-3">
         <Section label="Port Ethernet" note={specs ? specs.name : undefined} card>
         {specs && specs.eth_ports > 0 ? (
           <>
