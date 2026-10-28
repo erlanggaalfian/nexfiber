@@ -17,6 +17,8 @@ import { Button } from "./ui/button";
    meluber di grid sempit (mis. lat/long AuthorizeOnu). */
 export const input =
   "h-8 max-md:h-12 w-full min-w-0 rounded-md border border-line-strong bg-surface px-3 text-sm";
+/* Dipertahankan untuk halaman yang masih memakainya; TableCard sendiri tidak
+   lagi memakai token ini — padding selnya diatur .tbl di index.css. */
 export const cell = "px-3 py-2 text-left align-middle";
 export const filterInput =
   "h-8 max-md:h-12 min-w-0 rounded-md border border-line-strong bg-surface px-3 text-sm placeholder:text-faint";
@@ -177,24 +179,24 @@ export function TableCard<T>({ query, columns, empty, emptyAction, row, card, lo
             <div className="grid gap-2 p-2 md:hidden">{shownRows.map(card)}</div>
           )}
           <div className={`overflow-x-auto ${card ? "hidden md:block" : ""}`}>
-            <table className="w-full border-collapse text-sm">
-              {/* Sticky di bawah header aplikasi: header itu sticky top-0 h-14
-               *  desktop dan h-[calc(3.5rem+safe-area-inset-top)] di mobile
-               *  (Layout.tsx), jadi top memakai calc yang sama; di browser
-               *  tanpa notch safe-area = 0 dan nilainya tetap 56px.
-               *  z-10 di bawah z-40 header.
-               *  PERBAIKAN bug "tabel menumpuk" (laporan user 2026-10-28, screenshot
-               *  OLT Management + Configured): sticky + background SEBELUMNYA
-               *  dipasang di <thead>, dan browser tidak menempelkan thead secara
-               *  andal — background thead tidak menutupi baris yang lewat, jadi
-               *  baris yang di-scroll tampil menumpuk di atas/di balik header.
-               *  Sticky dan bg-surface WAJIB di tiap <th> (bukan thead): itu pola
-               *  yang didukung Chrome/Firefox/Safari, dan bg di th menutupi
-               *  baris yang lewat. Jangan kembalikan sticky ke thead. */}
-              <thead className="text-xs text-muted">
-                <tr className="border-b">{columns.map((c, i) => {
+            <table className="tbl tbl--sticky">
+              {/* Sticky/padding/garis/hover tabel diatur di bagian TABEL TERPUSAT
+               *  di frontend/src/styles/index.css — itu sumber kebenarannya,
+               *  jangan menulis ulang sticky, top, z-index, bg, padding, atau
+               *  border di <table>/<th> di sini. .tbl--sticky menempelkan tiap
+               *  <th> (bukan <thead>) pada var(--tbl-sticky-top), di bawah
+               *  header aplikasi (z-10, di bawah z-40 header); thead hanya
+               *  pembungkus tanpa class dan <tr> header sengaja tanpa border.
+               *  Tabel memakai border-separate, dan garis digambar lewat sel
+               *  karena border di <tr> diabaikan di model itu. Jangan
+               *  kembalikan ke border-collapse atau sticky ke thead (kombinasi
+               *  itu yang membuat baris menumpuk/ghost di atas header di Chrome,
+               *  laporan 2026-10-28). Class per kolom (col.className) tetap
+               *  dipertahankan apa adanya di tiap <th>. */}
+              <thead>
+                <tr>{columns.map((c, i) => {
                   const col = typeof c === "string" ? { label: c } : c;
-                  return <th key={col.label || i} scope="col" className={`sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-10 bg-surface ${cell} ${col.className ?? ""}`}>{col.header ?? col.label}</th>;
+                  return <th key={col.label || i} scope="col" className={col.className ?? ""}>{col.header ?? col.label}</th>;
                 })}</tr>
               </thead>
               <tbody>{shownRows.map(row)}</tbody>

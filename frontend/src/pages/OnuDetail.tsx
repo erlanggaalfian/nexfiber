@@ -1787,25 +1787,27 @@ export function OnuDetail() {
           perangkat kecil abu dalam kurung. */}
       <Section label="Profil Kecepatan" note="Rate-limit QoS" card>
         <div className="mb-2 hidden overflow-x-auto md:block">
-          <table className="w-full table-fixed border-collapse text-left">
+          <table className="tbl tbl--fixed">
             <thead>
-              <tr className="border-b border-line bg-sunken text-muted">
-                <th className="w-[42%] px-4 py-2.5 font-semibold">Download</th>
-                <th className="w-[42%] px-4 py-2.5 font-semibold">Upload</th>
-                <th className="w-[16%] px-4 py-2.5 text-center font-semibold">Aksi</th>
+              <tr>
+                <th className="w-[42%] text-left align-middle">Download</th>
+                <th className="w-[42%] text-left align-middle">Upload</th>
+                <th className="w-[16%] text-center align-middle">Aksi</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-line/60">
-              <tr className="hover:bg-sunken/40">
-                <td className="px-4 py-2.5 font-mono">
+            <tbody>
+              <tr>
+                <td className="truncate text-left align-middle font-mono"
+                    title={`${dash(d.download_profile_name)} (${dash(cleanProfileName(d.line_profile_id))})`}>
                   <span className="font-semibold text-fiber">{dash(d.download_profile_name)}</span>
                   <span className="ml-2 text-xs text-faint">({dash(cleanProfileName(d.line_profile_id))})</span>
                 </td>
-                <td className="px-4 py-2.5 font-mono">
+                <td className="truncate text-left align-middle font-mono"
+                    title={`${dash(d.upload_profile_name)} (${dash(cleanProfileName(d.srv_profile_id))})`}>
                   <span className="font-semibold text-fiber">{dash(d.upload_profile_name)}</span>
                   <span className="ml-2 text-xs text-faint">({dash(cleanProfileName(d.srv_profile_id))})</span>
                 </td>
-                <td className="px-4 py-2.5 text-center">
+                <td className="text-center align-middle">
                   <ConfigureLink label="Konfigurasi profil kecepatan"
                                  onClick={() => setModal({ kind: "speed-profile" })} />
                 </td>
@@ -1837,27 +1839,27 @@ export function OnuDetail() {
         {specs && specs.eth_ports > 0 ? (
           <>
             <div className="mb-2 hidden overflow-x-auto md:block">
-              <table className="w-full table-fixed border-collapse text-left">
+              <table className="tbl tbl--inset tbl--fixed tbl--roomy">
                 <thead>
-                  <tr className="border-b border-line bg-sunken text-muted">
-                    <th className="w-[30%] px-3 py-2 font-semibold">Port</th>
-                    <th className="w-[30%] px-3 py-2 font-semibold">Status</th>
-                    <th className="w-[20%] px-3 py-2 font-semibold">Mode</th>
-                    <th className="w-[20%] px-3 py-2 text-center font-semibold">Aksi</th>
+                  <tr>
+                    <th className="w-[30%]">Port</th>
+                    <th className="w-[30%]">Status</th>
+                    <th className="w-[20%]">Mode</th>
+                    <th className="w-[20%] text-center">Aksi</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-line/60">
+                <tbody>
                   {Array.from({ length: specs.eth_ports }, (_, i) => {
                     const cfg = d.port_configs?.eth?.[String(i + 1)];
                     return (
-                    <tr key={i} className="hover:bg-sunken/40">
-                      <td className="px-3 py-2">
+                    <tr key={i}>
+                      <td>
                         <span className="font-semibold text-ink">LAN {i + 1}</span>
                         <span className="ml-1.5 font-mono text-xs text-faint">eth_0/{i + 1}</span>
                       </td>
-                      <td className="px-3 py-2 text-muted">{cfg ? (cfg.enabled ? "Aktif" : "Nonaktif") : "—"}</td>
-                      <td className="px-3 py-2 text-muted">{cfg?.mode ? ({ lan: "LAN", access: "Access", hybrid: "Hybrid", trunk: "Trunk", transparent: "Transparent" } as Record<string, string>)[cfg.mode] ?? cfg.mode : "—"}</td>
-                      <td className="px-3 py-2 text-center">
+                      <td className="text-muted">{cfg ? (cfg.enabled ? "Aktif" : "Nonaktif") : "—"}</td>
+                      <td className="text-muted">{cfg?.mode ? ({ lan: "LAN", access: "Access", hybrid: "Hybrid", trunk: "Trunk", transparent: "Transparent" } as Record<string, string>)[cfg.mode] ?? cfg.mode : "—"}</td>
+                      <td className="text-center">
                         <ConfigureLink label={`Konfigurasi eth_0/${i + 1}`}
                                        onClick={() => setModal({ kind: "eth-port", port: i + 1 })} />
                       </td>
@@ -1903,25 +1905,25 @@ export function OnuDetail() {
         {specs && specs.wifi_ssids > 0 ? (
           <>
             <div className="mb-2 hidden overflow-x-auto md:block">
-              <table className="w-full table-fixed border-collapse text-left">
+              <table className="tbl tbl--inset tbl--fixed tbl--roomy">
                 <thead>
-                  <tr className="border-b border-line bg-sunken text-muted">
-                    <th className="w-[40%] px-3 py-2 font-semibold">Radio</th>
-                    <th className="w-[40%] px-3 py-2 font-semibold">Status</th>
-                    <th className="w-[20%] px-3 py-2 text-center font-semibold">Aksi</th>
+                  <tr>
+                    <th className="w-[40%]">Radio</th>
+                    <th className="w-[40%]">Status</th>
+                    <th className="w-[20%] text-center">Aksi</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-line/60">
+                <tbody>
                   {Array.from({ length: specs.wifi_ssids }, (_, i) => {
                     const cfg = d.port_configs?.wifi?.[String(i + 1)];
                     return (
-                    <tr key={i} className="hover:bg-sunken/40">
-                      <td className="px-3 py-2">
+                    <tr key={i}>
+                      <td>
                         <span className="font-semibold text-ink">SSID {i + 1}</span>
                         <span className="ml-1.5 font-mono text-xs text-faint">wifi_0/{i + 1}</span>
                       </td>
-                      <td className="px-3 py-2 text-muted">{cfg ? (cfg.enabled ? "Aktif" : "Nonaktif") + (cfg.ssid ? ` · ${cfg.ssid}` : "") : "—"}</td>
-                      <td className="px-3 py-2 text-center">
+                      <td className="text-muted">{cfg ? (cfg.enabled ? "Aktif" : "Nonaktif") + (cfg.ssid ? ` · ${cfg.ssid}` : "") : "—"}</td>
+                      <td className="text-center">
                         <ConfigureLink label={`Konfigurasi wifi_0/${i + 1}`}
                                        onClick={() => setModal({ kind: "wifi-port", port: i + 1 })} />
                       </td>

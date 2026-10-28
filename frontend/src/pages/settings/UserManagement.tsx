@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { Navigate } from "react-router";
 import * as z from "zod";
 import { Empty, ErrorState, PageTitle, Skeleton, fmtDateTime } from "../../components/data";
-import { Field, cell, filterInput, input } from "../../components/crud";
+import { Field, filterInput, input } from "../../components/crud";
 import { ConfirmShell, DrawerShell, ModalShell, PasswordInput } from "../../components/onu/modals/ModalShell";
 import { Button } from "../../components/ui/button";
 import { api, qs, type Olt, type Role } from "../../lib/api";
@@ -257,7 +257,7 @@ export function UserManagement() {
         </select>
       </div>
 
-      <section className="entrance rounded-lg border border-line/60 bg-surface">
+      <section className="entrance rounded-lg border border-line/60 bg-surface shadow-xs">
         {users.isPending ? (
           <Skeleton text="Memuat user ..." rows={4} />
         ) : users.isError ? (
@@ -296,37 +296,37 @@ export function UserManagement() {
             ))}
           </div>
           <div className="hidden overflow-x-auto md:block">
-            <table className="w-full border-collapse text-sm">
-              <thead className="text-xs text-muted">
-                <tr className="border-b">
-                  <th className={cell}>Username</th>
-                  <th className={cell}>Nama</th>
-                  <th className={cell}>Peran</th>
-                  <th className={cell}>Admin induk</th>
-                  <th className={cell}>OLT</th>
-                  <th className={cell}>Aktif</th>
-                  <th className={cell}>Login terakhir</th>
-                  <th className={cell}>Dibuat</th>
-                  <th className={cell}>Aksi</th>
+            <table className="tbl tbl--sticky">
+              <thead>
+                <tr>
+                  <th scope="col">Username</th>
+                  <th scope="col">Nama</th>
+                  <th scope="col">Peran</th>
+                  <th scope="col">Admin induk</th>
+                  <th scope="col">OLT</th>
+                  <th scope="col">Aktif</th>
+                  <th scope="col">Login terakhir</th>
+                  <th scope="col">Dibuat</th>
+                  <th scope="col">Aksi</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((u) => (
-                  <tr key={u.id} className="border-b last:border-0">
-                    <td className={`${cell} font-mono`}>{u.username}</td>
-                    <td className={cell}>{u.full_name}</td>
-                    <td className={cell}>{ROLE_LABEL[u.role]}</td>
-                    <td className={cell}>{u.admin_username ?? "—"}</td>
-                    <td className={`${cell} font-mono`}>{u.role === "user" ? "—" : u.olt_count}</td>
-                    <td className={cell}>
+                  <tr key={u.id}>
+                    <td className="font-mono">{u.username}</td>
+                    <td>{u.full_name}</td>
+                    <td>{ROLE_LABEL[u.role]}</td>
+                    <td>{u.admin_username ?? "—"}</td>
+                    <td className="font-mono">{u.role === "user" ? "—" : u.olt_count}</td>
+                    <td>
                       <span className="inline-flex items-center gap-1.5">
                         <span className={`size-1.5 shrink-0 ${u.is_active ? "bg-up" : "bg-idle"}`} aria-hidden />
                         {u.is_active ? "Aktif" : "Nonaktif"}
                       </span>
                     </td>
-                    <td className={cell}>{fmtDateTime(u.last_login_at)}</td>
-                    <td className={cell}>{fmtDateTime(u.created_at)}</td>
-                    <td className={cell}>
+                    <td>{fmtDateTime(u.last_login_at)}</td>
+                    <td>{fmtDateTime(u.created_at)}</td>
+                    <td>
                       <div className="flex gap-2">
                         <Button size="sm" onClick={() => setDrawer({ edit: u })}>Edit</Button>
                         <Button size="sm" onClick={() => setReset(u)}>Reset password</Button>

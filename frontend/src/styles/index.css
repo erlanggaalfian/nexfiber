@@ -130,6 +130,89 @@
 /* Tailwind v4 meng-inline nilai --shadow-* dari @theme ke utility, jadi
    override variabel di .dark saja tidak mengubah shadow-overlay/shadow-modal.
    Spesifitas .dark .shadow-* (0,2,0) menang atas utility (0,1,0). */
+/* ============ TABEL TERPUSAT (sumber kebenaran tabel, DESIGN.md §8) ============
+   Satu-satunya tempat aturan tabel ditulis. Halaman/TableCard hanya memakai
+   class .tbl + modifier di bawah, tanpa mengulang border/padding/sticky per
+   halaman.
+   - Jangan kembali ke border-collapse: kombinasi collapse + sticky th
+     ditangani Chrome secara tidak andal (baris menumpuk/ghost di atas header,
+     laporan screenshot Configured 2026-10-28 23:20).
+   - Sticky dipasang di tiap <th> (bukan <thead>): browser tidak menempelkan
+     thead secara andal.
+   - Di model separate, border di <tr> diabaikan browser, jadi garis header
+     dan garis antar-baris digambar lewat sel (th/td), bukan lewat tr.
+   - Kombinator anak (>) membatasi aturan ke tabel ini saja: tabel bersarang
+     di dalam sebuah sel (bila ada) tidak ikut kena aturan ini.
+   - Aturan basis ditulis dengan :where() supaya utility per-sel (text-center,
+     font-mono, hidden lg:table-cell, w-[...]) tetap bisa meng-override. */
+:root {
+  /* Offset sticky header tabel = tinggi header aplikasi (desktop h-14 =
+     3.5rem; mobile top bar calc yang sama + safe-area). Ditulis SEKALI di
+     sini; .tbl--sticky memakainya lewat var, bukan calc per th. */
+  --tbl-sticky-top: calc(3.5rem + env(safe-area-inset-top));
+}
+
+.tbl {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  /* Token Tailwind kustom aplikasi (bukan default 14px/12px): text-sm 13px/18px,
+     text-xs 11px/16px — tabel dirender persis seperti saat masih memakai utility
+     text-sm/text-xs, jangan diganti ke rem default. */
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+}
+:where(.tbl) > thead > tr > th {
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  color: var(--text-muted);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border);
+}
+:where(.tbl) > tbody > tr > td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border);
+}
+:where(.tbl) > tbody > tr:last-child > td {
+  border-bottom: 0;
+}
+/* Hover baris adalah BAGIAN dari .tbl itu sendiri: semua tabel yang memakai
+   .tbl otomatis mendapat hover tanpa class per halaman/per baris. */
+:where(.tbl) > tbody > tr:hover {
+  background: var(--bg-sunken);
+}
+
+/* Modifier sticky: selektor biasa (bukan :where) supaya sifatnya menang atas
+   basis :where(). */
+.tbl--sticky > thead > tr > th {
+  position: sticky;
+  top: var(--tbl-sticky-top);
+  z-index: 10;
+  background: var(--bg-surface);
+}
+
+/* Modifier inset: tabel di dalam kartu/section yang sudah berbingkai.
+   Penanda eksplisit yang tidak menambah bingkai/border sendiri; bingkai
+   datang dari section pembungkus, bukan dari tabel. */
+.tbl--inset {
+  border: 0;
+}
+
+.tbl--fixed {
+  table-layout: fixed;
+}
+
+/* Padding vertikal pengganti py-2.5; horizontal tetap 0.75rem. Selektor
+   biasa supaya menang atas basis :where(). */
+.tbl--roomy > thead > tr > th,
+.tbl--roomy > tbody > tr > td {
+  padding: 0.625rem 0.75rem;
+}
+
 .dark .shadow-overlay { --tw-shadow: 0 4px 12px rgba(28, 27, 24, 0.35); }
 .dark .shadow-modal { --tw-shadow: 0 12px 32px rgba(28, 27, 24, 0.5); }
 /* shadow-xs dipakai permanen (hemat) di Panel/TableCard/MobileCard: tanpa

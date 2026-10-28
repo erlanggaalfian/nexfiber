@@ -305,7 +305,7 @@ export function Configured() {
         card={(o: OnuRow) => (
           <MobileCard key={o.id} onClick={() => navigate(`/onu/${o.id}`)}>
             <div className="flex items-center justify-between gap-2">
-              <span className="min-w-0 truncate font-medium">{o.customer_name ?? o.name ?? "—"}</span>
+              <span className="min-w-0 break-words font-medium">{o.customer_name ?? o.name ?? "—"}</span>
               <span className="flex shrink-0 items-center gap-2" onClick={(e) => e.stopPropagation()}>
                 <input
                   className="size-5 shrink-0"
@@ -320,7 +320,7 @@ export function Configured() {
                              reason={o.last_down_reason} withLabel />
               </span>
             </div>
-            <p className="truncate font-mono text-xs text-muted">
+            <p className="break-words font-mono text-xs text-muted">
               {o.serial_number} · {o.olt_name} · {o.slot}/{o.port}{o.onu_index === null ? "" : `:${o.onu_index}`}
             </p>
             <p className="flex flex-wrap items-center gap-2 text-xs">
@@ -356,30 +356,32 @@ export function Configured() {
               <StatusBadge status={o.admin_state === "disabled" ? "disabled" : o.status}
                            reason={o.last_down_reason} withLabel={false} />
             </td>
-            {/* Nama/OLT/splitter/zone dibungkus span block truncate: di
-                layout tabel auto, truncate langsung di <td> tidak menahan
-                kolom melebar saat nama pelanggan panjang — span dengan
-                max-w-lah yang memotongnya, title menampilkan nilai penuh. */}
+            {/* Nama/OLT/splitter/zone dibungkus span block break-words
+                (permintaan user 2026-10-28): nama TIDAK boleh dipotong
+                "..." — teks panjang dilanjutkan ke baris bawah. Di layout
+                tabel auto, max-w menahan kolom melebar, dan break-words
+                memecah kata panjang (mis. nama ODP) bila perlu. title
+                dipertahankan sebagai info tambahan saat hover. */}
             <td className={cell}>
-              <span className="block max-w-56 truncate" title={o.customer_name ?? o.name ?? undefined}>
+              <span className="block max-w-56 break-words" title={o.customer_name ?? o.name ?? undefined}>
                 {o.customer_name ?? o.name ?? "—"}
               </span>
             </td>
             <td className={`${cell} font-mono`}>{o.serial_number}</td>
             <td className={`${cell} font-mono`}>
-              <span className="block max-w-44 truncate"
+              <span className="block max-w-44 break-words"
                     title={`${o.olt_name} · ${o.slot}/${o.port}${o.onu_index === null ? "" : `:${o.onu_index}`}`}>
                 {o.olt_name} · {o.slot}/{o.port}{o.onu_index === null ? "" : `:${o.onu_index}`}
               </span>
             </td>
             <td className={`${cell} font-mono`}>{o.vlan_number ?? "—"}</td>
             <td className={`${cell} hidden lg:table-cell`}>
-              <span className="block max-w-40 truncate" title={o.splitter_name ?? undefined}>
+              <span className="block max-w-40 break-words" title={o.splitter_name ?? undefined}>
                 {o.splitter_name ?? "—"}
               </span>
             </td>
             <td className={`${cell} hidden lg:table-cell`}>
-              <span className="block max-w-40 truncate" title={o.zone_name ?? undefined}>
+              <span className="block max-w-40 break-words" title={o.zone_name ?? undefined}>
                 {o.zone_name ?? "—"}
               </span>
             </td>

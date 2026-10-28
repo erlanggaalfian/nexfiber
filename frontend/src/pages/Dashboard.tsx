@@ -165,7 +165,7 @@ function OltTable({ olts }: { olts: OltRow[] }) {
     <div className="grid gap-2 p-2 md:hidden">
       {sorted.map((o) => (
         <Link key={o.id} to={`/olt/${o.id}`}
-              className="block min-h-[72px] rounded-lg border border-line/60 bg-surface px-3 py-2 transition-transform duration-150 ease-out motion-reduce:transition-none active:scale-[0.99]">
+              className="block min-h-[72px] rounded-lg border border-line/60 bg-surface px-3 py-2 shadow-xs transition-transform duration-150 ease-out motion-reduce:transition-none active:scale-[0.99]">
           <div className="flex items-center justify-between gap-2">
             <span className="min-w-0 truncate font-medium">{o.name}</span>
             <StatusBadge status={o.status} withLabel />
@@ -180,24 +180,24 @@ function OltTable({ olts }: { olts: OltRow[] }) {
       ))}
     </div>
     <div className="hidden overflow-x-auto md:block">
-      <table className="w-full border-collapse text-sm">
-        <thead className="text-xs text-muted">
-          <tr className="border-b">
+      <table className="tbl">
+        <thead>
+          <tr>
             {["OLT", "Status", "ONU", "CPU", "RAM", "Suhu"].map((c) => (
-              <th key={c} className="px-3 py-2 text-left align-middle">{c}</th>
+              <th key={c}>{c}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {sorted.map((o) => (
             <tr key={o.id} onClick={() => navigate(`/olt/${o.id}`)}
-                className="cursor-pointer border-b last:border-0 hover:bg-sunken">
-              <td className="px-3 py-2"><Link to={`/olt/${o.id}`} className="block max-w-60 truncate hover:underline">{o.name}</Link></td>
-              <td className="px-3 py-2"><StatusBadge status={o.status} withLabel /></td>
-              <td className="px-3 py-2"><OnuRatioBar online={o.onu_online} count={o.onu_count} /></td>
-              <td className="px-3 py-2 font-mono">{o.cpu_pct == null ? "—" : `${o.cpu_pct.toFixed(0)}%`}</td>
-              <td className="px-3 py-2 font-mono">{o.ram_pct == null ? "—" : `${o.ram_pct.toFixed(0)}%`}</td>
-              <td className="px-3 py-2 font-mono">{o.temperature_c == null ? "—" : `${o.temperature_c.toFixed(0)}°C`}</td>
+                className="cursor-pointer">
+              <td><Link to={`/olt/${o.id}`} className="block max-w-60 truncate hover:underline" title={o.name}>{o.name}</Link></td>
+              <td><StatusBadge status={o.status} withLabel /></td>
+              <td><OnuRatioBar online={o.onu_online} count={o.onu_count} /></td>
+              <td className="font-mono">{o.cpu_pct == null ? "—" : `${o.cpu_pct.toFixed(0)}%`}</td>
+              <td className="font-mono">{o.ram_pct == null ? "—" : `${o.ram_pct.toFixed(0)}%`}</td>
+              <td className="font-mono">{o.temperature_c == null ? "—" : `${o.temperature_c.toFixed(0)}°C`}</td>
             </tr>
           ))}
         </tbody>
@@ -324,7 +324,7 @@ export function Dashboard() {
         <div className="flex flex-col gap-4">
           <Strip d={q.data} isManager={isManager} changed={changed} />
           <SignalRow onu_by_signal={q.data.onu_by_signal} changed={changed} />
-          <section className="entrance rounded-lg border border-line/60 bg-surface">
+          <section className="entrance rounded-lg border border-line/60 bg-surface shadow-xs">
             <h2 className="border-b px-3 py-2 text-sm font-medium">OLT</h2>
             <OltTable olts={q.data.olts} />
           </section>

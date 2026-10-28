@@ -89,7 +89,7 @@ function GraphCard({ kind, stat, retention, olts, isSuperadmin }: {
   };
 
   return (
-    <section data-graph-kind={kind} className="entrance rounded-lg border border-line/60 bg-surface p-4">
+    <section data-graph-kind={kind} className="entrance rounded-lg border border-line/60 bg-surface p-4 shadow-xs">
       <div className="mb-4 flex items-center gap-2">
         <Icon size={20} className="text-fiber" aria-hidden />
         <h2 className="font-medium">{meta.title}</h2>

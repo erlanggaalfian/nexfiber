@@ -161,13 +161,13 @@ function SplitterDrawer({ edit, zones, onClose }: {
             <p className="text-muted">Memuat ONU ...</p>
           ) : detail.data?.onus.length ? (
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-sm">
+              <table className="tbl">
                 <tbody>
                   {detail.data.onus.map((o) => (
-                    <tr key={o.id} className="border-b last:border-0">
-                      <td className={`${cell} font-mono`}>{o.splitter_port ?? "—"}</td>
-                      <td className={`${cell} font-mono`}>{o.serial_number}</td>
-                      <td className={cell}>{o.customer_name ?? o.name ?? "—"}</td>
+                    <tr key={o.id}>
+                      <td className="font-mono">{o.splitter_port ?? "—"}</td>
+                      <td className="font-mono">{o.serial_number}</td>
+                      <td>{o.customer_name ?? o.name ?? "—"}</td>
                     </tr>
                   ))}
                 </tbody>
