@@ -180,18 +180,17 @@ export function TableCard<T>({ query, columns, empty, emptyAction, row, card, lo
           )}
           <div className={`overflow-x-auto ${card ? "hidden md:block" : ""}`}>
             <table className="tbl tbl--sticky">
-              {/* Sticky/padding/garis/hover tabel diatur di bagian TABEL TERPUSAT
+              {/* Padding/garis/hover tabel diatur di bagian TABEL TERPUSAT
                *  di frontend/src/styles/index.css — itu sumber kebenarannya,
-               *  jangan menulis ulang sticky, top, z-index, bg, padding, atau
-               *  border di <table>/<th> di sini. .tbl--sticky menempelkan tiap
-               *  <th> (bukan <thead>) pada var(--tbl-sticky-top), di bawah
-               *  header aplikasi (z-10, di bawah z-40 header); thead hanya
-               *  pembungkus tanpa class dan <tr> header sengaja tanpa border.
-               *  Tabel memakai border-separate, dan garis digambar lewat sel
-               *  karena border di <tr> diabaikan di model itu. Jangan
-               *  kembalikan ke border-collapse atau sticky ke thead (kombinasi
-               *  itu yang membuat baris menumpuk/ghost di atas header di Chrome,
-               *  laporan 2026-10-28). Class per kolom (col.className) tetap
+               *  jangan menulis ulang bg, padding, atau border di
+               *  <table>/<th> di sini. Header tabel sengaja TIDAK sticky
+               *  (putusan user 2026-10-29: konten tidak boleh tertutup
+               *  header; sticky + pembungkus overflow-x selalu rusak di satu
+               *  browser, laporan 2026-10-28/29). thead hanya pembungkus
+               *  tanpa class dan <tr> header sengaja tanpa border. Tabel
+               *  memakai border-separate, dan garis digambar lewat sel karena
+               *  border di <tr> diabaikan di model itu. Jangan kembalikan ke
+               *  border-collapse. Class per kolom (col.className) tetap
                *  dipertahankan apa adanya di tiap <th>. */}
               <thead>
                 <tr>{columns.map((c, i) => {

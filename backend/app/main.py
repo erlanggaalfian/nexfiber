@@ -127,4 +127,9 @@ if FRONTEND_DIST.is_dir():
         candidate = FRONTEND_DIST / full_path
         if full_path and candidate.is_file():
             return FileResponse(candidate)
-        return FileResponse(FRONTEND_DIST / "index.html")
+        # no-cache = browser WAJIB revalidasi tiap muat (ETag 304 kalau sama).
+        # Tanpa ini browser menyimpan index.html secara heuristik dan tab SPA
+        # lama terus menjalankan bundel basi setelah deploy (bug tabel ghost
+        # yang terlihat lagi padahal sudah di-fix, laporan 2026-10-29).
+        return FileResponse(FRONTEND_DIST / "index.html",
+                            headers={"Cache-Control": "no-cache"})

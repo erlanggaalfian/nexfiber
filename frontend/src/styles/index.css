@@ -145,12 +145,7 @@
      di dalam sebuah sel (bila ada) tidak ikut kena aturan ini.
    - Aturan basis ditulis dengan :where() supaya utility per-sel (text-center,
      font-mono, hidden lg:table-cell, w-[...]) tetap bisa meng-override. */
-:root {
-  /* Offset sticky header tabel = tinggi header aplikasi (desktop h-14 =
-     3.5rem; mobile top bar calc yang sama + safe-area). Ditulis SEKALI di
-     sini; .tbl--sticky memakainya lewat var, bukan calc per th. */
-  --tbl-sticky-top: calc(3.5rem + env(safe-area-inset-top));
-}
+
 
 .tbl {
   border-collapse: separate;
@@ -186,12 +181,12 @@
   background: var(--bg-sunken);
 }
 
-/* Modifier sticky: selektor biasa (bukan :where) supaya sifatnya menang atas
-   basis :where(). */
+/* Modifier header: hanya latar header (biar konten sel di belakang tidak
+   tembus). Sengaja TIDAK sticky (putusan user 2026-10-29: konten tabel tidak
+   boleh pernah tertutup header). Jangan tambahkan position: sticky lagi:
+   kombinasi sticky + pembungkus overflow-x selalu salah di satu browser
+   (header menumpuk/menimpa baris) dan tidak pernah menempel di browser lain. */
 .tbl--sticky > thead > tr > th {
-  position: sticky;
-  top: var(--tbl-sticky-top);
-  z-index: 10;
   background: var(--bg-surface);
 }
 

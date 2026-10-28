@@ -810,11 +810,9 @@ export function OltDetail() {
         <OltSyncProgress oltId={oltId} showIdle />
       </div>
 
-      {/* z-20, bukan z-10: thead TableCard juga sticky top-14 z-10, jadi tab
-          dengan z-10 bisa tertutup header tabel saat scroll (DOM tabel lebih
-          akhir). z-20 tetap di bawah header aplikasi z-40. Catatan: thead yang
-          menempel di top-14 tetap tersembunyi di balik bar tab ini — itu
-          butuh offset di komponen bersama, lihat laporan ke koordinator. */}
+      {/* z-20 di bawah header aplikasi z-40. thead tabel sudah tidak sticky
+          (putusan user 2026-10-29), jadi bar tab ini tidak mungkin bersaing
+          offset dengan header tabel. */}
       <div className="sticky top-14 z-20 mb-3 flex gap-1 overflow-x-auto border-b bg-surface" role="tablist">
         {tabs.map((t) => (
           <button

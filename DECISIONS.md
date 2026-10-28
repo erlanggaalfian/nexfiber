@@ -241,3 +241,11 @@ pakai 1 baris = 1 pasang down+up).
 - Keduanya: hasil `None`/kosong → nilai lama dibiarkan, tidak pernah di-NULL-kan.
 
 **Frontend**: `wanIpLive = liveWanIp ?? d.wan_ip_address` khusus baris `Setup WAN`; chip null = mode tampil tanpa chip. `Mgmt IP` tetap `ipLive`. Guard refresh kini `!ip_address || !wan_ip_address` (satu POST mengisi dua kolom).
+
+## Header tabel TIDAK PERNAH sticky / menutupi konten (keputusan user, 2026-10-29)
+
+**Aturan keras**: elemen header tabel (dan elemen apa pun yang berpotensi menutupi baris data) TIDAK BOLEH memakai `position: sticky` — atau mekanisme apa pun yang menyebabkan konten tabel tertutup/menumpuk. Konten baris tidak boleh pernah tertutup oleh header, di semua halaman dan semua browser.
+
+**Latar**: dua laporan bug (2026-10-28 dan 2026-10-29) — header tabel menumpuk/menimpa data (baris ghost di atas header, teks setengah terpotong di area header, tombol aksi melayang di atas header "Aksi"). Akar: `position: sticky` + pembungkus `overflow-x-auto` tidak pernah konsisten antar browser (Chrome mem-paint baris di atas header; browser lain sticky tidak menempel sama sekali). Pemicu tambahan: bundel basi di tab SPA.
+
+**Keputusan**: `position: sticky` untuk thead/th dihapus permanen dari CSS terpusat (`styles/index.css` blok TABEL TERPUSAT) — `.tbl--sticky` hanya memberi latar `--bg-surface` pada header sekarang. Jangan tambahkan kembali `position: sticky`/`top`/z-index pada `th`/`thead`, dan jangan kembalikan `border-collapse: collapse`. Bila suatu saat header "harus menempel" diminta lagi, diskusikan dulu dengan user — jawaban terakhir yang tercatat: konten tidak boleh tertutup.
