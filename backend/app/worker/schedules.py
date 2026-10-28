@@ -11,7 +11,8 @@ from sqlalchemy import select, text
 from app.core.db import SessionLocal
 from app.core.exceptions import ConflictError
 from app.models.olt import Olt
-from app.services import graph_data_service, job_service, olt_onboarding
+from app.repositories import activity_log_repo
+from app.services import graph_data_service, housekeeping_service, job_service, olt_onboarding
 from app.services import onu_traffic_history_service as traffic_history_service
 
 log = logging.getLogger("nexfiber.schedules")
@@ -36,10 +37,26 @@ async def enqueue_for_active_olts(job_type: str) -> None:
 async def purge_graph_data() -> None:
     """Retensi data graph (Settings -> Graph Data). Bukan job per OLT: satu tabel global,
     tidak menyentuh perangkat, jadi dijalankan langsung di worker tanpa lewat job queue.
+    Purge dicatat ringkas di activity log (jumlah per jenis, tanpa isi baris),
+    bukan hanya log.info — sama seperti purge housekeeping di bawah.
     """
     async with SessionLocal() as db:
         purged = await graph_data_service.purge_expired(db)
+        await activity_log_repo.log_activity(
+            db, action="housekeeping.purge_graph", entity_type="graph_data",
+            success=True, after={"purged": purged, "total": sum(purged.values())},
+        )
+        await db.commit()
     log.info("purge graph data: %s", purged)
+
+
+async def purge_housekeeping() -> None:
+    """Retensi log/jobs/backup (housekeeping_service). Bukan job per OLT dan tidak
+    menyentuh perangkat, jadi dijalankan langsung seperti purge graph — setelahnya
+    (03:30) supaya tidak berebut lock dengan purge graph 03:00."""
+    async with SessionLocal() as db:
+        purged = await housekeeping_service.purge_all(db)
+    log.info("purge housekeeping: %s", purged)
 
 def _next_month_first(d: date) -> date:
     return date(d.year + 1, 1, 1) if d.month == 12 else date(d.year, d.month + 1, 1)
@@ -91,6 +108,9 @@ def start_scheduler() -> AsyncIOScheduler:
     add("backup_olt_config", "cron", hour=2)  # PRD only says "harian"; 02:00 = quiet hours
     # Purge retensi data graph: 03:00, setelah backup, jauh dari jam sibuk.
     scheduler.add_job(purge_graph_data, "cron", hour=3, max_instances=1, coalesce=True)
+    # Purge retensi log/jobs/backup: 03:30, setelah purge graph selesai.
+    scheduler.add_job(purge_housekeeping, "cron", hour=3, minute=30,
+                      max_instances=1, coalesce=True)
     # Partisi activity_logs bulan berikutnya dibuat tanggal 25 tiap bulan,
     # sebelum bulan itu dimulai — tidak memindahkan data DEFAULT (lihat fungsi).
     scheduler.add_job(create_next_activity_log_partition, "cron", day=25, hour=4,

@@ -30,14 +30,14 @@ export function MoveModal(
     .sort((a, b) => a.slot - b.slot || a.port - b.port);
   const picked = ports.find((p) => `${p.slot}/${p.port}` === target);
   return (
-    <ModalShell title="Pindah PON" action="Pindah" warn {...{ supported, note, busy, error, onClose }}
+    <ModalShell title="Pindah PON" action="Pindah" warn dirty={target !== ""} {...{ supported, note, busy, error, onClose }}
                 disabled={picked === undefined}
                 onSubmit={() => picked && onSubmit({ board: picked.slot, port: picked.port })}>
       <Row label="PON saat ini">
         <span className="font-mono text-sm text-muted">{currentSlot}/{currentPort}</span>
       </Row>
       <Row label="PON tujuan">
-        <Select value={target} onChange={setTarget} placeholder="Pilih PON ..." label="PON tujuan">
+        <Select value={target} onChange={setTarget} placeholder="Pilih PON ..." label="PON tujuan" autoFocus>
           {ports.map((p) => (
             <option key={p.id} value={`${p.slot}/${p.port}`}>
               {p.slot}/{p.port} ({p.onu_count}/{p.capacity} ONU)

@@ -53,21 +53,21 @@ function ChangePasswordForm({ onDone, title }: { onDone: () => void; title?: str
         <label className="mb-4 block">
           <span className="mb-1 block text-muted">Password lama</span>
           <input required name="old_password" type="password" autoComplete="current-password"
-                 className="h-10 w-full rounded-sm border border-line-strong bg-surface px-2 text-base" />
+                 className="h-8 max-md:h-12 w-full min-w-0 rounded-sm border border-line-strong bg-surface px-3 text-sm" />
         </label>
         <label className="mb-4 block">
           <span className="mb-1 block text-muted">Password baru (min 12 karakter)</span>
           <input required name="new_password" type="password" minLength={12} autoComplete="new-password"
-                 className="h-10 w-full rounded-sm border border-line-strong bg-surface px-2 text-base" />
+                 className="h-8 max-md:h-12 w-full min-w-0 rounded-sm border border-line-strong bg-surface px-3 text-sm" />
         </label>
         <label className="mb-4 block">
           <span className="mb-1 block text-muted">Ulangi password baru</span>
           <input required name="new_password_confirm" type="password" minLength={12} autoComplete="new-password"
-                 className="h-10 w-full rounded-sm border border-line-strong bg-surface px-2 text-base" />
+                 className="h-8 max-md:h-12 w-full min-w-0 rounded-sm border border-line-strong bg-surface px-3 text-sm" />
         </label>
         {error && <p className="mb-3 text-down" role="alert">{error}</p>}
         <button type="submit" disabled={busy}
-                className="h-10 w-full rounded-sm bg-fiber px-4 text-sm font-medium text-white disabled:opacity-50">
+                className="h-8 max-md:h-12 w-full rounded-sm bg-fiber px-4 text-sm font-medium text-white disabled:opacity-50">
           {busy ? "Menyimpan ..." : "Ganti password"}
         </button>
       </form>
@@ -119,11 +119,11 @@ export function RequireAuth({ children }: { children: ReactNode }) {
         <p className="text-down" role="alert">Gagal memuat sesi: {q.error.message}</p>
         <div className="flex gap-2">
           <button type="button" onClick={() => void qc.invalidateQueries({ queryKey: ["me"] })}
-                  className="h-10 rounded-sm border border-line-strong px-4 text-sm font-medium">
+                  className="h-8 max-md:h-12 rounded-sm border border-line-strong px-4 text-sm font-medium">
             Coba lagi
           </button>
           <button type="button" onClick={logout}
-                  className="h-10 rounded-sm border border-line-strong px-4 text-sm font-medium">
+                  className="h-8 max-md:h-12 rounded-sm border border-line-strong px-4 text-sm font-medium">
             Keluar
           </button>
         </div>
@@ -145,9 +145,13 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     );
   }
   const logout = () => {
-    setToken(null);
-    qc.clear();
-    location.assign("/login");
+    // Cabut token di server dulu (best-effort): tanpa ini token lama tetap
+    // hidup sampai kedaluwarsa walau localStorage sudah dibersihkan.
+    void api<void>("/api/auth/logout", { method: "POST" }).catch(() => undefined).finally(() => {
+      setToken(null);
+      qc.clear();
+      location.assign("/login");
+    });
   };
   // Menu visibility only; the backend enforces scope and roles on every endpoint (PRD 3.7).
   return <AuthContext value={{ me, isManager: me.role !== "user", logout }}>{children}</AuthContext>;

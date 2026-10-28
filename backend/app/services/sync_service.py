@@ -10,7 +10,7 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import encrypt_secret
+from app.core.security import decrypt_secret, encrypt_secret
 from app.drivers.base import OltDriver
 from app.drivers.onu_report import wan_vlan_not_management
 from app.models.olt import Olt, OltConfigBackup, PonPort
@@ -488,14 +488,38 @@ async def sync_unconfigured(db: AsyncSession, olt: Olt, driver: OltDriver) -> di
     _mark_olt_ok(olt, now)
     return {"found": len(seen), "skipped_unknown_port": skipped}
 
+def decrypt_backup_config(stored: str) -> str:
+    """Kembalikan isi backup ke plaintext untuk restore.
+
+    Baris baru tersimpan terenkripsi (awalan "enc:" + token Fernet dari
+    encrypt_secret, kunci yang sama dengan kredensial OLT). Baris lama
+    (plaintext tanpa awalan) dikembalikan apa adanya — fallback kompatibilitas
+    yang disengaja, bukan tebak-tebakan: awalan "enc:" adalah penanda eksplisit,
+    dan token yang rusak tetap gagal dekripsi (InvalidToken), tidak pernah
+    dikembalikan sebagai plaintext. Jalur restore APA PUN yang membaca
+    OltConfigBackup.config_text wajib lewat fungsi ini, bukan membaca kolom
+    mentah. Saat ini belum ada endpoint restore yang membaca backup (backup
+    hanya ditulis worker + scheduler); fungsi ini adalah kontrak restore-nya.
+    """
+    if stored.startswith("enc:"):
+        return decrypt_secret(stored[4:].encode())
+    return stored
+
+
 async def backup_olt_config(
     db: AsyncSession, olt: Olt, driver: OltDriver, triggered_by: str
 ) -> dict:
     now = datetime.now(UTC)
     config = await driver.backup_config()
     data = config.encode()
+    # Backup config OLT memuat kredensial perangkat (PPPoE/SNMP/ACS di dalam
+    # running-config), jadi tidak boleh lagi tersimpan plaintext di DB:
+    # enkripsi dengan kunci yang sama dengan kredensial OLT. checksum dan
+    # size_bytes tetap mengacu PLAINTEXT (semantik lama untuk operator, dan
+    # verifikasi integritas saat restore: sha256(decrypt) harus sama).
     backup = OltConfigBackup(
-        olt_id=olt.id, config_text=config, checksum=hashlib.sha256(data).hexdigest(),
+        olt_id=olt.id, config_text="enc:" + encrypt_secret(config).decode(),
+        checksum=hashlib.sha256(data).hexdigest(),
         size_bytes=len(data), taken_at=now, triggered_by=triggered_by,
     )
     db.add(backup)

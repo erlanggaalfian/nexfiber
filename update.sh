@@ -7,6 +7,9 @@
 # (restore dari pg_dump di bawah bila perlu).
 set -e
 # File backup (dump DB, salinan config) hanya boleh dibaca pemilik + grup.
+# Bind address TIDAK diubah update ini: update.sh tidak menulis ulang unit
+# systemd, jadi pilihan bind dari install.sh (default IP LAN, bukan 0.0.0.0)
+# bertahan. Health check di bawah membaca bind itu dari unit yang terinstal.
 umask 027
 
 RED='\033[1;31m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'; CYAN='\033[1;36m'; NC='\033[0m'
@@ -97,9 +100,13 @@ chmod -R a+rX "$APP_DIR/frontend/dist"
 echo -e "${CYAN}[5/5]${NC} Start service..."
 systemctl start nexfiber-api nexfiber-worker
 
+# Bind dari unit terinstal (bukan asumsi 127.0.0.1): instalasi LAN-only
+# mengikat IP LAN, dan health check ke loopback akan gagal padahal API sehat.
+BIND_HOST="$(sed -n 's/.*--host \([^ ]*\).*/\1/p' /etc/systemd/system/nexfiber-api.service 2>/dev/null | head -n 1)"
+BIND_HOST="${BIND_HOST:-127.0.0.1}"
 HTTP_CODE="000"
 for _ in $(seq 1 30); do
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "http://127.0.0.1:${APP_PORT}/healthz" 2>/dev/null || echo "000")
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "http://${BIND_HOST}:${APP_PORT}/healthz" 2>/dev/null || echo "000")
     [ "$HTTP_CODE" = "200" ] && break
     sleep 2
 done

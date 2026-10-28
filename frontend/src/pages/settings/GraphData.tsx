@@ -1,4 +1,4 @@
-import { Database, Pulse } from "@phosphor-icons/react";
+import { Pulse, WaveSine } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Confirm, Field, input } from "../../components/crud";
@@ -10,13 +10,14 @@ import { useAuth } from "../../lib/auth";
 type Kind = "traffic" | "signal";
 type Retention = { traffic: number; signal: number };
 type Stat = { kind: Kind; rows: number; oldest_at: string | null; newest_at: string | null; size_bytes: number | null };
-type DeleteResult = { deleted: Record<string, number>; total: number };
+type DeleteByOlt = { olt_id: number; olt_name: string | null; deleted: Record<string, number>; total: number };
+type DeleteResult = { deleted: Record<string, number>; total: number; by_olt?: DeleteByOlt[] };
 type DeleteForm = { date_from: string; date_to: string; olt_id: string; deleted_olt_id: string };
 
 const DAYS = [0, 7, 14, 30, 60, 90, 180];
 const META = {
-  traffic: { title: "Traffic history", icon: Pulse },
-  signal: { title: "Signal history", icon: Database },
+  traffic: { title: "Histori trafik", icon: Pulse },
+  signal: { title: "Histori sinyal", icon: WaveSine },
 } as const;
 const number = new Intl.NumberFormat("id-ID");
 const date = (value: string | null) => value
@@ -111,6 +112,7 @@ function GraphCard({ kind, stat, retention, olts, isSuperadmin }: {
             {DAYS.map((days) => <option key={days} value={days}>{days === 0 ? "Nonaktif" : `${days} hari`}</option>)}
           </select>
         </Field>
+        {saveRetention.isSuccess && <p aria-live="polite" className="mt-2 text-xs text-up">Tersimpan</p>}
         {saveRetention.error && <p role="alert" className="mt-2 text-xs text-down">{saveRetention.error.message}</p>}
       </div>
 
@@ -156,6 +158,32 @@ function GraphCard({ kind, stat, retention, olts, isSuperadmin }: {
           )}
         </div>
       </div>
+      {/* Rincian pratinjau: per jenis dari `deleted`, plus per OLT dari `by_olt`
+       *  (backend mengelompokkan baris histori lewat ONU -> olt_id, dalam
+       *  rentang dan cakupan yang sama). Kartu ini hanya meminta satu jenis,
+       *  jadi rincian per jenisnya satu baris; rincian per OLT muncul bila
+       *  pratinjau mencakup lebih dari satu OLT. */}
+      {preview && Object.entries(preview.deleted).length > 0 && (
+        <ul className="mt-2 space-y-1 text-xs text-muted">
+          {Object.entries(preview.deleted).map(([k, v]) => (
+            <li key={k}>{k === "traffic" ? "Histori trafik" : k === "signal" ? "Histori sinyal" : k}: {number.format(v)} baris</li>
+          ))}
+          {(preview.by_olt ?? []).length > 0 && (
+            <li className="pt-1 font-semibold text-ink">Per OLT:</li>
+          )}
+          {(preview.by_olt ?? []).map((o) => (
+            <li key={o.olt_id}>{o.olt_name ?? `OLT #${o.olt_id}`}: {number.format(o.total)} baris</li>
+          ))}
+        </ul>
+      )}
+      {deleted && (deleted.by_olt ?? []).length > 0 && (
+        <ul className="mt-2 space-y-1 text-xs text-muted">
+          <li className="font-semibold text-ink">Terhapus per OLT:</li>
+          {deleted.by_olt!.map((o) => (
+            <li key={o.olt_id}>{o.olt_name ?? `OLT #${o.olt_id}`}: {number.format(o.total)} baris</li>
+          ))}
+        </ul>
+      )}
       {(previewDelete.error || remove.error) && (
         <p role="alert" className="mt-2 text-xs text-down">{(previewDelete.error ?? remove.error)?.message}</p>
       )}

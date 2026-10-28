@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
-import { Confirm, Drawer, Field, TableCard, cell, filterInput, input } from "../../components/crud";
+import { Confirm, Drawer, Field, MobileCard, TableCard, cell, filterInput, input } from "../../components/crud";
 import { PageTitle } from "../../components/data";
 import { Button } from "../../components/ui/button";
 import { api, qs, type OnuType } from "../../lib/api";
@@ -60,6 +60,7 @@ function OnuTypeDrawer({ edit, onClose }: { edit: OnuType | null; onClose: () =>
     <Drawer
       title={edit ? `Edit ${edit.name}` : "Tambah tipe ONU"}
       onClose={onClose}
+      dirty={formState.isDirty}
       onSubmit={handleSubmit((f) => save.mutate(f))}
       busy={save.isPending}
       error={save.error?.message}
@@ -82,9 +83,9 @@ function OnuTypeDrawer({ edit, onClose }: { edit: OnuType | null; onClose: () =>
           {CAPABILITIES.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
         </select>
       </Field>
-      <label className="mb-2 flex items-center gap-2"><input type="checkbox" {...register("catv")} />CATV</label>
-      <label className="mb-2 flex items-center gap-2"><input type="checkbox" {...register("allow_custom_profiles")} />Izinkan custom profile</label>
-      <label className="mb-2 flex items-center gap-2"><input type="checkbox" {...register("is_active")} />Aktif</label>
+      <label className="mb-2 flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-sunken max-md:py-3"><input type="checkbox" {...register("catv")} />CATV</label>
+      <label className="mb-2 flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-sunken max-md:py-3"><input type="checkbox" {...register("allow_custom_profiles")} />Izinkan custom profile</label>
+      <label className="mb-2 flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-sunken max-md:py-3"><input type="checkbox" {...register("is_active")} />Aktif</label>
     </Drawer>
   );
 }
@@ -130,6 +131,27 @@ export function OnuTypes() {
         loadingText="Memuat tipe ONU ..."
         empty="Belum ada tipe ONU."
         columns={["PON type", "ONU type", "ONU", "Ethernet", "WiFi", "VoIP", "CATV", "Capability", "Status", "Aksi"]}
+        card={(t: OnuType) => (
+          <MobileCard key={t.id}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate font-medium">{t.name}</span>
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-xs">
+                <span className={`size-1.5 shrink-0 ${t.is_active ? "bg-up" : "bg-idle"}`} aria-hidden />
+                {t.is_active ? "Aktif" : "Nonaktif"}
+              </span>
+            </div>
+            <p className="font-mono text-xs text-muted">
+              {label(PON_TYPES, t.pon_type)} · ONU {t.onu_count} · Eth {t.eth_ports} · WiFi {t.wifi_ssids}
+            </p>
+            <p className="text-xs text-muted">{label(CAPABILITIES, t.capability)}</p>
+            {canWrite && (
+              <div className="mt-1 flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => setDrawer({ edit: t })}>Edit</Button>
+                <Button size="sm" variant="danger" onClick={() => setDel(t)}>Hapus</Button>
+              </div>
+            )}
+          </MobileCard>
+        )}
         row={(t: OnuType) => (
           <tr key={t.id} className="border-b last:border-0">
             <td className={cell}>{label(PON_TYPES, t.pon_type)}</td>

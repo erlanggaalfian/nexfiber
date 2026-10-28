@@ -9,7 +9,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { TableCard, cell, filterInput } from "../components/crud";
+import { MobileCard, TableCard, cell, filterInput } from "../components/crud";
 import { PageTitle, fmtAgo, fmtDateTime } from "../components/data";
 import { Button } from "../components/ui/button";
 import { api, qs, type Olt, type PendingOnu } from "../lib/api";
@@ -62,9 +62,29 @@ export function Unconfigured() {
         query={pending}
         loadingText="Memuat ONU belum terdaftar ..."
         empty={`Tidak ada ONU baru. Scan terakhir ${fmtDateTime(lastSeen)}.`}
+        emptyAction={(
+          <Button onClick={() => rescan.mutate()} disabled={!oltId || rescan.isPending}>
+            {rescan.isPending ? "Meminta scan ..." : "Scan ulang"}
+          </Button>
+        )}
         columns={["OLT", "Slot", "Port PON", "Nomor seri", "Tipe deteksi", "Pertama terlihat", "Terlihat", "Aksi"]}
+        card={(p: PendingOnu) => (
+          <MobileCard key={p.id}>
+            <p className="truncate font-mono font-medium">{p.serial_number}</p>
+            <p className="truncate text-xs text-muted">
+              {p.olt_name} · {p.slot}/{p.port}{p.onu_type ? ` · ${p.onu_type}` : ""}
+            </p>
+            <p className="text-xs text-muted">
+              Pertama {fmtAgo(p.first_seen_at)} · Terlihat {fmtAgo(p.last_seen_at)}
+            </p>
+            <Button variant="fiber" className="mt-2 w-full"
+                    onClick={() => navigate(`/unconfigured/authorize/${p.olt_id}/${p.serial_number}`)}>
+              Otorisasi
+            </Button>
+          </MobileCard>
+        )}
         row={(p: PendingOnu) => (
-          <tr key={p.id} className="border-b last:border-0">
+          <tr key={p.id} className="border-b last:border-0 hover:bg-sunken">
             <td className={cell}>{p.olt_name}</td>
             <td className={`${cell} font-mono`}>{p.slot}</td>
             <td className={`${cell} font-mono`}>{p.port}</td>
@@ -73,7 +93,7 @@ export function Unconfigured() {
             <td className={cell}>{fmtDateTime(p.first_seen_at)}</td>
             <td className={`${cell} font-mono`}>{fmtAgo(p.last_seen_at)}</td>
             <td className={cell}>
-              <Button size="sm"
+              <Button size="sm" variant="fiber"
                       onClick={() => navigate(`/unconfigured/authorize/${p.olt_id}/${p.serial_number}`)}>
                 Otorisasi
               </Button>

@@ -39,7 +39,7 @@ export function Setup() {
       <Field label="Password" name="password" type="password" minLength={12} autoComplete="new-password" />
       <Field label="Ulangi password" name="password_confirm" type="password" minLength={12} autoComplete="new-password" />
       {error && <p className="mb-3 text-down" role="alert">{error}</p>}
-      <Button type="submit" variant="fiber" size="lg" className="w-full" disabled={busy}>
+      <Button type="submit" variant="fiber" className="w-full" disabled={busy}>
         {busy ? "Membuat ..." : "Buat Superadmin"}
       </Button>
     </AuthCard>

@@ -183,6 +183,12 @@ export type OnuDetail = OnuRow & {
   /** VLAN WAN nyata perangkat (`flow 1 ... vlan N`); null/undefined = tidak dilaporkan OLT. */
   wan_vlan?: number | null;
   registered_at: string | null;
+  /** Konfigurasi port terakhir ditulis Nexfiber (bukan hasil baca perangkat).
+   *  null/undefined = belum pernah ditulis Nexfiber. */
+  port_configs?: {
+    eth?: Record<string, { enabled: boolean; mode: string | null; vlan_id: number | null; allowed_vlans: number[]; dhcp: string }>;
+    wifi?: Record<string, { enabled: boolean; mode: string | null; vlan_id: number | null; allowed_vlans: number[]; ssid: string | null; auth_mode: string }>;
+  } | null;
 };
 
 /** Hasil POST /api/onus/bulk — satu job per ONU, jadi hasilnya per serial. */

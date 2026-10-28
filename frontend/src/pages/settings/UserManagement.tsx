@@ -5,7 +5,8 @@ import { useForm } from "react-hook-form";
 import { Navigate } from "react-router";
 import * as z from "zod";
 import { Empty, ErrorState, PageTitle, Skeleton, fmtDateTime } from "../../components/data";
-import { ConfirmShell, DrawerShell, ModalShell } from "../../components/onu/modals/ModalShell";
+import { Field, cell, filterInput, input } from "../../components/crud";
+import { ConfirmShell, DrawerShell, ModalShell, PasswordInput } from "../../components/onu/modals/ModalShell";
 import { Button } from "../../components/ui/button";
 import { api, qs, type Olt, type Role } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
@@ -17,8 +18,6 @@ export type UserRow = {
 };
 
 const ROLE_LABEL: Record<Role, string> = { superadmin: "Superadmin", admin: "Admin", user: "User" };
-const input = "h-8 w-full rounded-sm border border-line-strong bg-surface px-2 text-sm";
-const cell = "px-3 py-2 text-left align-middle";
 
 const schema = z.object({
   username: z.string().min(3).max(64).regex(/^[a-zA-Z0-9_.-]+$/, "Hanya huruf, angka, . _ -"),
@@ -31,16 +30,6 @@ type Form = z.infer<typeof schema>;
 
 const useUsers = (role: string, enabled: boolean) =>
   useQuery({ queryKey: ["users", role], queryFn: () => api<UserRow[]>(`/api/users${qs({ role })}`), enabled });
-
-function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
-  return (
-    <label className="mb-3 block">
-      <span className="mb-1 block text-muted">{label}</span>
-      {children}
-      {error && <span className="mt-1 block text-xs text-down">{error}</span>}
-    </label>
-  );
-}
 
 /** PRD 3.4.9 add/edit. Role options follow PRD 3.7: Superadmin may create any role,
  *  an Admin may create Admin/User (its Users land under itself). Changing the role of an
@@ -55,7 +44,7 @@ function UserDrawer({ edit, onClose }: { edit: UserRow | null; onClose: () => vo
     queryFn: () => api<UserRow[]>("/api/users?role=admin"),
     enabled: isSuper,
   });
-  const { register, handleSubmit, watch, formState } = useForm<Form>({
+  const { register, handleSubmit, watch, setValue, formState } = useForm<Form>({
     resolver: zodResolver(schema),
     defaultValues: {
       username: edit?.username ?? "",
@@ -123,6 +112,7 @@ function UserDrawer({ edit, onClose }: { edit: UserRow | null; onClose: () => vo
   return (
     <DrawerShell
       title={edit ? `Edit ${edit.username}` : "Tambah user"}
+      dirty={formState.isDirty || picked !== null}
       onClose={onClose}
       onSubmit={() => void handleSubmit((f) => save.mutate(f))()}
       busy={save.isPending}
@@ -140,7 +130,8 @@ function UserDrawer({ edit, onClose }: { edit: UserRow | null; onClose: () => vo
                 label={edit ? "Password baru (kosong = tidak diubah)" : "Password"}
                 error={formState.errors.password?.message}
               >
-                <input className={input} type="password" autoComplete="new-password" {...register("password")} />
+                <PasswordInput label="Password" value={watch("password") ?? ""}
+                               onChange={(v) => setValue("password", v, { shouldValidate: true })} />
               </Field>
               {mayPickRole && (
                 <Field label="Peran">
@@ -194,12 +185,12 @@ function UserDrawer({ edit, onClose }: { edit: UserRow | null; onClose: () => vo
   );
 }
 
-function Confirm({ title, body, action, onConfirm, onClose, error, busy }: {
+function Confirm({ title, body, action, onConfirm, onClose, error, busy, danger }: {
   title: string; body: string; action: string; onConfirm: () => void; onClose: () => void;
-  error?: string; busy?: boolean;
+  error?: string; busy?: boolean; danger?: boolean;
 }) {
   return (
-    <ConfirmShell title={title} body={body} action={action} danger={false}
+    <ConfirmShell title={title} body={body} action={action} danger={danger ?? false}
                   onConfirm={onConfirm} onClose={onClose} error={error} busy={busy} />
   );
 }
@@ -251,13 +242,13 @@ export function UserManagement() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Cari username atau nama"
-          className="h-8 w-60 rounded-sm border border-line-strong bg-surface px-2 text-sm placeholder:text-faint"
+          className={`${filterInput} w-60`}
         />
         <select
           value={role}
           onChange={(e) => setRole(e.target.value)}
           aria-label="Filter peran"
-          className="h-8 rounded-sm border border-line-strong bg-surface px-2 text-sm"
+          className={filterInput}
         >
           <option value="">Semua peran</option>
           {me.role === "superadmin" && <option value="superadmin">Superadmin</option>}
@@ -274,7 +265,37 @@ export function UserManagement() {
         ) : rows.length === 0 ? (
           <Empty>Belum ada user.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="grid gap-2 p-2 md:hidden">
+            {rows.map((u) => (
+              <article key={u.id} className="min-h-[72px] rounded-md border bg-surface px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate font-medium">{u.full_name}</span>
+                  <span className="inline-flex shrink-0 items-center gap-1.5 text-xs">
+                    <span className={`size-1.5 shrink-0 ${u.is_active ? "bg-up" : "bg-idle"}`} aria-hidden />
+                    {u.is_active ? "Aktif" : "Nonaktif"}
+                  </span>
+                </div>
+                <p className="truncate font-mono text-xs text-muted">
+                  {u.username} · {ROLE_LABEL[u.role]}
+                  {u.admin_username ? ` · ${u.admin_username}` : ""}
+                </p>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => setDrawer({ edit: u })}>Edit</Button>
+                  <Button size="sm" onClick={() => setReset(u)}>Reset password</Button>
+                  {u.id !== me.id && (u.is_active ? (
+                    <Button size="sm" variant="danger" onClick={() => setOff(u)}>Nonaktifkan</Button>
+                  ) : (
+                    <Button size="sm" disabled={setActive.isPending} onClick={() => setActive.mutate({ u, is_active: true })}>Aktifkan</Button>
+                  ))}
+                  {u.id !== me.id && (
+                    <Button size="sm" variant="danger" onClick={() => setDel(u)}>Hapus</Button>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full border-collapse text-sm">
               <thead className="text-xs text-muted">
                 <tr className="border-b">
@@ -332,6 +353,7 @@ export function UserManagement() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
 
@@ -348,7 +370,7 @@ export function UserManagement() {
         />
       )}
       {del && (
-        <Confirm
+        <Confirm danger
           title={`Hapus ${del.username}?`}
           body="User hilang dari daftar tapi tetap tersimpan (soft-delete) supaya Logs dan kepemilikan OLT lama tetap utuh. Tidak bisa login lagi."
           action="Hapus"

@@ -18,8 +18,9 @@ async def get_current_user(
 ) -> User:
     # Penegakan must_change_password di server (bukan hanya di frontend):
     # user dengan flag ini hanya boleh memanggil POST /api/auth/change-password
-    # (jalan keluarnya) dan GET /api/auth/me (yang dipakai frontend untuk
-    # mendeteksi flag). Endpoint lain menjawab 403, bukan 401, supaya jelas
+    # (jalan keluarnya), GET /api/auth/me (yang dipakai frontend untuk
+    # mendeteksi flag), dan POST /api/auth/logout (logout harus selalu bisa).
+    # Endpoint lain menjawab 403, bukan 401, supaya jelas
     # ini bukan token yang salah. Catatan: FastAPI menolak `Request | None`
     # sebagai parameter dependency (dianggap field Pydantic), jadi parameter
     # ini ditulis `Request = None` agar tetap bisa disuntik; pemanggilan
@@ -29,11 +30,18 @@ async def get_current_user(
     if request is not None:
         path, method = request.url.path, request.method
         exempt = (method == "POST" and path == "/api/auth/change-password") \
-            or (method == "GET" and path == "/api/auth/me")
+            or (method == "GET" and path == "/api/auth/me") \
+            or (method == "POST" and path == "/api/auth/logout")
     return await _user_from_token(db, token, enforce_must_change=not exempt)
 
 async def get_user_from_query_token(token: str, db: AsyncSession = Depends(get_db)) -> User:
-    """For EventSource, which cannot send an Authorization header (PRD 4.5.C SSE)."""
+    """For EventSource, which cannot send an Authorization header (PRD 4.5.C SSE).
+
+    TIDAK LAGI dipakai jalur SSE: stream kini hanya menerima token SSE sekali
+    pakai lewat jobs.py (bukan token akses di query string). Fungsi ini
+    dipertahankan supaya import lama tidak pecah, tapi jangan dipakai lagi
+    untuk autentikasi query-token baru.
+    """
     return await _user_from_token(db, token)
 
 async def _user_from_token(db: AsyncSession, token: str,
@@ -57,6 +65,17 @@ async def _user_from_token(db: AsyncSession, token: str,
     if ph is not None and ph != password_token_claim(user.password_hash):
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, "Token sudah tidak berlaku (password diubah)")
+    # Revokasi lewat logout: token yang jti-nya tercatat di daftar revoked
+    # (tabel settings, lihat auth_service) ditolak meski belum kedaluwarsa.
+    # Token tanpa jti (diterbitkan sebelum perubahan ini) tidak bisa dicabut
+    # satu-per-satu — batasan kompatibilitas, hanya ganti password yang
+    # mencabutnya. Satu lookup PK tambahan per request.
+    jti = payload.get("jti")
+    if jti is not None:
+        from app.services import auth_service
+        if await auth_service.is_token_jti_recorded(db, auth_service.REVOKED_TOKENS_KEY, jti):
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, "Token sudah tidak berlaku (logout)")
     if enforce_must_change and user.must_change_password:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,

@@ -246,19 +246,24 @@ export function AuthorizeOnu() {
   return (
     <>
       <Link to="/unconfigured" className="mb-2 inline-block text-fiber hover:underline">← Unconfigured</Link>
-      <PageTitle title="Otorisasi ONU">
+      <PageTitle title="Otorisasi ONU" />
+      {/* Baris preset sendiri di bawah judul (bukan anak PageTitle, yang wadahnya
+          tidak membungkus): di mobile ketiga kontrol menumpuk rapi dan tombol
+          simpan penuh lebar; urutan field form di bawah tidak berubah. */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <select value={presetId} onChange={(e) => setPresetId(e.target.value)}
-                aria-label="Gunakan preset" className={`${input} w-44`}>
+                aria-label="Gunakan preset" className={`${input} sm:w-44`}>
           <option value={ALL}>Tidak ada preset</option>
           {(presets.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
         <input value={presetName} onChange={(e) => setPresetName(e.target.value)}
                placeholder="Nama preset baru" aria-label="Nama preset baru"
-               className={`${input} w-44`} />
-        <Button disabled={!presetName || savePreset.isPending} onClick={() => savePreset.mutate()}>
+               className={`${input} sm:w-44`} />
+        <Button disabled={!presetName || savePreset.isPending} onClick={() => savePreset.mutate()}
+                className="max-md:w-full">
           Simpan sebagai preset
         </Button>
-      </PageTitle>
+      </div>
 
       <p className="mb-3 font-mono text-muted">
         {onu.serial_number} · {onu.olt_name} · {onu.slot}/{onu.port}
@@ -358,10 +363,10 @@ export function AuthorizeOnu() {
                 </select>
               </Field>
             </div>
-            <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
+            <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-[1fr_1fr_auto]">
               <Field label="Latitude"><input className={input} inputMode="decimal" {...register("latitude")} /></Field>
               <Field label="Longitude"><input className={input} inputMode="decimal" {...register("longitude")} /></Field>
-              <Button className="mb-3" onClick={() => navigator.geolocation?.getCurrentPosition((pos) =>
+              <Button className="col-span-2 mb-3 sm:col-span-1" onClick={() => navigator.geolocation?.getCurrentPosition((pos) =>
                 reset({ ...getValues(), latitude: String(pos.coords.latitude),
                         longitude: String(pos.coords.longitude) }))}>
                 Gunakan GPS
@@ -382,15 +387,17 @@ export function AuthorizeOnu() {
             baris gagal tersebut, atau hapus barisnya dulu bila ingin mulai dari awal.
           </p>
         )}
-        <div className="mt-3 flex justify-end gap-2">
-          <Button onClick={() => navigate("/unconfigured")}>Batal</Button>
+        {/* DESIGN §12.4 HP: tombol Otorisasi penuh lebar sticky di bawah layar
+            (halaman ini tanpa navigasi bawah, jadi bottom-0 aman + safe-area). */}
+        <div className="mt-3 flex justify-end gap-2 max-md:sticky max-md:bottom-0 max-md:z-30 max-md:-mx-3 max-md:border-t max-md:bg-surface max-md:px-3 max-md:py-3 max-md:pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+          <Button className="max-md:flex-1" onClick={() => navigate("/unconfigured")}>Batal</Button>
           {jobFailed ? (
-            <Button type="button" variant="primary" disabled={resync.isPending || jobBusy}
+            <Button type="button" variant="primary" className="max-md:flex-1" disabled={resync.isPending || jobBusy}
                     onClick={() => resync.mutate()}>
               {resync.isPending ? "Mengirim resync ..." : "Resync (perbaiki baris gagal)"}
             </Button>
           ) : (
-            <Button type="submit" variant="primary" disabled={jobBusy}>
+            <Button type="submit" variant="primary" className="max-md:flex-1" disabled={jobBusy}>
               {jobBusy ? "Mengirim ke OLT ..." : "Otorisasi"}
             </Button>
           )}

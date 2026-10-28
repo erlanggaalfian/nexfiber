@@ -32,8 +32,21 @@ class GraphDeleteRequest(BaseModel):
     olt_id: int | None = None
 
 
+class GraphDeleteByOlt(BaseModel):
+    """Satu baris rincian per OLT: nama OLT (None bila OLT sudah terhapus dan
+    namanya tidak lagi terbaca) + jumlah per jenis + totalnya."""
+
+    olt_id: int
+    olt_name: str | None
+    deleted: dict[str, int]
+    total: int
+
+
 class GraphDeleteResult(BaseModel):
-    """Jumlah baris per jenis + totalnya (dipakai pratinjau maupun hapus)."""
+    """Jumlah baris per jenis + totalnya (dipakai pratinjau maupun hapus),
+    plus rincian per OLT untuk pratinjau "Semua OLT" (dan untuk hapus,
+    rincian yang benar-benar terhapus per OLT)."""
 
     deleted: dict[str, int]
     total: int
+    by_olt: list[GraphDeleteByOlt] = []

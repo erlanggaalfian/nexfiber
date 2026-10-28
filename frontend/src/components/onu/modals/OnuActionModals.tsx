@@ -8,7 +8,7 @@
  *  Pesan 501/4xx dari server ditampilkan apa adanya sebagai pesan error modal.
  */
 import { useState } from "react";
-import { ApiError } from "../../../lib/api";
+import { ApiError, type OnuDetail } from "../../../lib/api";
 import { JobTrace } from "../../crud";
 import {
   useOnuAction, type ActionKind, type ActionResult, type LocationBody,
@@ -77,6 +77,9 @@ export type ModalOnu = {
   latitude: number | null;
   longitude: number | null;
   attached_vlans: number[];
+  /** Konfigurasi port terakhir ditulis Nexfiber (lihat OnuDetail.port_configs);
+   *  diteruskan apa adanya ke modal Eth/WiFi sebagai `current`. */
+  port_configs?: OnuDetail["port_configs"];
 };
 
 export function OnuActionModals(
@@ -188,11 +191,13 @@ export function OnuActionModals(
       return (
         <EthPortModal {...common("eth-port")} options={options.data}
           port={state.port} link={state.link}
+          current={onu.port_configs?.eth?.[String(state.port)] ?? undefined}
           onSubmit={(body) => act("eth-port", { ...body })} />
       );
     case "wifi-port":
       return (
         <WifiPortModal {...common("wifi-port")} options={options.data} port={state.port}
+          current={onu.port_configs?.wifi?.[String(state.port)] ?? undefined}
           clearSupported={sup("wifi-clear")}
           onClear={(port) => act("wifi-clear", { port })}
           onSubmit={(body) => act("wifi-port", { ...body })} />
@@ -232,7 +237,7 @@ export function OnuActionModals(
       );
     case "voip-disable":
       return (
-        <ModalShell title="Disable VoIP" action="Ya, matikan" danger {...common("voip-disable")}
+        <ModalShell title="Nonaktifkan VoIP" action="Ya, matikan" danger {...common("voip-disable")}
           onSubmit={() => act("voip-disable", { port: state.port })}>
           <p className="text-sm text-down">Layanan VoIP pada port ini dimatikan.</p>
         </ModalShell>

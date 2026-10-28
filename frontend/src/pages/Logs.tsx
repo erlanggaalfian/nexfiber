@@ -5,9 +5,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
-import { filterInput } from "../components/crud";
+import { MobileCard, TableCard, cell, filterInput } from "../components/crud";
 import { ModalShell } from "../components/onu/modals/ModalShell";
-import { PageTitle, fmtAgo, nf } from "../components/data";
+import { PageTitle, fmtAgo, fmtDateTime, nf } from "../components/data";
 import { Button } from "../components/ui/button";
 import { api, qs, type LogPage, type LogRow, type Olt, type User } from "../lib/api";
 
@@ -38,13 +38,13 @@ function Detail({ log, onClose }: { log: LogRow; onClose: () => void }) {
       {log.raw_command && (
         <>
           <p className="mb-1 text-xs text-muted">Command dikirim</p>
-          <pre className="mb-3 max-h-48 overflow-auto rounded-sm bg-surface p-2 text-xs">{log.raw_command}</pre>
+          <pre className="mb-3 max-h-48 overflow-auto rounded-sm bg-sunken p-2 font-mono text-xs">{log.raw_command}</pre>
         </>
       )}
       {log.raw_output && (
         <>
           <p className="mb-1 text-xs text-muted">Respons perangkat</p>
-          <pre className="mb-3 max-h-48 overflow-auto rounded-sm bg-surface p-2 text-xs">{log.raw_output}</pre>
+          <pre className="mb-3 max-h-48 overflow-auto rounded-sm bg-sunken p-2 font-mono text-xs">{log.raw_output}</pre>
         </>
       )}
       {!log.raw_command && !log.raw_output && <p className="text-muted">Tidak ada command perangkat untuk aksi ini.</p>}
@@ -138,48 +138,47 @@ export function Logs() {
         </select>
       </div>
 
-      <section className="entrance rounded-md border bg-surface">
-        {logs.isPending ? (
-          <div className="p-4 text-muted" aria-busy>Memuat log ...</div>
-        ) : logs.isError ? (
-          <div className="flex items-center gap-3 p-4" role="alert">
-            <p className="text-down">{logs.error.message}</p>
-            <Button onClick={() => logs.refetch()}>Coba lagi</Button>
-          </div>
-        ) : (logs.data?.items.length ?? 0) === 0 ? (
-          <p className="p-4 text-muted">Belum ada log yang cocok dengan filter ini.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead className="text-xs text-muted">
-                <tr className="border-b">
-                  {["Waktu", "User", "Target OLT", "Target ONU", "Kategori", "Keterangan", "Hasil"]
-                    .map((c) => <th key={c} className="px-3 py-2 text-left align-middle">{c}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {logs.data!.items.map((l) => (
-                  <tr key={l.id} className="cursor-pointer border-b last:border-0 hover:bg-sunken"
-                      onClick={() => setDetail(l)}>
-                    <td className="px-3 py-2 font-mono">{fmtAgo(l.created_at)}</td>
-                    <td className="px-3 py-2">{l.username ?? "sistem"}</td>
-                    <td className="px-3 py-2">{l.olt_name ?? "—"}</td>
-                    <td className="px-3 py-2 font-mono">{l.onu_serial ?? "—"}</td>
-                    <td className="px-3 py-2">{CATEGORIES.find((c) => c.value === l.category)?.label ?? l.category}</td>
-                    <td className="px-3 py-2">{l.action}</td>
-                    <td className="px-3 py-2">
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className={`size-1.5 shrink-0 ${l.success ? "bg-up" : "bg-down"}`} aria-hidden />
-                        {l.success ? "Sukses" : "Gagal"}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      <TableCard
+        query={{ ...logs, data: logs.data?.items }}
+        loadingText="Memuat log ..."
+        empty="Belum ada log yang cocok dengan filter ini."
+        columns={["Waktu", "User", "Target OLT", "Target ONU", "Kategori", "Keterangan", "Hasil"]}
+        card={(l: LogRow) => (
+          <MobileCard key={l.id} onClick={() => setDetail(l)}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate font-medium">{l.action}</span>
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-xs">
+                <span className={`size-1.5 shrink-0 ${l.success ? "bg-up" : "bg-down"}`} aria-hidden />
+                {l.success ? "Sukses" : "Gagal"}
+              </span>
+            </div>
+            <p className="truncate text-xs text-muted">
+              {l.username ?? "sistem"}{l.olt_name ? ` · ${l.olt_name}` : ""}
+              {l.onu_serial ? ` · ${l.onu_serial}` : ""}
+            </p>
+            <p className="font-mono text-xs text-muted">
+              {fmtDateTime(l.created_at)} · {fmtAgo(l.created_at)}
+            </p>
+          </MobileCard>
         )}
-      </section>
+        row={(l: LogRow) => (
+          <tr key={l.id} className="cursor-pointer border-b last:border-0 hover:bg-sunken"
+              onClick={() => setDetail(l)}>
+            <td className={`${cell} font-mono`}>{fmtDateTime(l.created_at)}</td>
+            <td className={cell}>{l.username ?? "sistem"}</td>
+            <td className={cell}>{l.olt_name ?? "—"}</td>
+            <td className={`${cell} font-mono`}>{l.onu_serial ?? "—"}</td>
+            <td className={cell}>{CATEGORIES.find((c) => c.value === l.category)?.label ?? l.category}</td>
+            <td className={cell}>{l.action}</td>
+            <td className={cell}>
+              <span className="inline-flex items-center gap-1.5">
+                <span className={`size-1.5 shrink-0 ${l.success ? "bg-up" : "bg-down"}`} aria-hidden />
+                {l.success ? "Sukses" : "Gagal"}
+              </span>
+            </td>
+          </tr>
+        )}
+      />
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-muted">
         <span>{total === 0 ? "0" : `${(page - 1) * size + 1}–${Math.min(page * size, total)}`} dari {nf.format(total)}</span>

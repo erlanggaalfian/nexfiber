@@ -31,10 +31,10 @@ export function AttachedVlansModal(
   const shown = serviceVlanOptions(options);
   const hidden = vlans.filter((v) => !shown.some((o) => o.number === v));
   return (
-    <ModalShell title="Update attached VLANs" action="Update" supported={supported} note={note}
+    <ModalShell title="Perbarui VLAN terpasang" action="Simpan" supported={supported} note={note} dirty={vlans.join(",") !== current.join(",")}
                 busy={busy} error={error} onClose={onClose} onSubmit={() => onSubmit(vlans)}>
       <Row label="VLANs">
-        <VlanMulti label="VLANs" options={shown} value={vlans} onChange={setVlans} />
+        <VlanMulti label="VLANs" options={shown} value={vlans} onChange={setVlans} autoFocus />
       </Row>
       {/* Acuan: catatan di panel penuh lebar di bawah multiselect, bukan hint kecil. */}
       <HelpPanel>

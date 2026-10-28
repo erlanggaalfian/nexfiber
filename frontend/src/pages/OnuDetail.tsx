@@ -58,7 +58,7 @@ import {
   OnuActionModals, type ModalOnu, type OnuModalState,
 } from "../components/onu/modals/OnuActionModals";
 import {
-  ErrorState, Skeleton, StatusBadge, fmtDateTime, nf, rxBucket, RX_BUCKETS,
+  ChartSkeleton, ErrorState, Skeleton, StatusBadge, fmtDateTime, nf, rxBucket, RX_BUCKETS,
 } from "../components/data";
 import { Button } from "../components/ui/button";
 import {
@@ -148,14 +148,14 @@ const ROW_LH = "leading-[19px]";
 /** Satu baris `dt`/`dd` acuan: label kolom kiri **tebal redup rata kiri (mock)**, isi di kanan.
  *  TANPA kartu/rangka — acuan memakai `<dl>` datar di atas latar halaman, bukan panel. */
 function Section(
-  { label, note, action, card = false, children, className = "" }:
-  { label: string; note?: string; action?: React.ReactNode; card?: boolean; children: React.ReactNode; className?: string },
+  { label, note, action, card = false, children, className = "", id }:
+  { label: string; note?: string; action?: React.ReactNode; card?: boolean; children: React.ReactNode; className?: string; id?: string },
 ) {
   // Varian kartu (mock Detail ONU pemilik): judul fiber + catatan/aksi di kepala kartu,
   // isi padat di dalam bingkai permukaan. Dipakai blok Profil Kecepatan ke bawah.
   if (card) {
     return (
-      <section className={`entrance rounded-md border bg-surface p-4 transition-colors hover:border-line-strong ${className}`}>
+      <section id={id} className={`entrance rounded-md border bg-surface p-4 transition-colors hover:border-line-strong ${className}`}>
         <div className="mb-3 flex items-center justify-between gap-2 border-b border-line pb-2.5">
           <h2 className="flex items-center gap-2 text-base font-bold text-fiber">
             <TitleIcon title={label} />{label}
@@ -167,7 +167,7 @@ function Section(
     );
   }
   return (
-    <section className={`entrance flex flex-col gap-1 lg:flex-row lg:items-start ${ROW_GAP} ${className}`}>
+    <section id={id} className={`entrance flex flex-col gap-1 lg:flex-row lg:items-start ${ROW_GAP} ${className}`}>
       <div className={`${LABEL_W} lg:shrink-0 lg:text-right`}>
         {/* Judul fiber jadi jangkar pindai tanpa menambah garis atau panel. */}
         <h2 className="flex items-center gap-2 text-base font-bold text-fiber">
@@ -302,24 +302,26 @@ function LastLogPopover(
         </button>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content align="start" sideOffset={4}
-          className="z-50 w-[min(26rem,calc(100vw-2rem))] rounded-md border bg-surface p-2 shadow-modal">
-          {query.isPending && <p className="text-muted">Memuat log ...</p>}
-          {query.isError && <p className="text-down">{query.error?.message}</p>}
+        {/* Satu gaya popover dengan menu lain (Layout overlay: radius-md,
+            shadow-overlay, item 36px/48px sentuh) — bukan panel kustom. */}
+        <Popover.Content align="start" sideOffset={4} collisionPadding={8}
+          className="z-50 w-[min(26rem,calc(100vw-2rem))] rounded-md border bg-surface p-1 shadow-overlay data-[state=open]:animate-[fade-in_150ms_ease-out]">
+          {query.isPending && <p className="p-2 text-muted">Memuat log ...</p>}
+          {query.isError && <p className="p-2 text-down">{query.error?.message}</p>}
           {!query.isPending && !query.isError && rows.length === 0 && (
-            <p className="text-muted">Belum ada log untuk ONU ini.</p>
+            <p className="p-2 text-muted">Belum ada log untuk ONU ini.</p>
           )}
           <ul className="min-w-0">
             {rows.map((l) => (
-              <li key={l.id} className="border-b py-1 last:border-0">
+              <li key={l.id} className="flex min-h-9 flex-wrap items-center gap-x-1.5 border-b px-2 py-1 last:border-0 max-md:min-h-12">
                 <Link className="text-fiber hover:underline" to={href}>{logDesc(l.action)}</Link>
-                <span className="ml-1.5 text-xs text-muted">{fmtDateTime(l.created_at)}</span>
-                {!l.success && <span className="ml-1.5 text-xs text-down">gagal</span>}
+                <span className="text-xs text-muted">{fmtDateTime(l.created_at)}</span>
+                {!l.success && <span className="text-xs text-down">gagal</span>}
               </li>
             ))}
           </ul>
           {rows.length > 0 && (
-            <Link className="mt-1 inline-block text-xs text-fiber hover:underline" to={href}>
+            <Link className="inline-block px-2 py-1 text-xs text-fiber hover:underline" to={href}>
               Buka di Logs
             </Link>
           )}
@@ -420,7 +422,7 @@ function RxBox({ title, value }: { title: string; value: number | null }) {
   const strong = b === "critical";
   const tone = b === "good" ? "text-up" : b ? "text-warn" : "text-muted";
   return (
-    <div className="min-w-0 rounded-md border bg-surface p-3 shadow-xs">
+    <div className="min-w-0 rounded-md border bg-surface p-3">
       {/* flex-wrap: di 390px badge bisa turun baris — label tak pernah dipotong (mock). */}
       <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1.5">
         <span className="text-xs font-medium leading-tight text-muted" title={title}>{title}</span>
@@ -429,10 +431,22 @@ function RxBox({ title, value }: { title: string; value: number | null }) {
         </span>
       </div>
       <div className="flex items-baseline gap-1.5">
-        <span className={`font-mono text-2xl font-bold ${strong ? "text-down" : tone}`}>
-          {value === null ? "LOS" : value.toFixed(2)}
+        {/* text-metric, bukan text-2xl: text-2xl tidak ada di tema (index.css mereset
+            --text-*: initial dan hanya mendefinisikan xs/sm/base/lg/xl/metric), jadi
+            nilai lama dirender 13px, bukan ~24px. dBm 1 desimal di semua permukaan. */}
+        <span className={`font-mono text-metric font-bold ${strong ? "text-down" : tone}`}>
+          {value === null ? "LOS" : value.toFixed(1)}
         </span>
         {value !== null && <span className="font-mono text-xs text-faint">dBm</span>}
+      </div>
+      {/* Segmen signal bar yang sama dengan tabel (48x4), di bawah angka, badge kata
+          dipertahankan. Hanya pola segmennya yang dipakai — bukan komponen SignalBar
+          utuh, karena komponen itu ikut merender angka dan akan menduplikasi nilai
+          RxBox ini. */}
+      <div className="mt-1.5 flex w-12 gap-px" aria-hidden>
+        {[0, 1, 2].map((i) => (
+          <span key={i} className={`h-1 flex-1 transition-colors duration-300 ease-out motion-reduce:transition-none ${i < (meta ? meta.segments : 0) ? (meta ? meta.color : "") : "bg-sunken"}`} />
+        ))}
       </div>
     </div>
   );
@@ -479,6 +493,11 @@ function RxChart({ points }: { points: SignalPoint[] }) {
   const y = (v: number) => 100 - ((v - min) / span) * 100;
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => max - f * span);
   const range = `${fmtDateTime(points[0].sampled_at)} → ${fmtDateTime(points[points.length - 1].sampled_at)}`;
+  // Titik non-null terakhir (ONU Rx dulu, fallback OLT Rx) untuk baris "Terakhir".
+  const lastRxPoint = [...points].reverse().find((p) => p.rx_power_dbm !== null || p.olt_rx_power_dbm !== null);
+  const lastRxValue = lastRxPoint
+    ? (lastRxPoint.rx_power_dbm !== null ? lastRxPoint.rx_power_dbm : lastRxPoint.olt_rx_power_dbm)
+    : null;
   return (
     <>
     <div className="my-2 flex gap-2.5">
@@ -529,6 +548,13 @@ function RxChart({ points }: { points: SignalPoint[] }) {
         </p>
       </div>
     </div>
+    {/* Label garis ambang: kolom gutter Y hanya berisi angka tick, jadi labelnya
+        ditulis sebagai baris keterangan di bawah grafik (bukan di dalam SVG yang
+        non-uniform scale) — tetap text-faint 10px, tanpa tooltip/zoom/library baru. */}
+    <p className="px-1 font-mono text-[10px] text-faint">Garis putus: −25 Fair · −27 Weak · −28 Critical</p>
+    {lastRxPoint && lastRxValue !== null && (
+      <p className="px-1 font-mono text-[10px] text-faint">Terakhir: {lastRxValue.toFixed(1)} dBm · {fmtDateTime(lastRxPoint.sampled_at)}</p>
+    )}
     <StatusStrip points={points} />
     </>
   );
@@ -542,17 +568,36 @@ function RxChart({ points }: { points: SignalPoint[] }) {
 function StatusStrip({ points }: { points: SignalPoint[] }) {
   if (points.length === 0) return null;
   const downs = points.filter((p) => p.status !== "online").length;
+  // Opsi (b) dari audit: pita tetap per bacaan (bukan proporsional waktu), tapi
+  // ditambah teks downtime terpanjang + merah dipecah: los/dying_gasp = down,
+  // offline/power_off/lainnya = warn, supaya "mati total" tidak sama dengan "putus".
+  let longest = { count: 0, start: "", end: "" };
+  let run = { count: 0, start: "" };
+  points.forEach((p) => {
+    if (p.status !== "online") {
+      if (run.count === 0) run = { count: 1, start: p.sampled_at };
+      else run.count += 1;
+      if (run.count > longest.count) longest = { count: run.count, start: run.start, end: p.sampled_at };
+    } else run = { count: 0, start: "" };
+  });
+  const tone = (s: string) =>
+    s === "online" ? "bg-fiber" : s === "los" || s === "dying_gasp" ? "bg-down" : "bg-warn";
   return (
     <div className="mt-2">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="text-xs font-medium">Status History (Uptime)</span>
         <span className="font-mono text-[10px] text-faint">{points.length} bacaan · {downs} tidak online</span>
       </div>
-      <div className="flex h-2 w-full gap-px overflow-hidden rounded-full bg-sunken" role="img"
+      {longest.count > 0 && (
+        <p className="mb-1 font-mono text-[10px] text-faint">
+          Downtime terpanjang: {longest.count} bacaan · {fmtDateTime(longest.start)} → {fmtDateTime(longest.end)}
+        </p>
+      )}
+      <div className="flex h-2 w-full gap-px overflow-hidden rounded-sm bg-sunken" role="img"
            aria-label={`Status history ONU: ${points.length} bacaan, ${downs} tidak online`}>
         {points.map((p, i) => (
           <span key={i} title={`${new Date(p.sampled_at).toLocaleString("id-ID")} · ${p.status}`}
-                className={`flex-1 ${p.status === "online" ? "bg-fiber" : "bg-down"}`} />
+                className={`flex-1 ${p.status === "online" ? "bg-fiber" : tone(p.status)}`} />
         ))}
       </div>
     </div>
@@ -575,31 +620,65 @@ function LiveChart({ points }: { points: TrafficPoint[] }) {
   /** Skala sumbu: 5 garis (0 .. top) dengan `top` dibulatkan ke 1/2/5 × 10^n di atas puncak. */
   const top = niceTop(peak);
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * top);
-  const x = (i: number) => (i / (points.length - 1)) * 100;
+  // Sumbu X waktu nyata (bukan indeks sampel): gap >2x interval poll memutus garis,
+  // supaya jeda sampling tidak digambar sebagai garis lurus yang menyesatkan.
+  const tStart = points[0].t;
+  const tEnd = points[points.length - 1].t;
+  const x = (i: number) =>
+    tEnd === tStart ? 50 : ((points[i].t - tStart) / (tEnd - tStart)) * 100;
   const y = (v: number) => 100 - (v / top) * 100;
-  const path = (pick: (p: TrafficPoint) => number) =>
-    points.map((p, i) => `${x(i)},${y(pick(p))}`).join(" ");
+  const segments = (pick: (p: TrafficPoint) => number) => {
+    const segs: string[][] = [];
+    let current: string[] = [];
+    points.forEach((p, i) => {
+      if (i > 0 && points[i].t - points[i - 1].t > 2 * TRAFFIC_MS) {
+        if (current.length) segs.push(current);
+        current = [];
+      }
+      current.push(`${x(i)},${y(pick(p))}`);
+    });
+    if (current.length) segs.push(current);
+    return segs;
+  };
+  const range = `${fmtDateTime(new Date(tStart).toISOString())} → ${fmtDateTime(new Date(tEnd).toISOString())}`;
+  // Titik terakhir sesi LIVE (t = epoch ms): out = upload, in = download.
+  const lastLive = points.at(-1) ?? null;
   return (
+    <>
     <div className="flex gap-2">
       {/* Label sumbu Y di luar SVG: SVG-nya non-uniform scale, teks di dalamnya ikut melar. */}
       <div className="flex h-40 w-12 shrink-0 flex-col justify-between py-0.5 text-right font-mono text-[10px] text-faint">
         {[...ticks].reverse().map((t, i) => <span key={i}>{axisTick(t)}</span>)}
       </div>
-      <div className="min-w-0 grow">
+      <div className="min-w-0 grow rounded-sm border border-line/40 bg-sunken/20 p-1">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-40 w-full" role="img"
              aria-label={`Grafik trafik LIVE, ${points.length} sampel, puncak ${peak.toFixed(2)} Mbps`}>
           {ticks.map((t) => (
             <line key={t} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
                   strokeWidth="0.3" className="text-line" vectorEffect="non-scaling-stroke" />
           ))}
-          <polyline points={path((p) => p.outMbps)} fill="none" stroke="currentColor" strokeWidth="1.5"
-                    className="text-amber" vectorEffect="non-scaling-stroke" />
-          <polyline points={path((p) => p.inMbps)} fill="none" stroke="currentColor" strokeWidth="1.5"
-                    className="text-fiber" vectorEffect="non-scaling-stroke" />
+          {([["text-amber", (p: TrafficPoint) => p.outMbps], ["text-fiber", (p: TrafficPoint) => p.inMbps]] as const).map(([cls, pick]) => (
+            <g key={cls}>
+              {segments(pick).map((seg, si) =>
+                seg.length === 1
+                  ? <circle key={si} cx={seg[0].split(",")[0]} cy={seg[0].split(",")[1]} r="1.2" className={cls.replace("text-", "fill-")} vectorEffect="non-scaling-stroke" />
+                  : <polyline key={si} points={seg.join(" ")} fill="none" stroke="currentColor" strokeWidth="1.5"
+                              className={cls} vectorEffect="non-scaling-stroke" />
+              )}
+            </g>
+          ))}
         </svg>
-        <p className="mt-1 text-center font-mono text-[10px] text-faint">Mbps</p>
+        <p className="mt-1.5 flex justify-between px-1 font-mono text-[10px] text-faint">
+          <span>Mbps</span><span>{range}</span>
+        </p>
       </div>
     </div>
+    {lastLive && (
+      <p className="mt-1 font-mono text-[10px] text-faint">
+        Terakhir: Download {mbps(lastLive.inMbps)} · Upload {mbps(lastLive.outMbps)} · {fmtDateTime(new Date(lastLive.t).toISOString())}
+      </p>
+    )}
+    </>
   );
 }
 
@@ -665,7 +744,10 @@ function TrafficHistoryChart({ points }: { points: TrafficHistoryPoint[] }) {
     return { lines, dots };
   };
   const span = `${fmtDateTime(points[0].sampled_at)} → ${fmtDateTime(points[points.length - 1].sampled_at)}`;
+  // Sampel terakhir yang lajunya diketahui di minimal satu arah.
+  const lastTraffic = [...points].reverse().find((p) => p.in_bps !== null || p.out_bps !== null);
   return (
+    <>
     <div className="my-2 flex gap-2.5">
       {/* Label sumbu Y di luar SVG: SVG-nya non-uniform scale, teks di dalamnya ikut melar. */}
       <div className="flex h-36 w-8 shrink-0 flex-col justify-between py-1 text-right font-mono text-[10px] text-faint">
@@ -700,6 +782,12 @@ function TrafficHistoryChart({ points }: { points: TrafficHistoryPoint[] }) {
         </p>
       </div>
     </div>
+    {lastTraffic && (
+      <p className="px-1 font-mono text-[10px] text-faint">
+        Terakhir: Download {lastTraffic.in_bps !== null ? mbpsId(lastTraffic.in_bps / 1e6) : "—"} · Upload {lastTraffic.out_bps !== null ? mbpsId(lastTraffic.out_bps / 1e6) : "—"} · {fmtDateTime(lastTraffic.sampled_at)}
+      </p>
+    )}
+    </>
   );
 }
 
@@ -760,7 +848,7 @@ function ChartCard(
   { title: string; toggle?: React.ReactNode; children: React.ReactNode; legend?: React.ReactNode },
 ) {
   return (
-    <div className="min-w-0 rounded-md border bg-surface p-3.5">
+    <div className="min-w-0 rounded-md border bg-surface p-4">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-bold text-ink">{title}</h3>
         {toggle}
@@ -1289,10 +1377,13 @@ export function OnuDetail() {
     name: d.name, customer_name: d.customer_name, address: d.address, contact: d.contact,
     latitude: d.latitude, longitude: d.longitude,
     attached_vlans: attachedVlanNumbers(d),
+    port_configs: d.port_configs ?? null,
   };
 
   return (
-    <div className="space-y-3">
+    // pb-20 di mobile saja: bar aksi sticky (~60px) tidak boleh menutupi section
+    // terakhir; desktop tetap tanpa padding bawah tambahan.
+    <div className="space-y-3 pb-20 md:pb-0">
       {/* Judul halaman hanya untuk pembaca layar: teksnya diminta dihapus dari tampilan
           (desktop maupun mobile), heading dipertahankan demi hierarki aksesibilitas. */}
       <h1 className="sr-only">Detail ONU</h1>
@@ -1300,6 +1391,18 @@ export function OnuDetail() {
       {note && (
         <p className="text-muted" role="status">{note}</p>
       )}
+
+      {/* Strip identitas: satu baris wrap di mobile, di atas blok Status. StatusBadge
+          DIPINDAH ke sini dari blok Status (tidak diduplikasi); urutan section di bawah
+          tidak berubah. Nama = customer_name, fallback name; chip SN gaya yang sama
+          dengan chip SN di blok Identitas. */}
+      <div className="entrance flex flex-wrap items-center gap-2 rounded-md border bg-surface px-3 py-2">
+        <span className="text-base font-semibold">{d.customer_name || d.name || "—"}</span>
+        <StatusBadge status={statusKey} reason={d.last_down_reason} withLabel />
+        <span className="rounded border border-line bg-sunken px-1.5 py-0.5 font-mono font-semibold text-fiber">{d.serial_number}</span>
+        <Link className="text-fiber hover:underline" to={`/olt/${d.olt_id}`}>{d.olt_name}</Link>
+        <span className="font-mono text-xs text-muted">{onuIf}</span>
+      </div>
 
       {/* 1. BAGIAN ATAS mengikuti mock: blok `Status Perangkat` full-width (kartu `Level
           Sinyal Rx` dua kolom + kartu telemetri 6 baris), lalu dua blok bersebelahan
@@ -1310,7 +1413,6 @@ export function OnuDetail() {
         title="Status Perangkat"
         action={
           <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={statusKey} reason={d.last_down_reason} withLabel />
             {live && (
               <span className="font-mono text-xs text-fiber">auto-refresh {LIVE_MS / 1000}s</span>
             )}
@@ -1573,7 +1675,7 @@ export function OnuDetail() {
             {/* Panel realtime HANYA saat LIVE aktif (acuan screenshot ke-2): grafik Mbps +
                 dua baris ringkasan arah. Saat LIVE mati panel ini TIDAK dirender sama sekali. */}
             {live && (
-              <div className="mt-3 rounded-sm border bg-sunken p-3">
+              <div className="entrance mt-3 rounded-sm border bg-sunken p-3">
                 <CardHead title="LIVE traffic"
                           note={`${traffic.points.length} sampel · tiap ${TRAFFIC_MS / 1000}s`} />
                 <LiveChart points={traffic.points} />
@@ -1642,15 +1744,9 @@ export function OnuDetail() {
                 ini hanya menggambar sampel yang ADA — pesan kosong hanya muncul kalau
                 sampelnya memang belum terkumpul. */}
             {trafficHistory.isPending ? (
-              <Skeleton text="Memuat histori trafik ..." rows={2} />
+              <ChartSkeleton />
             ) : trafficHistory.isError ? (
-              <div className="py-8 text-center text-muted">
-                <p>Histori trafik gagal dimuat.</p>
-                <button type="button" onClick={() => trafficHistory.refetch()}
-                  className="mt-2 min-h-11 px-2 font-semibold text-fiber focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fiber">
-                  Coba lagi
-                </button>
-              </div>
+              <ErrorState message="Histori trafik gagal dimuat." onRetry={() => trafficHistory.refetch()} />
             ) : (
               <TrafficHistoryChart points={trafficHistory.data ?? []} />
             )}
@@ -1670,15 +1766,9 @@ export function OnuDetail() {
               </>
             }>
             {signal.isPending ? (
-              <Skeleton text="Memuat histori sinyal ..." rows={2} />
+              <ChartSkeleton />
             ) : signal.isError ? (
-              <div className="py-8 text-center text-muted">
-                <p>Histori sinyal gagal dimuat.</p>
-                <button type="button" onClick={() => signal.refetch()}
-                  className="mt-2 min-h-11 px-2 font-semibold text-fiber focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fiber">
-                  Coba lagi
-                </button>
-              </div>
+              <ErrorState message="Histori sinyal gagal dimuat." onRetry={() => signal.refetch()} />
             ) : (
               <RxChart points={signal.data ?? []} />
             )}
@@ -1750,25 +1840,30 @@ export function OnuDetail() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line/60">
-                  {Array.from({ length: specs.eth_ports }, (_, i) => (
+                  {Array.from({ length: specs.eth_ports }, (_, i) => {
+                    const cfg = d.port_configs?.eth?.[String(i + 1)];
+                    return (
                     <tr key={i} className="hover:bg-sunken/40">
                       <td className="px-3 py-2">
                         <span className="font-semibold text-ink">LAN {i + 1}</span>
                         <span className="ml-1.5 font-mono text-xs text-faint">eth_0/{i + 1}</span>
                       </td>
-                      <td className="px-3 py-2 text-muted">Belum dibaca</td>
-                      <td className="px-3 py-2 text-muted">Belum dibaca</td>
+                      <td className="px-3 py-2 text-muted">{cfg ? (cfg.enabled ? "Aktif" : "Nonaktif") : "—"}</td>
+                      <td className="px-3 py-2 text-muted">{cfg?.mode ? ({ lan: "LAN", access: "Access", hybrid: "Hybrid", trunk: "Trunk", transparent: "Transparent" } as Record<string, string>)[cfg.mode] ?? cfg.mode : "—"}</td>
                       <td className="px-3 py-2 text-center">
                         <ConfigureLink label={`Konfigurasi eth_0/${i + 1}`}
                                        onClick={() => setModal({ kind: "eth-port", port: i + 1 })} />
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
             <div className="grid min-w-0 gap-2 md:hidden">
-              {Array.from({ length: specs.eth_ports }, (_, i) => (
+              {Array.from({ length: specs.eth_ports }, (_, i) => {
+                const cfg = d.port_configs?.eth?.[String(i + 1)];
+                return (
                 <article key={i} className="min-w-0 border bg-surface px-3 py-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <div className="min-w-0 grow">
@@ -1779,14 +1874,15 @@ export function OnuDetail() {
                                    onClick={() => setModal({ kind: "eth-port", port: i + 1 })} />
                   </div>
                   <div className="mt-1 grid grid-cols-2 gap-2 text-xs">
-                    <p><span className="text-muted">Status</span><br />Belum dibaca</p>
-                    <p><span className="text-muted">Mode</span><br />Belum dibaca</p>
+                    <p><span className="text-muted">Status</span><br />{cfg ? (cfg.enabled ? "Aktif" : "Nonaktif") : "—"}</p>
+                    <p><span className="text-muted">Mode</span><br />{cfg?.mode ? ({ lan: "LAN", access: "Access", hybrid: "Hybrid", trunk: "Trunk", transparent: "Transparent" } as Record<string, string>)[cfg.mode] ?? cfg.mode : "—"}</p>
                   </div>
                 </article>
-              ))}
+                );
+              })}
             </div>
             <span className="inline-block rounded border border-line bg-sunken px-2 py-0.5 text-xs text-muted">
-              Belum dibaca dari OLT
+              {d.port_configs?.eth && Object.keys(d.port_configs.eth).length > 0 ? "Terakhir ditulis Nexfiber" : "Belum dibaca dari OLT"}
             </span>
           </>
         ) : (
@@ -1809,24 +1905,29 @@ export function OnuDetail() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line/60">
-                  {Array.from({ length: specs.wifi_ssids }, (_, i) => (
+                  {Array.from({ length: specs.wifi_ssids }, (_, i) => {
+                    const cfg = d.port_configs?.wifi?.[String(i + 1)];
+                    return (
                     <tr key={i} className="hover:bg-sunken/40">
                       <td className="px-3 py-2">
                         <span className="font-semibold text-ink">SSID {i + 1}</span>
                         <span className="ml-1.5 font-mono text-xs text-faint">wifi_0/{i + 1}</span>
                       </td>
-                      <td className="px-3 py-2 text-muted">Belum dibaca</td>
+                      <td className="px-3 py-2 text-muted">{cfg ? (cfg.enabled ? "Aktif" : "Nonaktif") + (cfg.ssid ? ` · ${cfg.ssid}` : "") : "—"}</td>
                       <td className="px-3 py-2 text-center">
                         <ConfigureLink label={`Konfigurasi wifi_0/${i + 1}`}
                                        onClick={() => setModal({ kind: "wifi-port", port: i + 1 })} />
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
             <div className="grid min-w-0 gap-2 md:hidden">
-              {Array.from({ length: specs.wifi_ssids }, (_, i) => (
+              {Array.from({ length: specs.wifi_ssids }, (_, i) => {
+                const cfg = d.port_configs?.wifi?.[String(i + 1)];
+                return (
                 <article key={i} className="min-w-0 border bg-surface px-3 py-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <div className="min-w-0 grow">
@@ -1836,12 +1937,13 @@ export function OnuDetail() {
                     <ConfigureLink label={`Konfigurasi wifi_0/${i + 1}`}
                                    onClick={() => setModal({ kind: "wifi-port", port: i + 1 })} />
                   </div>
-                  <p className="mt-1 text-xs"><span className="text-muted">Status</span><br />Belum dibaca</p>
+                  <p className="mt-1 text-xs"><span className="text-muted">Status</span><br />{cfg ? (cfg.enabled ? "Aktif" : "Nonaktif") + (cfg.ssid ? ` · ${cfg.ssid}` : "") : "—"}</p>
                 </article>
-              ))}
+                );
+              })}
             </div>
             <span className="inline-block rounded border border-line bg-sunken px-2 py-0.5 text-xs text-muted">
-              Perlu TR-069
+              {d.port_configs?.wifi && Object.keys(d.port_configs.wifi).length > 0 ? "Terakhir ditulis Nexfiber" : "Perlu TR-069"}
             </span>
           </>
         ) : (
@@ -1885,7 +1987,7 @@ export function OnuDetail() {
           membuka modal konfirmasi yang sudah ada (payload/endpoint tidak berubah), tombol
           merusak tetap manager-only. "Log aksi terakhir" = pop up dari tombol di kepala
           section, entri menaut ke `/logs?q=<serial>`. */}
-      <Section label="Aksi ONU" card action={<LastLogPopover query={logs} serial={d.serial_number} />}>
+      <Section label="Aksi ONU" card id="aksi-onu" action={<LastLogPopover query={logs} serial={d.serial_number} />}>
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="flex flex-col justify-between rounded-md border bg-sunken/20 p-3.5">
             <div>
@@ -1950,6 +2052,23 @@ export function OnuDetail() {
           </div>
         </div>
       </Section>
+
+      {/* Bar aksi sticky mobile-only: hanya aksi rutin (Reboot, Resync config) +
+          anchor ke section Aksi penuh. Aksi destruktif TIDAK PERNAH di bar ini.
+          Desktop tidak berubah (bar md:hidden). */}
+      <div className="fixed inset-x-0 bottom-0 z-40 flex items-center gap-2 border-t bg-surface px-3 py-2 md:hidden">
+        <Button className="grow" size="sm" variant="secondary"
+                onClick={() => setModal({ kind: "reboot" })}>
+          Reboot
+        </Button>
+        <Button className="grow" size="sm" variant="secondary"
+                onClick={() => setModal({ kind: "resync-config" })}>
+          Resync config
+        </Button>
+        <a href="#aksi-onu" className="flex min-h-11 shrink-0 items-center px-1 text-sm font-medium text-fiber hover:underline">
+          Semua aksi
+        </a>
+      </div>
 
       {/* Semua modal aksi ONU dirender satu kali di sini; isinya dipilih oleh `modal`. */}
       <OnuActionModals state={modal} onu={modalOnu} onClose={() => setModal(null)}

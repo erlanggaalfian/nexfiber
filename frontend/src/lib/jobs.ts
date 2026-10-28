@@ -31,24 +31,49 @@ function invalidateFor(qc: QueryClient, job: Job) {
 }
 
 /** One SSE connection for the whole app; finished jobs invalidate only related query keys.
- *  Mengembalikan `disconnected` supaya Layout bisa menampilkan indikator putus:
- *  EventSource me-reconnect sendiri, tapi tanpa onerror pengguna tidak tahu
- *  pembaruan job berhenti. Bila token hilang (logout/401), koneksi ditutup. */
+ *  Mengembalikan `disconnected` supaya Layout bisa menampilkan indikator putus.
+ *  Stream HANYA menerima token SSE sekali pakai (backend: POST /api/stream/jobs/token,
+ *  berlaku 120 detik, satu koneksi): EventSource tidak bisa mengirim header, jadi
+ *  token itu yang lewat query string — BUKAN token akses 8 jam. Karena token
+ *  sekali pakai hangus saat dipakai, reconnect TIDAK boleh memakai ulang token
+ *  lama (EventSource bawaan akan gagal 401): koneksi dikelola manual — tiap
+ *  (re)koneksi meminta token baru dulu, lalu membuka EventSource baru. Bila
+ *  token akses hilang (logout/401), koneksi berhenti. */
 export function useJobStream() {
   const qc = useQueryClient();
   const [disconnected, setDisconnected] = useState(false);
   useEffect(() => {
-    const token = getToken();
-    if (!token) return;
-    const es = new EventSource(`/api/stream/jobs?token=${encodeURIComponent(token)}`);
-    es.addEventListener("job", (e) => invalidateFor(qc, JSON.parse((e as MessageEvent).data)));
-    es.onopen = () => setDisconnected(false);
-    es.onerror = () => {
-      // Token hilang di tengah jalan = sesi berakhir; jangan reconnect dengan token basi.
-      if (!getToken()) { es.close(); return; }
-      setDisconnected(true);
+    let stopped = false;
+    let es: EventSource | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const connect = async () => {
+      if (stopped || !getToken()) return;
+      let sse: string;
+      try {
+        ({ token: sse } = await api<{ token: string }>("/api/stream/jobs/token", { method: "POST" }));
+      } catch {
+        // 401 ditangani api() (redirect login); jaringan gagal = coba lagi 3 detik.
+        if (!stopped && getToken()) timer = setTimeout(connect, 3000);
+        return;
+      }
+      if (stopped || !getToken()) return;
+      es = new EventSource(`/api/stream/jobs?token=${encodeURIComponent(sse)}`);
+      es.addEventListener("job", (e) => invalidateFor(qc, JSON.parse((e as MessageEvent).data)));
+      es.onopen = () => setDisconnected(false);
+      es.onerror = () => {
+        es?.close();
+        es = null;
+        if (stopped || !getToken()) return;
+        setDisconnected(true);
+        timer = setTimeout(connect, 3000);
+      };
     };
-    return () => es.close();
+    void connect();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      es?.close();
+    };
   }, [qc]);
   return { disconnected };
 }

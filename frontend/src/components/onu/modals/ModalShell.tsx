@@ -14,10 +14,11 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { Button } from "../../ui/button";
 
-/** Kontrol form modal: acuan SmartOLT memakai input 45px pada basis teks 15px (3x tinggi teks).
- *  Skala Nexfiber teks 13px, jadi 36px (`h-9`) + padding 12px menjaga proporsi yang sama
- *  tanpa keluar dari token repo (`crud.input` 32px terlalu rapat dibanding acuan). */
-export const field = "h-9 w-full rounded-sm border border-line-strong bg-surface px-3 text-sm";
+/** Kontrol form: SATU tinggi dengan crud.input (DESIGN §8: kontrol default
+ *  32px desktop, 48px di bawah 768px). Nilai ini sengaja identik dengan
+ *  crud.input — jangan diubah di satu tempat saja. */
+export const field =
+  "h-8 max-md:h-12 w-full min-w-0 rounded-sm border border-line-strong bg-surface px-3 text-sm";
 export const selectCls = field;
 
 /** Kotak catatan acuan (`.help-block` di dalam panel): kartu `surface` di atas badan `sunken`. */
@@ -55,15 +56,16 @@ export function Row({ label, children, hint }: { label: string; children: ReactN
 /** Pilihan radio acuan `radio-inline`: sebaris dengan jarak 16px di `sm` ke atas, menumpuk di
  *  390px supaya label panjang ("Setup via ONU webpage") tidak pecah tak rapi. */
 export function Radios<T extends string>(
-  { name, value, options, onChange }:
-  { name: string; value: T; options: { value: T; label: string; disabled?: boolean }[]; onChange: (v: T) => void },
+  { name, value, options, onChange, autoFocus }:
+  { name: string; value: T; options: { value: T; label: string; disabled?: boolean }[]; onChange: (v: T) => void; autoFocus?: boolean },
 ) {
   return (
     <div className="flex min-h-9 flex-col gap-1.5 py-1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1.5">
-      {options.map((o) => (
+      {options.map((o, i) => (
         <label key={o.value} className="flex cursor-pointer items-center gap-1.5 text-sm">
           <input type="radio" name={name} value={o.value} checked={value === o.value}
-                 disabled={o.disabled} onChange={() => onChange(o.value)} />
+                 disabled={o.disabled} autoFocus={autoFocus && i === 0}
+                 onChange={() => onChange(o.value)} />
           <span className={o.disabled ? "text-faint" : ""}>{o.label}</span>
         </label>
       ))}
@@ -80,11 +82,14 @@ export function PasswordInput(
   const [shown, setShown] = useState(false);
   return (
     <span className="relative flex items-center">
-      <input className={`${field} pr-7`} type={shown ? "text" : "password"} value={value}
+      <input className={`${field} pr-11`} type={shown ? "text" : "password"} value={value}
              autoComplete="new-password" placeholder={placeholder} aria-label={label}
              onChange={(e) => onChange(e.target.value)} />
+      {/* Target sentuh 44px (DESIGN §9): tombol 44×44 terpusat di dalam input,
+          jadi di desktop (input 32px) ia sedikit meluber vertikal, tapi tetap
+          di dalam baris form dan tidak menggeser field lain. */}
       <button type="button" onClick={() => setShown(!shown)} aria-pressed={shown}
-              className="absolute right-2 text-fiber hover:opacity-80">
+              className="absolute right-0.5 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center text-fiber hover:opacity-80">
         {shown ? <EyeSlash size={16} aria-hidden /> : <Eye size={16} aria-hidden />}
         <span className="sr-only">{shown ? `Sembunyikan ${label}` : `Tampilkan ${label}`}</span>
       </button>
@@ -95,12 +100,13 @@ export function PasswordInput(
 /** Multiselect VLAN: kotak cari + "Pilih semua" + daftar checkbox (acuan: VLANs / Allowed VLANs).
  *  Opsi ditulis "ID - Nama"; VLAN management sudah disaring di `serviceVlanOptions`. */
 export function VlanMulti(
-  { options, value, onChange, label }:
+  { options, value, onChange, label, autoFocus }:
   {
     options: { number: number; name: string }[];
     value: number[];
     onChange: (next: number[]) => void;
     label: string;
+    autoFocus?: boolean;
   },
 ) {
   const [q, setQ] = useState("");
@@ -114,8 +120,8 @@ export function VlanMulti(
   return (
     <div className="rounded-sm border border-line-strong bg-surface">
       <div className="flex items-center gap-2 border-b p-2">
-        <input className={`${field} h-8`} placeholder="Cari VLAN ..." value={q} aria-label={`Cari ${label}`}
-               onChange={(e) => setQ(e.target.value)} />
+        <input className={field} placeholder="Cari VLAN ..." value={q} aria-label={`Cari ${label}`}
+               autoFocus={autoFocus} onChange={(e) => setQ(e.target.value)} />
         <Button size="sm" variant="quiet" className="shrink-0"
                 onClick={() => onChange(allShown
                   ? value.filter((v) => !shown.some((o) => o.number === v))
@@ -130,7 +136,7 @@ export function VlanMulti(
           </p>
         )}
         {shown.map((o) => (
-          <label key={o.number} className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-0.5 text-sm hover:bg-sunken">
+          <label key={o.number} className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-0.5 text-sm hover:bg-sunken max-md:py-3">
             <input type="checkbox" checked={value.includes(o.number)} onChange={() => toggle(o.number)} />
             <span className="truncate font-mono text-xs">{o.number} - {o.name}</span>
           </label>
@@ -145,13 +151,13 @@ export function VlanMulti(
 
 /** Select sederhana dengan opsi placeholder di urutan pertama (nilai kosong). */
 export function Select(
-  { value, onChange, placeholder, children, label }:
-  { value: string; onChange: (v: string) => void; placeholder?: string; children: ReactNode; label?: string },
+  { value, onChange, placeholder, children, label, autoFocus }:
+  { value: string; onChange: (v: string) => void; placeholder?: string; children: ReactNode; label?: string; autoFocus?: boolean },
 ) {
   return (
     <span className="relative flex items-center">
       <select className={`${selectCls} appearance-none pr-6`} value={value} aria-label={label}
-              onChange={(e) => onChange(e.target.value)}>
+              autoFocus={autoFocus} onChange={(e) => onChange(e.target.value)}>
         {placeholder !== undefined && <option value="">{placeholder}</option>}
         {children}
       </select>
@@ -168,13 +174,21 @@ export function Select(
  * Jangan menulis markup `Dialog.*` baru di halaman: pakai salah satu shell.
  * ------------------------------------------------------------------------- */
 const OVERLAY =
-  "fixed inset-0 z-40 bg-black/50 data-[state=open]:animate-[fade-in_150ms_ease-out]";
+  "fixed inset-0 z-40 bg-black/50 data-[state=open]:animate-[fade-in_150ms_ease-out] data-[state=closed]:animate-[dialog-fade-out_150ms_ease-in] motion-reduce:animate-none";
 const PANEL = "fixed z-50 flex flex-col overflow-hidden border bg-surface shadow-modal";
-/** Mobile: tempel ke bawah layar, sudut atas membulat, animasi naik. */
+/** Mobile (<768px, sama dengan batas kartu DESIGN §12.10): tempel ke bawah
+ *  layar, sudut atas membulat, animasi naik, hormati safe-area. */
 const SHEET =
-  "max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:max-h-[88vh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-t-md max-sm:rounded-b-none max-sm:border-x-0 max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]";
+  "max-md:inset-x-0 max-md:top-auto max-md:bottom-0 max-md:left-0 max-md:max-h-[88vh] max-md:w-full max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-t-md max-md:rounded-b-none max-md:border-x-0 max-md:border-b-0 max-md:pb-[env(safe-area-inset-bottom)]";
+/* Dialog tengah: fade + naik 8px, 225ms. Keyframe-nya hanya menganimasikan
+   `transform: translateY` — pemusatan -50%/-50% tetap dipegang utility Tailwind
+   (properti `translate` di Tailwind v4), jadi keyframe yang menulis
+   `translate(-50%, …)` penuh justru akan menggandakan offset selama animasi
+   lalu melompat saat animasi selesai. Di mobile, aturan sheet-in di index.css
+   tetap menang seperti sebelumnya; prefers-reduced-motion dimatikan global
+   oleh index.css untuk konten dialog. */
 const CENTER =
-  "top-1/2 left-1/2 max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-1/2 rounded-md data-[state=open]:animate-[fade-in_150ms_ease-out]";
+  "top-1/2 left-1/2 max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-1/2 rounded-md data-[state=open]:animate-[dialog-center-in_225ms_ease-out] motion-reduce:animate-none";
 const DRAWER =
   "inset-y-0 right-0 w-full max-w-[480px] border-l data-[state=closed]:animate-[drawer-out_200ms_ease-in] data-[state=open]:animate-[drawer-in_250ms_ease-out]";
 
@@ -189,6 +203,11 @@ export function ModalFrame({ variant = "center", width = "max-w-[600px]", title,
   children?: ReactNode;
 }) {
   return (
+    <>
+    {/* Keyframe dialog tengah + fade-out overlay didefinisikan di sini (bukan
+        index.css, yang bukan milik area ini): opacity/transform saja, tanpa
+        gradien/glass/pulse/loop. */}
+    <style>{`@keyframes dialog-center-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } } @keyframes dialog-fade-out { from { opacity: 1; } to { opacity: 0; } }`}</style>
     <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className={OVERLAY} />
@@ -198,7 +217,7 @@ export function ModalFrame({ variant = "center", width = "max-w-[600px]", title,
           <div className="flex items-start justify-between gap-3 border-b px-5 py-3.5">
             <Dialog.Title className="text-lg font-semibold text-ink">{title}</Dialog.Title>
             <Dialog.Close
-              className="-mr-1 shrink-0 rounded-sm p-0.5 text-faint hover:text-ink"
+              className="-mr-1 flex size-11 shrink-0 items-center justify-center rounded-sm text-faint hover:text-ink"
               aria-label="Tutup"
             >
               <X size={16} aria-hidden />
@@ -210,19 +229,40 @@ export function ModalFrame({ variant = "center", width = "max-w-[600px]", title,
           >
             {/* Badan lebih teredam dari header+footer supaya form menonjol. */}
             <div className="min-h-0 flex-1 overflow-y-auto bg-sunken px-5 py-4">{children}</div>
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t px-5 py-3">
+            {/* HP: footer jadi kolom tombol penuh lebar (target sentuh 48px dari
+                Button) supaya aksi tidak berdesakan di kanan sheet. */}
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t px-5 py-3 max-md:flex-col max-md:items-stretch max-md:[&>button]:w-full">
               {footer}
             </div>
           </form>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+    </>
   );
 }
 
 /** Pesan galat satu bentuk untuk semua pop up. */
 export function ModalError({ children }: { children: ReactNode }) {
   return <p className="mt-2 text-xs text-down" role="alert">{children}</p>;
+}
+
+/** Guard tutup (DESIGN §13): bila form kotor, silang/Esc/klik overlay/tombol
+ *  tutup tidak langsung menutup — tampil dulu dialog konfirmasi kecil yang
+ *  sudah ada (ConfirmShell). Bila form bersih, tutup langsung seperti biasa.
+ *  Caller yang tidak mengisi `dirty` (dialog tanpa form) tidak kena guard.
+ *  Catatan: drawer Settings yang lewat pembungkus crud Drawer/Confirm tidak
+ *  meneruskan `dirty` (crud bukan milik area ini), jadi guard di sana belum
+ *  aktif — lihat laporan parent. */
+function useDiscardGuard(dirty: boolean | undefined, onClose: () => void) {
+  const [discard, setDiscard] = useState(false);
+  const requestClose = () => { if (dirty) setDiscard(true); else onClose(); };
+  const discardDialog = discard ? (
+    <ConfirmShell title="Buang perubahan?" body="Perubahan yang belum disimpan akan hilang."
+                  action="Buang perubahan" danger
+                  onConfirm={onClose} onClose={() => setDiscard(false)} />
+  ) : null;
+  return { requestClose, discardDialog };
 }
 
 export type ShellProps = {
@@ -244,31 +284,39 @@ export type ShellProps = {
   wide?: boolean;
   /** Mati karena validasi lokal (mis. konfirmasi belum diketik). */
   disabled?: boolean;
-  /** Teks tombol tutup; default `Close` (acuan SmartOLT). */
+  /** Teks tombol tutup; default `Batal` untuk form, `Tutup` untuk dialog
+   *  tanpa aksi simpan (diatur pemanggil lewat prop ini bila perlu). */
   closeLabel?: string;
   /** Teks tombol aksi saat `busy`; default `Mengirim ...`. */
   busyLabel?: string;
+  /** True = form sudah diubah dari nilai awal: penutupan kena guard konfirmasi. */
+  dirty?: boolean;
   extra?: ReactNode;
   children?: ReactNode;
 };
 
 export function ModalShell({
   title, onClose, onSubmit, action = "Simpan", busy, error, supported = true, note,
-  danger, warn, wide, disabled, closeLabel = "Close", busyLabel = "Mengirim ...", extra, children,
+  danger, warn, wide, disabled, closeLabel = "Batal", busyLabel = "Mengirim ...", dirty, extra, children,
 }: ShellProps) {
   const unsupported = supported === false;
+  const { requestClose, discardDialog } = useDiscardGuard(dirty, onClose);
   return (
+    <>
     <ModalFrame
       title={title}
-      onClose={onClose}
+      onClose={requestClose}
       /* Lebar acuan `.modal-dialog` 600px (900px untuk port ethernet, lihat `wide`). */
       width={wide ? "max-w-[900px]" : "max-w-[600px]"}
       onSubmit={unsupported ? undefined : onSubmit}
       footer={
         <>
-          {extra && <span className="mr-auto">{extra}</span>}
+          {/* Mobile (<768px): footer jadi kolom, jadi extra diurutkan terakhir
+              (order-3) — aksi utama, batal, lalu aksi destruktif. Desktop
+              tidak berubah: extra tetap di kiri lewat mr-auto. */}
+          {extra && <span className="mr-auto max-md:order-3">{extra}</span>}
           {/* Tanpa tombol aksi, tombol tutup yang jadi aksi utama. */}
-          <Button size="md" variant={onSubmit ? "quiet" : "fiber"} onClick={onClose}>{closeLabel}</Button>
+          <Button size="md" variant={onSubmit ? "quiet" : "fiber"} onClick={requestClose}>{closeLabel}</Button>
           {onSubmit && (
             <Button size="md" type="submit"
                     variant={danger ? "dangerSolid" : warn ? "primary" : "fiber"}
@@ -287,27 +335,31 @@ export function ModalShell({
       )}
       {error && <ModalError>{error}</ModalError>}
     </ModalFrame>
+    {discardDialog}
+    </>
   );
 }
 
 /** Drawer kanan 480px (DESIGN §13) — tema sama dengan modal, hanya posisinya beda. */
 export function DrawerShell({
-  title, onClose, onSubmit, busy, error, disabled,
+  title, onClose, onSubmit, busy, error, disabled, dirty,
   action = "Simpan", busyLabel = "Menyimpan ...", closeLabel = "Batal", children,
 }: {
   title: ReactNode; onClose: () => void; onSubmit: () => void;
-  busy?: boolean; error?: string | null; disabled?: boolean;
+  busy?: boolean; error?: string | null; disabled?: boolean; dirty?: boolean;
   action?: string; busyLabel?: string; closeLabel?: string; children?: ReactNode;
 }) {
+  const { requestClose, discardDialog } = useDiscardGuard(dirty, onClose);
   return (
+    <>
     <ModalFrame
       variant="drawer"
       title={title}
-      onClose={onClose}
+      onClose={requestClose}
       onSubmit={onSubmit}
       footer={
         <>
-          <Button size="md" variant="quiet" onClick={onClose}>{closeLabel}</Button>
+          <Button size="md" variant="quiet" onClick={requestClose}>{closeLabel}</Button>
           <Button size="md" type="submit" variant="fiber" disabled={busy || disabled}>
             {busy ? busyLabel : action}
           </Button>
@@ -317,28 +369,32 @@ export function DrawerShell({
       {children}
       {error && <ModalError>{error}</ModalError>}
     </ModalFrame>
+    {discardDialog}
+    </>
   );
 }
 
 /** Dialog konfirmasi kecil (DESIGN §13: 400px, satu kalimat dampak, aksi di kanan). */
 export function ConfirmShell({
   title, body, action, onConfirm, onClose, error, busy, disabled, danger = true,
-  closeLabel = "Tutup", children,
+  closeLabel = "Tutup", dirty, children,
 }: {
   title: ReactNode; body?: ReactNode; action: string;
   onConfirm: () => void; onClose: () => void;
   error?: string | null; busy?: boolean; disabled?: boolean; danger?: boolean;
-  closeLabel?: string; children?: ReactNode;
+  closeLabel?: string; dirty?: boolean; children?: ReactNode;
 }) {
+  const { requestClose, discardDialog } = useDiscardGuard(dirty, onClose);
   return (
+    <>
     <ModalFrame
       title={title}
-      onClose={onClose}
+      onClose={requestClose}
       width="max-w-[420px]"
       onSubmit={onConfirm}
       footer={
         <>
-          <Button size="md" variant="quiet" onClick={onClose}>{closeLabel}</Button>
+          <Button size="md" variant="quiet" onClick={requestClose}>{closeLabel}</Button>
           <Button size="md" type="submit" variant={danger ? "dangerSolid" : "primary"}
                   disabled={busy || disabled}>
             {action}
@@ -350,5 +406,7 @@ export function ConfirmShell({
       {children}
       {error && <ModalError>{error}</ModalError>}
     </ModalFrame>
+    {discardDialog}
+    </>
   );
 }

@@ -25,10 +25,10 @@ export function OnuTypeModal(
   // itu tidak boleh bisa dikirim ulang — Save mati sampai tipe aktif dipilih.
   const idInList = (options?.onu_types ?? []).some((t) => String(t.id) === id);
   return (
-    <ModalShell title="Change ONU type" action="Change" {...c} disabled={id === "" || !idInList}
+    <ModalShell title="Ubah tipe ONU" action="Ubah" {...c} dirty={id !== (current === null ? "" : String(current))} disabled={id === "" || !idInList}
                 onSubmit={() => id !== "" && idInList && onSubmit({ onu_type_id: Number(id) })}>
       <Row label="ONU type">
-        <Select value={id} onChange={setId} placeholder="Pilih tipe ..." label="ONU type">
+        <Select value={id} onChange={setId} placeholder="Pilih tipe ..." label="ONU type" autoFocus>
           {(options?.onu_types ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </Select>
       </Row>
@@ -43,11 +43,11 @@ export function ExternalIdModal(
   const [v, setV] = useState(current ?? "");
   // Backend max_length 50: batasi di input supaya kesalahan tertangkap sebelum submit.
   return (
-    <ModalShell title="Update ONU external ID" action="Update" {...c}
+    <ModalShell title="Perbarui ID eksternal ONU" action="Simpan" {...c} dirty={v !== (current ?? "")}
                 disabled={v.trim().length > 50}
                 onSubmit={() => onSubmit({ external_id: v.trim() === "" ? null : v.trim() })}>
       <Row label="ONU external ID">
-        <input className={field} value={v} autoComplete="off" aria-label="ONU external ID"
+        <input className={field} value={v} autoComplete="off" aria-label="ONU external ID" autoFocus
                maxLength={50} onChange={(e) => setV(e.target.value)} />
       </Row>
     </ModalShell>
@@ -84,14 +84,14 @@ export function SpeedProfileModal(
   // "Pilih profil ..." bila memang masih kosong. Save mati bila kedua arah kosong,
   // sama seperti validasi backend "Pilih minimal satu profile".
   return (
-    <ModalShell title="Configure speed profiles" action="Save" {...c}
+    <ModalShell title="Konfigurasi speed profile" action="Simpan" {...c} dirty={dn !== (current.download === null ? "" : String(current.download)) || up !== (current.upload === null ? "" : String(current.upload))}
                 disabled={(dn === "" && up === "") || dnStale || upStale}
                 onSubmit={() => onSubmit({
                   download_profile: dn === "" ? null : Number(dn),
                   upload_profile: up === "" ? null : Number(up),
                 })}>
       <Row label="Download speed">
-        <Select value={dn} onChange={setDn}
+        <Select value={dn} onChange={setDn} autoFocus
                 placeholder={current.download === null ? "Pilih profil ..." : "Jangan ubah"}
                 label="Download speed">
           {fallback(dn, currentName?.download)}
@@ -118,13 +118,13 @@ export function ReplaceSnModal(
   // Samakan dengan backend: ^[A-Z0-9]{8,20}$ setelah upper (bukan sekadar >= 4).
   const ok = /^[A-Z0-9]{8,20}$/.test(sn) && sn !== currentSn.toUpperCase();
   return (
-    <ModalShell title="Replace ONU by SN" action="Replace" {...c} disabled={!ok}
+    <ModalShell title="Ganti ONU berdasarkan SN" action="Ganti" {...c} dirty={sn !== ""} disabled={!ok}
                 onSubmit={() => ok && onSubmit({ new_sn: sn })}>
       <Row label="SN saat ini">
         <input className={field} value={currentSn} readOnly disabled aria-label="SN sekarang" />
       </Row>
       <Row label="SN">
-        <input className={field} value={sn} autoComplete="off" aria-label="SN baru"
+        <input className={field} value={sn} autoComplete="off" aria-label="SN baru" autoFocus
                onChange={(e) => setSn(e.target.value.trim().toUpperCase())} />
       </Row>
     </ModalShell>

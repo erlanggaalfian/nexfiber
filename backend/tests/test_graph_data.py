@@ -110,8 +110,14 @@ async def test_graph_data_api_scope_range_validation_and_retention() -> None:
         assert default.status_code == 200
         assert invalid_ret.status_code == 422
         assert valid_ret.json() == {"traffic": 7, "signal": 180}
-        assert preview.json() == {"deleted": {"traffic": 1, "signal": 1}, "total": 2}
-        assert removed.json() == {"deleted": {"traffic": 1, "signal": 1}, "total": 2}
+        # Kontrak baru: rincian per OLT ikut dikembalikan (pratinjau maupun hapus);
+        # payload ini dibatasi satu OLT, jadi by_olt berisi satu baris OLT tersebut.
+        by_olt = [{"olt_id": owned.id, "olt_name": f"gd_{tag}",
+                   "deleted": {"traffic": 1, "signal": 1}, "total": 2}]
+        assert preview.json() == {"deleted": {"traffic": 1, "signal": 1}, "total": 2,
+                                  "by_olt": by_olt}
+        assert removed.json() == {"deleted": {"traffic": 1, "signal": 1}, "total": 2,
+                                  "by_olt": by_olt}
         assert outside.status_code == 404
         assert backwards.status_code == 422 and future.status_code == 422
         assert empty.status_code == 422

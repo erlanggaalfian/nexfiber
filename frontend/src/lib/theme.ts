@@ -4,7 +4,7 @@ export type Theme = "system" | "light" | "dark";
 const media = matchMedia("(prefers-color-scheme: dark)");
 const listeners = new Set<() => void>();
 
-const read = () => (localStorage.getItem("theme") as Theme) || "light";
+const read = () => (localStorage.getItem("theme") as Theme) || "system";
 
 function apply(t: Theme) {
   const dark = t === "dark" || (t === "system" && media.matches);
@@ -13,6 +13,13 @@ function apply(t: Theme) {
 }
 
 media.addEventListener("change", () => apply(read()));
+
+// Terapkan tema tersimpan (atau sistem, bila belum pernah dipilih) sekali saat
+// modul ini dimuat, sebelum render pertama — sehingga Login/Setup yang tidak
+// pernah memanggil useTheme() pun ikut tema. Skrip inline di index.html sudah
+// melakukan hal yang sama sebelum paint pertama; ini menjaga tema tetap
+// sinkron setelah modul JS dimuat.
+apply(read());
 
 function setTheme(t: Theme) {
   localStorage.setItem("theme", t);

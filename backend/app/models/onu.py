@@ -97,6 +97,20 @@ class Onu(TimestampMixin, Base):
     # (beda dari `[]` yang berarti ONU memang tidak punya service-port) — pembeda itu
     # dipakai UI untuk tidak menampilkan daftar karangan.
     service_vlan_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Konfigurasi port TERAKHIR DITULIS Nexfiber (bukan hasil baca perangkat):
+    # {"eth": {"1": {enabled, mode, vlan_id, allowed_vlans, dhcp}},
+    #  "wifi": {"1": {enabled, mode, vlan_id, allowed_vlans, ssid, auth_mode}}}.
+    # Ditulis balik hanya saat aksi eth-port/wifi-port sukses (pola sama dengan
+    # attached-vlans/onu-type di onu_action_service), dihapus per port saat
+    # wifi-clear dan seluruhnya saat restore-factory. Sandi WiFi TIDAK PERNAH
+    # disimpan di sini. NULL = belum pernah ditulis Nexfiber (UI tetap bilang
+    # "belum dibaca", bukan mengarang nilai); perangkat bisa saja diubah dari
+    # luar, jadi UI wajib melabelinya "terakhir ditulis Nexfiber", bukan
+    # "konfigurasi perangkat saat ini". Baca perangkat yang sesungguhnya
+    # (running-config) tidak memuat baris mode/VLAN port eth/wifi di fixture
+    # yang ada, jadi parser baca-live tidak bisa menggantikan penyimpanan ini
+    # tanpa mengarang field yang tidak terbaca.
+    port_configs: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # TODO Speed Profile pisah Download/Upload (Opsi A): 1 FK gabungan -> 2 FK per arah.
     download_speed_profile_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("speed_profiles.id"), nullable=True

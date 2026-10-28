@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
-import { Confirm, Drawer, Field, JobTrace, TableCard, cell, filterInput, input } from "../../components/crud";
+import { Confirm, Drawer, Field, JobTrace, MobileCard, TableCard, cell, filterInput, input } from "../../components/crud";
 import { PageTitle } from "../../components/data";
 import { Button } from "../../components/ui/button";
 import { api, qs, type Olt, type SpeedProfileRow, type Vlan } from "../../lib/api";
@@ -83,6 +83,7 @@ function ProfileDrawer({ edit, direction, olts, onClose }: {
     <Drawer
       title={edit ? `Edit ${edit.name}` : `Tambah profile ${direction === "download" ? "download" : "upload"}`}
       onClose={onClose}
+      dirty={formState.isDirty}
       onSubmit={handleSubmit((f) => save.mutate(f))}
       busy={save.isPending}
       error={save.error?.message}
@@ -147,12 +148,19 @@ export function SpeedProfile() {
     mutationFn: (p: SpeedProfileRow) => api<void>(`/api/speed-profiles/${p.id}`, { method: "DELETE" }),
     onSuccess: () => { invalidate(); setDel(null); },
   });
+  // Baris yang diklik disimpan supaya label tombolnya saja yang berubah
+  // menjadi "Mengirim …" — tombol baris lain tetap mati selama mutasi bersama
+  // berjalan (mencegah dua push bersamaan), tapi tidak lagi mati tanpa penjelasan.
+  // JobTrace di atas halaman tetap ada sebagai pelengkap, bukan satu-satunya umpan balik.
+  const [pushTarget, setPushTarget] = useState<number | null>(null);
   const push = useMutation({
     mutationFn: (p: SpeedProfileRow) =>
       api<{ job_id: number }>(`/api/speed-profiles/${p.id}/push`, { method: "POST" }),
-    onSuccess: (r) => { setPushJob(r.job_id); setNote(`Job simpan ke OLT #${r.job_id} dibuat.`); },
-    onError: (e: Error) => setNote(e.message),
+    onSuccess: (r) => { setPushTarget(null); setPushJob(r.job_id); setNote(`Job simpan ke OLT #${r.job_id} dibuat.`); },
+    onError: (e: Error) => { setPushTarget(null); setNote(e.message); },
   });
+  const pushLabel = (p: SpeedProfileRow) =>
+    pushTarget === p.id && push.isPending ? "Mengirim …" : "Simpan ke OLT";
   const sync = useMutation({
     mutationFn: () => api<{ job_id: number }>(`/api/speed-profiles/sync${qs({ olt_id: oltId })}`, { method: "POST" }),
     onSuccess: (r) => { invalidate(); setNote(`Job baca dari OLT #${r.job_id} dibuat.`); },
@@ -208,6 +216,27 @@ export function SpeedProfile() {
         loadingText="Memuat speed profile ..."
         empty={`Belum ada speed profile ${direction === "download" ? "download" : "upload"}.`}
         columns={["Nama", "Speed", "OLT", "VLAN", "ONU", "Status", "Aksi"]}
+        card={(p: SpeedProfileRow) => (
+          <MobileCard key={p.id}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate font-medium">{p.name}</span>
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-xs">
+                <span className={`size-1.5 shrink-0 ${p.is_active ? "bg-up" : "bg-idle"}`} aria-hidden />
+                {p.is_active ? "Aktif" : "Nonaktif"}
+              </span>
+            </div>
+            <p className="font-mono text-xs text-muted">
+              {mbps(p.speed_kbps)} · {p.olt_name ?? "Semua OLT"} · VLAN {p.vlan_id ?? "—"} · ONU {p.onu_count}
+            </p>
+            {canWrite && (
+              <div className="mt-1 flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => setDrawer({ edit: p })}>Edit</Button>
+                <Button size="sm" disabled={!p.olt_id || push.isPending} onClick={() => { setPushTarget(p.id); push.mutate(p); }}>{pushLabel(p)}</Button>
+                <Button size="sm" variant="danger" onClick={() => setDel(p)}>Hapus</Button>
+              </div>
+            )}
+          </MobileCard>
+        )}
         row={(p: SpeedProfileRow) => (
           <tr key={p.id} className="border-b last:border-0">
             <td className={cell}>{p.name}</td>
@@ -226,7 +255,7 @@ export function SpeedProfile() {
                 <div className="flex gap-2">
                   <Button size="sm" onClick={() => setDrawer({ edit: p })}>Edit</Button>
                   <Button size="sm" disabled={!p.olt_id || push.isPending}
-                          onClick={() => push.mutate(p)}>Simpan ke OLT</Button>
+                          onClick={() => { setPushTarget(p.id); push.mutate(p); }}>{pushLabel(p)}</Button>
                   <Button size="sm" variant="danger" onClick={() => setDel(p)}>Hapus</Button>
                 </div>
               ) : "—"}

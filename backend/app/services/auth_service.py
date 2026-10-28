@@ -7,8 +7,52 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import AppError, NotFoundError, ValidationAppError
 from app.core.rbac import SUPERADMIN
 from app.core.security import create_access_token, hash_password, verify_password
+from app.models.setting import Setting
 from app.models.user import User
 from app.repositories.activity_log_repo import log_activity
+
+# Penyimpanan status token di tabel `settings` yang sudah ada (tanpa kolom/model
+# baru, tanpa Redis): satu baris per keperluan, nilainya {jti: exp_epoch}.
+# Dipakai untuk dua hal yang bentuknya sama tapi artinya berbeda:
+# - REVOKED_TOKENS: jti token akses yang dicabut lewat logout (deps menolaknya).
+# - CONSUMED_SSE_TOKENS: jti token SSE yang sudah dipakai membuka satu koneksi
+#   (koneksi kedua dengan token yang sama ditolak = sekali pakai).
+# Entri kedaluwarsa dibuang saat baris ditulis; baris tidak pernah memuat token
+# itu sendiri, hanya id-nya + waktu kedaluwarsa — bocornya baris ini tidak
+# memungkinkan pemalsuan token.
+REVOKED_TOKENS_KEY = "auth_revoked_tokens"
+CONSUMED_SSE_TOKENS_KEY = "sse_consumed_tokens"
+
+
+def _prune_token_state(value: dict, now_epoch: float) -> dict:
+    return {jti: exp for jti, exp in value.items()
+            if isinstance(exp, (int, float)) and exp > now_epoch}
+
+
+async def record_token_jti(db: AsyncSession, key: str, jti: str, exp_epoch: float) -> None:
+    """Catat satu jti (revoked / consumed) + buang entri kedaluwarsa. Pemanggil
+    yang melakukan commit (endpoint logout / pembuka stream)."""
+    now = datetime.now(UTC).timestamp()
+    row = await db.get(Setting, key)
+    value = _prune_token_state(dict(row.value) if row is not None else {}, now)
+    value[jti] = exp_epoch
+    if row is None:
+        db.add(Setting(key=key, value=value))
+    else:
+        row.value = value
+
+
+async def is_token_jti_recorded(db: AsyncSession, key: str, jti: str) -> bool:
+    """Cek baca-saja (tanpa tulis/prune): dipakai di jalur autentikasi tiap
+    request, jadi tidak boleh menambah write di sana."""
+    row = await db.get(Setting, key)
+    # Guard tipe: db.get(Setting, ...) di DB nyata mengembalikan Setting/None,
+    # tapi tes unit lama memakai FakeDb yang mengembalikan User untuk model
+    # apa pun — baris yang bukan Setting tidak boleh dibaca sebagai daftar.
+    if not isinstance(row, Setting):
+        return False
+    exp = (row.value or {}).get(jti)
+    return isinstance(exp, (int, float)) and exp > datetime.now(UTC).timestamp()
 
 MAX_FAILS = 5
 WINDOW_S = 15 * 60

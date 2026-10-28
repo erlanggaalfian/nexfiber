@@ -77,7 +77,10 @@ async def test_send_config_success_sends_all_and_exits():
     result = await driver.set_onu_vlan(1, 1, 1, None, 100)
     assert result.success is True
     assert cli.sent[0] == "configure terminal"
-    assert cli.sent[-1] == "exit"
+    # Tulis konfigurasi kini di-persist: `write` adalah perintah terakhir,
+    # setelah keluar dari mode config (bukan lagi `exit` penutup).
+    assert cli.sent[-1] == "write"
+    assert "exit" in cli.sent
     assert "flow 1 pri 0 vlan 100" in result.raw_command
 
 

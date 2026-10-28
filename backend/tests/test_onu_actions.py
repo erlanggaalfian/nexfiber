@@ -199,3 +199,20 @@ def test_semua_kind_kontrak_terdaftar():
         "resync-config", "delete",
     }
     assert kontrak == set(za.SUPPORTED_KINDS) | set(za.UNSUPPORTED_KINDS)
+
+
+def test_port_config_entry_eth_dan_wifi_tanpa_sandi():
+    from app.services.onu_action_service import port_config_entry
+    eth = port_config_entry("eth-port", {"port": 1, "enabled": True, "mode": "lan",
+                                         "vlan_id": 15, "allowed_vlans": None, "dhcp": "onu"})
+    assert eth == ("eth", "1", {"enabled": True, "mode": "lan", "vlan_id": 15,
+                                "allowed_vlans": [], "dhcp": "onu"})
+    # Body wifi membawa password (dikirim ke OLT) tapi entri yang disimpan
+    # TIDAK boleh mengandungnya — modal selalu meminta sandi baru.
+    wifi = port_config_entry("wifi-port", {"port": 2, "enabled": True, "mode": "lan",
+                                           "vlan_id": 15, "ssid": "Rumah",
+                                           "auth_mode": "wpa2", "password": "rahasia123"})
+    assert wifi == ("wifi", "2", {"enabled": True, "mode": "lan", "vlan_id": 15,
+                                  "allowed_vlans": [], "ssid": "Rumah", "auth_mode": "wpa2"})
+    assert "password" not in wifi[2]
+    assert port_config_entry("mgmt-ip", {"mode": "pool"}) is None

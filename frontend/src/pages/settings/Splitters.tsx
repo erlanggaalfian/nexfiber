@@ -7,7 +7,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import {
-  Confirm, Drawer, Field, TableCard, UsageBar, cell, filterInput, input,
+  Confirm, Drawer, Field, MobileCard, TableCard, UsageBar, cell, filterInput, input,
 } from "../../components/crud";
 import { PageTitle } from "../../components/data";
 import { Button } from "../../components/ui/button";
@@ -111,6 +111,7 @@ function SplitterDrawer({ edit, zones, onClose }: {
     <Drawer
       title={edit ? `Edit ${edit.name}` : "Tambah splitter"}
       onClose={onClose}
+      dirty={formState.isDirty}
       onSubmit={handleSubmit((f) => save.mutate(f))}
       busy={save.isPending}
       error={save.error?.message}
@@ -203,6 +204,7 @@ function ZoneDrawer({ edit, onClose }: { edit: Zone | null; onClose: () => void 
     <Drawer
       title={edit ? `Edit ${edit.name}` : "Tambah zone"}
       onClose={onClose}
+      dirty={formState.isDirty}
       onSubmit={handleSubmit((f) => save.mutate(f))}
       busy={save.isPending}
       error={save.error?.message}
@@ -281,6 +283,7 @@ function PresetDrawer({ edit, zones, splitters, types, onClose }: {
     <Drawer
       title={edit ? `Edit ${edit.name}` : "Tambah preset"}
       onClose={onClose}
+      dirty={formState.isDirty}
       onSubmit={handleSubmit((f) => save.mutate(f))}
       busy={save.isPending}
       error={save.error?.message}
@@ -306,16 +309,16 @@ function PresetDrawer({ edit, zones, splitters, types, onClose }: {
       <div className="grid grid-cols-2 gap-3">
         <Field label="Mode ONU">
           <select className={input} {...register("onu_mode")}>
-            <option value="routing">routing</option>
-            <option value="bridging">bridging</option>
+            <option value="routing">Routing</option>
+            <option value="bridging">Bridging</option>
           </select>
         </Field>
         <Field label="Mode WAN">
           <select className={input} {...register("wan_mode")}>
-            <option value="webpage">webpage</option>
-            <option value="dhcp">dhcp</option>
-            <option value="static">static</option>
-            <option value="pppoe">pppoe</option>
+            <option value="webpage">Setup via webpage ONU</option>
+            <option value="dhcp">DHCP</option>
+            <option value="static">Static IP</option>
+            <option value="pppoe">PPPoE</option>
           </select>
         </Field>
         <Field label="Zone (opsional)">
@@ -386,7 +389,7 @@ export function Splitters() {
   });
 
   const tabClass = (t: string) =>
-    `h-8 px-3 text-sm ${tab === t ? "border-b-2 border-fiber font-medium" : "text-muted"}`;
+    `h-8 max-md:min-h-12 px-3 text-sm ${tab === t ? "border-b-2 border-fiber font-medium" : "text-muted"}`;
 
   return (
     <>
@@ -412,6 +415,24 @@ export function Splitters() {
           loadingText="Memuat preset ..."
           empty="Belum ada preset."
           columns={["Nama", "Tipe", "VLAN", "Download", "Upload", "Mode", "Aksi"]}
+          card={(p) => (
+            <MobileCard key={p.id}>
+              <p className="truncate font-medium">{p.name}</p>
+              <p className="truncate text-xs text-muted">
+                {onuTypes.data?.find((t) => t.id === p.onu_type_id)?.name ?? p.onu_type_id}
+                {p.vlan != null ? ` · VLAN ${p.vlan}` : ""}
+              </p>
+              <p className="truncate text-xs text-muted">
+                {p.download_profile ?? "—"} / {p.upload_profile ?? "—"} · {p.onu_mode}/{p.wan_mode}
+              </p>
+              {isManager && (
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => setPresetDrawer({ edit: p })}>Edit</Button>
+                  <Button size="sm" variant="danger" onClick={() => setDelPreset(p)}>Hapus</Button>
+                </div>
+              )}
+            </MobileCard>
+          )}
           row={(p) => (
             <tr key={p.id} className="border-b last:border-0">
               <td className={cell}>{p.name}</td>
@@ -447,6 +468,24 @@ export function Splitters() {
             loadingText="Memuat splitter ..."
             empty="Belum ada splitter."
             columns={["Nama", "External ID", "Tipe", "Induk", "Koordinat", "Penggunaan", "Zone", "Aksi"]}
+            card={(s: Splitter) => (
+              <MobileCard key={s.id}>
+                <p className="truncate font-medium">{s.name}</p>
+                <p className="truncate font-mono text-xs text-muted">
+                  {s.code ?? "—"} · {s.type.toUpperCase()} · {s.zone_name ?? "—"}
+                </p>
+                <p className="text-xs text-muted">
+                  <UsageBar used={s.onu_count} capacity={s.capacity} />
+                  {s.capacity === null && <span className="ml-2 text-xs text-down">Kapasitas belum diisi</span>}
+                </p>
+                {isManager && (
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    <Button size="sm" onClick={() => setSplitterDrawer({ edit: s })}>Edit</Button>
+                    <Button size="sm" variant="danger" onClick={() => setDelSplitter(s)}>Hapus</Button>
+                  </div>
+                )}
+              </MobileCard>
+            )}
             row={(s: Splitter) => (
               <tr key={s.id} className="border-b last:border-0">
                 <td className={cell}>{s.name}</td>
@@ -481,6 +520,20 @@ export function Splitters() {
           loadingText="Memuat zone ..."
           empty="Belum ada zone."
           columns={["Nama", "External ID", "Splitter", "ONU", "Koordinat", "Aksi"]}
+          card={(zn: Zone) => (
+            <MobileCard key={zn.id}>
+              <p className="truncate font-medium">{zn.name}</p>
+              <p className="truncate font-mono text-xs text-muted">
+                {zn.external_id ?? "—"} · Splitter {zn.splitter_count} · ONU {zn.onu_count}
+              </p>
+              {isManager && (
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => setZoneDrawer({ edit: zn })}>Edit</Button>
+                  <Button size="sm" variant="danger" onClick={() => setDelZone(zn)}>Hapus</Button>
+                </div>
+              )}
+            </MobileCard>
+          )}
           row={(zn: Zone) => (
             <tr key={zn.id} className="border-b last:border-0">
               <td className={cell}>{zn.name}</td>

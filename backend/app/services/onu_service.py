@@ -995,6 +995,9 @@ async def restore_factory(db: AsyncSession, job: Job, driver: OltDriver) -> dict
     # antaranya", jadi retry buta bisa menghapus hasil resync manual — lihat laporan.)
     onu.config_state = "failed"
     onu.service_vlan_ids = []
+    # Setelan pabrik menghapus konfigurasi port perangkat: catatan terakhir
+    # ditulis Nexfiber tidak boleh lagi diklaim sebagai konfigurasi saat ini.
+    onu.port_configs = None
     return _result(result)
 
 # --- Diagnostik Detail ONU: Status / Running config / Info SW -----------------------

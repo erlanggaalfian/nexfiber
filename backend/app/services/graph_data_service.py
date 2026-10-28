@@ -23,7 +23,13 @@ from app.models.onu import Onu, OnuSignalHistory, OnuTrafficHistory
 from app.models.setting import Setting
 from app.models.user import User
 from app.repositories import activity_log_repo
-from app.schemas.graph_data import GraphDeleteResult, GraphKind, GraphRetention, GraphStat
+from app.schemas.graph_data import (
+    GraphDeleteByOlt,
+    GraphDeleteResult,
+    GraphKind,
+    GraphRetention,
+    GraphStat,
+)
 
 SETTING_KEY = "graph_retention"
 # Pilihan yang boleh dipakai; 0 = retensi otomatis nonaktif (simpan selamanya).
@@ -145,6 +151,35 @@ def _range_filter(model, start: datetime, end: datetime, onu_ids):
     return conds
 
 
+async def _by_olt(db: AsyncSession, kinds: list[str], start: datetime, end: datetime,
+                  onu_ids) -> list[GraphDeleteByOlt]:
+    """Rincian hitungan per OLT untuk jenis-jenis yang diminta. Filter yang sama
+    dengan hitungan total (rentang + cakupan user), jadi Admin hanya melihat
+    OLT dalam scope-nya. OLT tanpa baris di rentang ini tidak muncul."""
+    merged: dict[int, dict] = {}
+    for kind in dict.fromkeys(kinds):
+        model = MODELS[kind]
+        stmt = (
+            select(Onu.olt_id, Olt.name, func.count(model.id))
+            .select_from(model)
+            .join(Onu, Onu.id == model.onu_id)
+            .outerjoin(Olt, Olt.id == Onu.olt_id)
+            .where(*_range_filter(model, start, end, onu_ids))
+            .group_by(Onu.olt_id, Olt.name)
+            .order_by(Onu.olt_id)
+        )
+        for olt_id, olt_name, count in await db.execute(stmt):
+            row = merged.setdefault(olt_id, {"olt_name": olt_name, "deleted": {}})
+            row["deleted"][kind] = int(count or 0)
+    out = []
+    for olt_id in sorted(merged):
+        row = merged[olt_id]
+        out.append(GraphDeleteByOlt(
+            olt_id=olt_id, olt_name=row["olt_name"],
+            deleted=row["deleted"], total=sum(row["deleted"].values())))
+    return out
+
+
 async def preview_delete(db: AsyncSession, body, user: User) -> GraphDeleteResult:
     start, end = _window(body.date_from, body.date_to)
     onu_ids = await _onu_ids(db, user, body.olt_id)
@@ -154,13 +189,18 @@ async def preview_delete(db: AsyncSession, body, user: User) -> GraphDeleteResul
         counts[kind] = await db.scalar(
             select(func.count(model.id)).where(*_range_filter(model, start, end, onu_ids))
         ) or 0
-    return GraphDeleteResult(deleted=counts, total=sum(counts.values()))
+    return GraphDeleteResult(deleted=counts, total=sum(counts.values()),
+                             by_olt=await _by_olt(db, body.kinds, start, end, onu_ids))
 
 
 async def delete_range(db: AsyncSession, body, user: User) -> GraphDeleteResult:
     """Hard-delete. Tidak ada undo, jadi UI wajib memakai pratinjau + konfirmasi."""
     start, end = _window(body.date_from, body.date_to)
     onu_ids = await _onu_ids(db, user, body.olt_id)
+    # Rincian per OLT diambil SEBELUM penghapusan (filter sama): setelah baris
+    # dihapus tidak ada lagi yang bisa dihitung. Total per jenis di bawah tetap
+    # dari hitungan batch yang benar-benar terhapus, bukan dari snapshot ini.
+    by_olt = await _by_olt(db, body.kinds, start, end, onu_ids)
     counts: dict[str, int] = {}
     for kind in dict.fromkeys(body.kinds):
         model = MODELS[kind]
@@ -172,7 +212,7 @@ async def delete_range(db: AsyncSession, body, user: User) -> GraphDeleteResult:
                "date_from": body.date_from.isoformat(), "date_to": body.date_to.isoformat(),
                "olt_id": body.olt_id, "deleted": counts, "total": sum(counts.values())},
     )
-    return GraphDeleteResult(deleted=counts, total=sum(counts.values()))
+    return GraphDeleteResult(deleted=counts, total=sum(counts.values()), by_olt=by_olt)
 
 
 async def _delete_batched(db: AsyncSession, model, conds: list) -> int:

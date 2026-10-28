@@ -5,8 +5,8 @@ import { useForm } from "react-hook-form";
 import { Link, Navigate } from "react-router";
 import * as z from "zod";
 import { PageTitle, StatusBadge, fmtDateTime } from "../../components/data";
-import { Drawer, Field, TableCard, cell, filterInput, input } from "../../components/crud";
-import { ConfirmShell } from "../../components/onu/modals/ModalShell";
+import { Drawer, Field, MobileCard, TableCard, cell, filterInput, input } from "../../components/crud";
+import { ConfirmShell, PasswordInput } from "../../components/onu/modals/ModalShell";
 import { OltSyncProgressRow } from "../../components/OltSyncProgress";
 import { Button, buttonClass } from "../../components/ui/button";
 import { api, qs, type Olt, type OltRow } from "../../lib/api";
@@ -122,6 +122,7 @@ function OltDrawer({ edit, onClose }: { edit: OltRow | null; onClose: () => void
     <Drawer
       title={edit ? `Edit ${edit.name}` : "Tambah OLT"}
       onClose={onClose}
+      dirty={formState.isDirty}
       onSubmit={handleSubmit((f) => {
         // Secret wajib saat create (backend min 1), opsional saat edit
         // (kosong = kredensial lama dipertahankan) — Zod tidak tahu mode edit.
@@ -184,7 +185,8 @@ function OltDrawer({ edit, onClose }: { edit: OltRow | null; onClose: () => void
       </Field>
       <Field label={edit ? "Password CLI (kosong = tidak diubah)" : "Password CLI"}
              error={formState.errors.cli_password?.message}>
-        <input className={input} type="password" autoComplete="new-password" {...register("cli_password")} />
+        <PasswordInput label="Password CLI" value={watch("cli_password") ?? ""}
+                       onChange={(v) => setValue("cli_password", v, { shouldValidate: true })} />
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Port SNMP" error={formState.errors.snmp_port?.message}>
@@ -192,11 +194,13 @@ function OltDrawer({ edit, onClose }: { edit: OltRow | null; onClose: () => void
         </Field>
         <Field label={edit ? "Community RO (kosong = tetap)" : "Community RO"}
                error={formState.errors.snmp_community?.message}>
-          <input className={input} type="password" autoComplete="new-password" {...register("snmp_community")} />
+          <PasswordInput label="Community RO" value={watch("snmp_community") ?? ""}
+                         onChange={(v) => setValue("snmp_community", v, { shouldValidate: true })} />
         </Field>
       </div>
       <Field label={edit ? "Community RW (kosong = tetap)" : "Community RW"}>
-        <input className={input} type="password" autoComplete="new-password" {...register("snmp_community_rw")} />
+        <PasswordInput label="Community RW" value={watch("snmp_community_rw") ?? ""}
+                       onChange={(v) => setValue("snmp_community_rw", v, { shouldValidate: true })} />
       </Field>
       {/* Pemilik utama hanya ditampilkan. Akses OLT per user diatur Superadmin di
           Settings > User Management (checklist OLT), satu tempat untuk olt_access. */}
@@ -240,7 +244,7 @@ function DeleteDialog({ olt, onClose }: { olt: OltRow; onClose: () => void }) {
       body={needsName
         ? `${olt.onu_count} ONU ikut dinonaktifkan di aplikasi; perangkat tidak disentuh.`
         : "OLT dihapus dari aplikasi; perangkat tidak disentuh."}
-      action="Hapus"
+      action="Hapus" dirty={needsName && typed !== ""}
       onConfirm={() => del.mutate()}
       onClose={onClose}
       error={del.isError ? del.error.message : undefined}
@@ -278,10 +282,17 @@ export function OltManagement() {
     enabled: allowed,
   });
   // Cek koneksi per baris = job ke worker (DESIGN 13: aksi ke OLT tidak pernah sinkron).
+  // Target baris yang diklik disimpan supaya label tombolnya saja yang berubah
+  // menjadi "Mengecek …" — tombol baris lain tetap mati selama mutasi bersama
+  // berjalan (mencegah dua job bersamaan), tapi tidak lagi mati tanpa penjelasan.
+  const [recheckTarget, setRecheckTarget] = useState<number | null>(null);
   const recheck = useMutation({
     mutationFn: (olt: OltRow) => api<{ job_id: number }>(`/api/olts/${olt.id}/test`, { method: "POST" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["olts"] }),
+    onSuccess: () => { setRecheckTarget(null); qc.invalidateQueries({ queryKey: ["olts"] }); },
+    onError: () => setRecheckTarget(null),
   });
+  const recheckLabel = (o: OltRow) =>
+    recheckTarget === o.id && recheck.isPending ? "Mengecek …" : "Cek koneksi";
   const columns = ["Nama OLT", "Alamat IP", "Tipe",
     ...(isSuper ? ["Pemilik"] : []),
     "Status koneksi", "ONU", "Sinkron terakhir", "Aksi"];
@@ -306,6 +317,22 @@ export function OltManagement() {
       </div>
 
       <TableCard
+        card={(o: OltRow) => (
+          <MobileCard key={o.id}>
+            <div className="flex items-center justify-between gap-2">
+              <Link to={`/olt/${o.id}`} className="min-w-0 truncate font-medium text-fiber hover:underline">{o.name}</Link>
+              <StatusBadge status={o.status} withLabel />
+            </div>
+            <p className="truncate font-mono text-xs text-muted">{o.host} · {o.model}</p>
+            <p className="font-mono text-xs text-muted">ONU {o.onu_count} · {fmtDateTime(o.last_sync_at)}</p>
+            {o.last_error && <p className="truncate text-xs text-muted">{o.last_error}</p>}
+            <div className="mt-1 flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => setDrawer({ edit: o })}>Edit</Button>
+              <Button size="sm" onClick={() => { setRecheckTarget(o.id); recheck.mutate(o); }} disabled={recheck.isPending}>{recheckLabel(o)}</Button>
+              <Button size="sm" variant="danger" onClick={() => setRemove(o)}>Hapus</Button>
+            </div>
+          </MobileCard>
+        )}
         query={olts}
         columns={columns}
         empty="Belum ada OLT."
@@ -329,8 +356,8 @@ export function OltManagement() {
               <div className="flex gap-2">
                 <Link to={`/olt/${o.id}`} className={buttonClass("secondary", "sm")}>OLT Detail</Link>
                 <Button size="sm" onClick={() => setDrawer({ edit: o })}>Edit</Button>
-                <Button size="sm" onClick={() => recheck.mutate(o)} disabled={recheck.isPending}>
-                  Cek koneksi
+                <Button size="sm" onClick={() => { setRecheckTarget(o.id); recheck.mutate(o); }} disabled={recheck.isPending}>
+                  {recheckLabel(o)}
                 </Button>
                 <Button size="sm" variant="danger" onClick={() => setRemove(o)}>Hapus</Button>
               </div>

@@ -19,13 +19,23 @@ const DHCP = [
   { value: "onu", label: "From ONU" }, { value: "forbidden", label: "Forbidden" },
 ];
 
+/** Konfigurasi port saat ini — opsional karena backend saat ini TIDAK
+ *  mengirimnya (halaman detail menulis "Belum dibaca" untuk port). Bila
+ *  `current` tidak ada, form dibuka dengan nilai baru + ringkasan jujur
+ *  "belum dibaca", bukan dengan klaim bahwa default itu konfigurasi saat ini. */
+export type EthPortCurrent = {
+  enabled?: boolean; mode?: string | null; vlan_id?: number | null;
+  allowed_vlans?: number[]; dhcp?: string;
+};
+
 export function EthPortModal(
-  { port, options, supported, note, busy, error, onClose, onSubmit }:
+  { port, options, current, supported, note, busy, error, onClose, onSubmit }:
   {
     port: number;
     link?: string | null; // Dipertahankan untuk kompatibilitas pemanggil; tidak ada
     // sumber status link di halaman ini, jadi baris Link dihapus (selalu "—").
     options: OnuConfigOptions | undefined;
+    current?: EthPortCurrent;
     supported: boolean | null;
     note?: string | null;
     busy?: boolean;
@@ -34,11 +44,18 @@ export function EthPortModal(
     onSubmit: (body: EthPortBody) => void;
   },
 ) {
-  const [enabled, setEnabled] = useState<"on" | "off">("on");
-  const [mode, setMode] = useState("lan");
-  const [vlan, setVlan] = useState("");
-  const [allowed, setAllowed] = useState<number[]>([]);
-  const [dhcp, setDhcp] = useState("none");
+  const init = {
+    enabled: current?.enabled ?? true,
+    mode: current?.mode ?? "lan",
+    vlan: current?.vlan_id != null ? String(current.vlan_id) : "",
+    allowed: [...(current?.allowed_vlans ?? [])].sort((a, b) => a - b),
+    dhcp: current?.dhcp ?? "none",
+  };
+  const [enabled, setEnabled] = useState<"on" | "off">(init.enabled ? "on" : "off");
+  const [mode, setMode] = useState(init.mode);
+  const [vlan, setVlan] = useState(init.vlan);
+  const [allowed, setAllowed] = useState<number[]>(init.allowed);
+  const [dhcp, setDhcp] = useState(init.dhcp);
   const vlanList = serviceVlanOptions(options);
   const showAllowed = mode === "trunk" || mode === "hybrid";
   // Mode tag (LAN/Access) dan hybrid wajib VLAN di backend; matikan Save sampai
@@ -51,14 +68,17 @@ export function EthPortModal(
   // ada perintah hapus daftar lama yang terbukti), jadi wajib minimal satu.
   const vlanRequired = mode === "lan" || mode === "access" || mode === "hybrid";
   const usesVlan = vlanRequired;
-  const changed = enabled !== "on" || mode !== "lan" || vlan !== "" || allowed.length > 0
-    || dhcp !== "none";
+  const changed = (enabled === "on") !== init.enabled || mode !== init.mode || vlan !== init.vlan
+    || allowed.join(",") !== init.allowed.join(",") || dhcp !== init.dhcp;
   const disabled = !changed || (vlanRequired && vlan === "")
     || (showAllowed && allowed.length === 0);
+  const modeLabel = MODES.find((m) => m.value === init.mode)?.label ?? init.mode;
+  const dhcpLabel = DHCP.find((d) => d.value === init.dhcp)?.label ?? init.dhcp;
 
   return (
-    <ModalShell title={`Configure ethernet port eth_0/${port}`} action="Save" wide
+    <ModalShell title={`Konfigurasi port Ethernet eth_0/${port}`} action="Simpan" wide
                 supported={supported} note={note} busy={busy} error={error} onClose={onClose}
+                dirty={changed}
                 disabled={disabled}
                 onSubmit={() => onSubmit({
                   port, enabled: enabled === "on", mode,
@@ -67,11 +87,15 @@ export function EthPortModal(
                   dhcp,
                 })}>
       <div className="mb-3.5">
-        <Help>Modal ini menulis ulang konfigurasi port dari nilai di bawah. Save aktif setelah ada perubahan.</Help>
+        {current ? (
+          <Help>Terakhir ditulis Nexfiber: <span className="font-mono">{init.enabled ? "Aktif" : "Nonaktif"} · {modeLabel} · VLAN {init.vlan === "" ? "—" : init.vlan} · DHCP {dhcpLabel}</span>. Modal ini menulis ulang konfigurasi port dari nilai di bawah.</Help>
+        ) : (
+          <Help>Konfigurasi saat ini belum dibaca dari perangkat — nilai di bawah adalah nilai baru yang akan ditulis, bukan konfigurasi saat ini. Simpan aktif setelah ada perubahan.</Help>
+        )}
       </div>
       <Row label="Status">
-        <Radios name={`eth-${port}-status`} value={enabled} onChange={setEnabled}
-                options={[{ value: "on", label: "Enabled" }, { value: "off", label: "Port shutdown" }]} />
+        <Radios name={`eth-${port}-status`} value={enabled} onChange={setEnabled} autoFocus
+                options={[{ value: "on", label: "Aktif" }, { value: "off", label: "Port shutdown" }]} />
       </Row>
       {/* Acuan memakai radio sebaris untuk 5 mode (bukan select). */}
       <Row label="Mode">

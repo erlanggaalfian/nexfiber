@@ -1,10 +1,20 @@
 #!/bin/bash
 # Nexfiber — instalasi lokal di server ini, satu port, tanpa Docker/Caddy.
-# PERINGATAN: akses masih HTTP tanpa TLS (uvicorn 0.0.0.0:8088). Installer ini
-# TIDAK mengklaim HTTPS dan TIDAK mengonfigurasi Caddy/firewall — pakai hanya
-# di LAN tepercaya, jangan ekspos port 8088 ke internet. Keputusan Caddy vs
-# LAN-only masih butuh keputusan pemilik (dokumen saling bertentangan:
-# AGENTS.md/PRD menyebut Caddy+HTTPS, DECISIONS.md menyebut tanpa Caddy).
+# KEPUTUSAN DEPLOY (LAN-only, diputuskan dari bukti repo 2026-10-28):
+# - TIDAK pakai Caddy: DECISIONS.md (keputusan terkunci, hasil setup nyata)
+#   menyatakan server ini sudah jalan Apache untuk domain lain dan Nexfiber
+#   cukup satu port HTTP langsung, disajikan FastAPI — itu yang diikuti
+#   installer ini. Rencana Caddy+HTTPS di PRD-FINAL.md adalah rencana lama
+#   yang tidak berlaku untuk server ini; AGENTS.md yang masih menyebut Caddy
+#   sudah kedaluwarsa soal ini.
+# - TIDAK ada TLS: akses HTTP saja, hanya untuk LAN tepercaya. Jangan
+#   port-forward 8088 ke internet. Akses publik (bila suatu hari diminta)
+#   adalah langkah sadar terpisah: pasang reverse proxy TLS di depan
+#   (mis. Apache yang sudah ada) dan bind aplikasi ke 127.0.0.1 — lihat
+#   docs/deploy.md. Installer ini TIDAK mengonfigurasi Caddy/firewall.
+# - Bind default BUKAN 0.0.0.0: API hanya mendengarkan IP LAN server yang
+#   terdeteksi (bisa diubah saat instalasi; 0.0.0.0 hanya bila operator
+#   sadar memilihnya, dan 127.0.0.1 berarti hanya dari server itu sendiri).
 #
 # Usage (dari folder source project, hasil git clone):
 #   chmod +x install.sh
@@ -129,9 +139,19 @@ SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 SERVER_IP="${SERVER_IP:-127.0.0.1}"
 
 echo ""
+echo -e "${YELLOW}Bind address API (interface yang didengarkan uvicorn):${NC}"
+echo -e "  Default ${CYAN}${SERVER_IP}${NC} = IP pertama server (biasanya IP LAN) — perangkat di LAN yang sama bisa membuka Nexfiber, interface lain tidak."
+echo -e "  ${CYAN}127.0.0.1${NC} = hanya dari server itu sendiri (pilih ini bila nanti mau pasang reverse proxy TLS di depan)."
+echo -e "  ${CYAN}0.0.0.0${NC} = SEMUA interface, termasuk publik bila server punya IP publik — hanya bila sadar mau ekspos, dan tetap HTTP tanpa TLS."
+echo -e "${YELLOW}Periksa IP default di atas: bila itu IP publik server, jangan terima begitu saja — isi 127.0.0.1 atau IP LAN yang benar.${NC}"
+read -rp "Bind address API [${SERVER_IP}]: " APP_BIND
+APP_BIND=${APP_BIND:-$SERVER_IP}
+
+echo ""
 echo -e "Install ke : ${CYAN}${APP_DIR}${NC}"
 echo -e "Database   : ${CYAN}${DB_NAME}${NC} (user: ${CYAN}${DB_USER}${NC})"
-echo -e "Akses      : ${CYAN}http://${SERVER_IP}:${APP_PORT}${NC}"
+echo -e "Bind       : ${CYAN}${APP_BIND}:${APP_PORT}${NC}"
+echo -e "Akses      : ${CYAN}http://${APP_BIND}:${APP_PORT}${NC}"
 echo ""
 read -rp "Lanjutkan instalasi? [y/N]: " CONFIRM
 case "$CONFIRM" in
@@ -244,7 +264,7 @@ User=${APP_SYSTEM_USER}
 Group=${APP_SYSTEM_USER}
 WorkingDirectory=${APP_DIR}/backend
 Environment=NEXFIBER_CONFIG=${CONFIG_DIR}/config.ini
-ExecStart=${APP_DIR}/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT}
+ExecStart=${APP_DIR}/venv/bin/uvicorn app.main:app --host ${APP_BIND} --port ${APP_PORT}
 Restart=always
 RestartSec=3
 
@@ -281,12 +301,12 @@ echo ""
 log "[8/8] Verifikasi instalasi..."
 HTTP_CODE="000"
 for _ in $(seq 1 30); do
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "http://127.0.0.1:${APP_PORT}/healthz" 2>/dev/null || echo "000")
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "http://${APP_BIND}:${APP_PORT}/healthz" 2>/dev/null || echo "000")
     [ "$HTTP_CODE" = "200" ] && break
     sleep 2
 done
 if [ "$HTTP_CODE" = "200" ]; then
-    success "Verifikasi API OK (HTTP ${HTTP_CODE} — http://127.0.0.1:${APP_PORT}/healthz)"
+    success "Verifikasi API OK (HTTP ${HTTP_CODE} — http://${APP_BIND}:${APP_PORT}/healthz)"
 else
     echo -e "${RED}Verifikasi API gagal (HTTP ${HTTP_CODE}) — instalasi TIDAK diklaim berhasil. Cek: journalctl -u nexfiber-api -n 50${NC}"
     exit 1
@@ -297,14 +317,14 @@ echo -e "${GREEN}==================================================${NC}"
 echo -e "${GREEN} ✅ NEXFIBER BERHASIL DIINSTALL${NC}"
 echo -e "${GREEN}==================================================${NC}"
 echo ""
-echo -e "${CYAN}URL:${NC} http://${SERVER_IP}:${APP_PORT}/"
+echo -e "${CYAN}URL:${NC} http://${APP_BIND}:${APP_PORT}/  (bind ${APP_BIND} — bukan 0.0.0.0, kecuali kamu yang memilihnya saat instalasi)"
 echo ""
 echo -e "${CYAN}Database:${NC}"
 echo "  Nama     : ${DB_NAME}"
 echo "  User     : ${DB_USER}"
 echo "  Password : (tidak dicetak — tersimpan di ${CONFIG_DIR}/config.ini, izin 640)"
 echo ""
-echo -e "${YELLOW}PERINGATAN:${NC} Akses masih HTTP tanpa TLS, hanya untuk LAN tepercaya. Jangan ekspos port ${APP_PORT} ke internet."
+echo -e "${YELLOW}PERINGATAN:${NC} Akses masih HTTP tanpa TLS, hanya untuk LAN tepercaya. Jangan ekspos port ${APP_PORT} ke internet (jangan port-forward / jangan arahkan domain publik ke port ini). Akses publik butuh reverse proxy TLS di depan + bind 127.0.0.1 — lihat docs/deploy.md."
 echo -e "${CYAN}Service:${NC}"
 echo "  systemctl status nexfiber-api"
 echo "  systemctl status nexfiber-worker"

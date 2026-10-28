@@ -346,8 +346,9 @@ def test_driver_builds_hybrid_before_untag():
 
     cli.send_command = capture
     asyncio.run(driver.set_vlan_ports(100, {"gei_1/5/1": "untagged"}))
+    # Tulis konfigurasi di-persist: `write` menutup urutan, setelah keluar mode config.
     assert sent == ["configure terminal", "interface gei_1/5/1", "switchport mode hybrid",
-                    "switchport vlan 100 untag", "exit", "exit"]
+                    "switchport vlan 100 untag", "exit", "exit", "write"]
 
 
 # --- Tab Interfaces: push konfigurasi port uplink ----------------------------

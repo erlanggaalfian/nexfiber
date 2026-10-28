@@ -10,13 +10,13 @@ import { ArrowClockwise, ArrowLeft } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import * as z from "zod";
 import {
-  Confirm, Drawer, Field, JobTrace, TableCard, UsageBar, cell, input,
+  Confirm, Drawer, Field, JobTrace, MobileCard, TableCard, UsageBar, cell, input,
 } from "../components/crud";
 import {
-  Empty, ErrorState, Panel, PageTitle, Skeleton, StatusBadge, fmtDateTime, nf,
+  Bar, Empty, ErrorState, Panel, PageTitle, SignalBar, Skeleton, StatusBadge, fmtDateTime, nf,
 } from "../components/data";
 import { Button } from "../components/ui/button";
 import {
@@ -56,9 +56,9 @@ function Metric({ label, value, fill }: { label: string; value: string; fill?: n
     <div className="bg-surface p-3 lg:p-4">
       <p className="text-xs text-muted">{label}</p>
       <p className="font-mono text-metric font-semibold">{value}</p>
-      <span className="mt-1 flex h-1 w-full bg-sunken" aria-hidden>
-        <span className={`h-1 ${tone}`} style={{ width: `${width}%` }} />
-      </span>
+      {fill !== undefined && (
+        <Bar pct={width} tone={tone} className="mt-1 w-full" />
+      )}
     </div>
   );
 }
@@ -92,7 +92,6 @@ function Monitoring({ d, oltId }: { d: Detail; oltId: number }) {
         <Metric
           label="Suhu"
           value={d.temperature_c === null ? "—" : `${Number(d.temperature_c).toFixed(0)}°C`}
-          fill={d.temperature_c}
         />
         <Metric label="Uptime" value={fmtUptime(d.uptime_seconds)} />
       </div>
@@ -111,6 +110,16 @@ function Monitoring({ d, oltId }: { d: Detail; oltId: number }) {
           <TableCard
             query={pon}
             columns={["PON", "Status", "ONU", "Sinkron terakhir"]}
+            card={(p) => (
+              <MobileCard key={p.id}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono font-medium">{p.slot}/{p.port}</span>
+                  <StatusBadge status={p.oper_state === "up" ? "online" : "offline"} withLabel />
+                </div>
+                <p className="text-xs text-muted"><UsageBar used={p.onu_count} capacity={p.capacity} /></p>
+                <p className="font-mono text-xs text-muted">{fmtDateTime(p.last_sync_at)}</p>
+              </MobileCard>
+            )}
             empty="Belum ada port PON tersinkron. Jalankan Refresh untuk memindai OLT."
             loadingText="Memuat port PON ..."
             row={(p) => (
@@ -379,9 +388,10 @@ function Vlans({ oltId, uplinkPorts }: { oltId: number; uplinkPorts: string[] })
     }
   }, [delJobData.data?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const portLabel = (v: Vlan) => {
-    const entries = Object.entries(v.uplink_ports ?? {});
-    return entries.length === 0 ? "—" : entries.map(([p, m]) => `${p}:${m === "tagged" ? "T" : "U"}`).join(", ");
+  const uplinkEntries = (v: Vlan) => Object.entries(v.uplink_ports ?? {});
+  const portCountLabel = (v: Vlan) => {
+    const n = uplinkEntries(v).length;
+    return n === 0 ? "—" : `${n} port uplink`;
   };
 
   return (
@@ -392,6 +402,22 @@ function Vlans({ oltId, uplinkPorts }: { oltId: number; uplinkPorts: string[] })
       <TableCard
         query={q}
         columns={["VLAN", "Nama", "Tipe", "Tag", "Port uplink", "Cakupan", ""]}
+        card={(v) => (
+          <MobileCard key={v.id}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate font-medium">{v.name}</span>
+              <span className="shrink-0 font-mono text-xs text-muted">VLAN {v.vlan_id}</span>
+            </div>
+            <p className="truncate font-mono text-xs text-muted">
+              {v.type} · {v.tag_action} · {v.olt_id === null ? "Global" : "OLT"} · {portCountLabel(v)}
+            </p>
+            <div className="mt-1 flex flex-wrap gap-2">
+              <Button size="sm" variant="quiet" disabled={v.olt_id === null} onClick={() => setPorts(v)}>Port</Button>
+              <Button size="sm" variant="quiet" onClick={() => setEdit(v)}>Edit</Button>
+              <Button size="sm" variant="quiet" onClick={() => setRemove(v)}>Hapus</Button>
+            </div>
+          </MobileCard>
+        )}
         empty="Belum ada VLAN untuk OLT ini."
         loadingText="Memuat VLAN ..."
         row={(v) => (
@@ -400,7 +426,13 @@ function Vlans({ oltId, uplinkPorts }: { oltId: number; uplinkPorts: string[] })
             <td className={cell}>{v.name}</td>
             <td className={cell}>{v.type}</td>
             <td className={cell}>{v.tag_action}</td>
-            <td className={`${cell} font-mono text-xs`}>{portLabel(v)}</td>
+            <td className={`${cell} font-mono text-xs`}>
+              {uplinkEntries(v).length === 0 ? "—" : uplinkEntries(v).map(([p, m]) => (
+                <span key={p} className="mr-2 whitespace-nowrap">
+                  {p}: {m === "tagged" ? "Tagged" : "Untagged"}
+                </span>
+              ))}
+            </td>
             <td className={cell}>{v.olt_id === null ? "Global" : "OLT"}</td>
             <td className={`${cell} text-right whitespace-nowrap`}>
               <Button size="sm" variant="quiet" disabled={v.olt_id === null}
@@ -542,17 +574,30 @@ function Interfaces({ oltId }: { oltId: number }) {
       </div>
       <TableCard
         query={q}
-        columns={["Port", "Media", "PVID", "Auto nego", "Speed", "Duplex", "Admin", "Link", ""]}
+        columns={["Port", { label: "Media", className: "hidden lg:table-cell" }, "PVID", "Auto nego", "Speed", { label: "Duplex", className: "hidden lg:table-cell" }, "Admin", "Link", ""]}
+        card={(p) => (
+          <MobileCard key={p.name}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono font-medium">{p.name}</span>
+              <StatusBadge status={p.link === "up" ? "online" : "offline"} withLabel />
+            </div>
+            <p className="font-mono text-xs text-muted">
+              {p.media ?? "—"} · PVID {p.pvid ?? "—"} · {p.speed ?? "—"} · {p.duplex ?? "—"}
+            </p>
+            <p className="text-xs text-muted">Admin {p.admin_status ?? "—"} · Auto nego {p.auto_nego ?? "—"}</p>
+            <Button size="sm" variant="quiet" className="mt-1" onClick={() => setEdit(p)}>Edit</Button>
+          </MobileCard>
+        )}
         empty="Tidak ada port uplink terbaca di OLT ini."
         loadingText="Membaca port uplink dari OLT ..."
         row={(p) => (
           <tr key={p.name} className="border-b last:border-0">
             <td className={`${cell} font-mono`}>{p.name}</td>
-            <td className={cell}>{p.media ?? "—"}</td>
+            <td className={`${cell} hidden lg:table-cell`}>{p.media ?? "—"}</td>
             <td className={`${cell} font-mono`}>{p.pvid ?? "—"}</td>
             <td className={cell}>{p.auto_nego ?? "—"}</td>
             <td className={`${cell} font-mono`}>{p.speed ?? "—"}</td>
-            <td className={cell}>{p.duplex ?? "—"}</td>
+            <td className={`${cell} hidden lg:table-cell`}>{p.duplex ?? "—"}</td>
             <td className={cell}>{p.admin_status ?? "—"}</td>
             <td className={cell}>
               <StatusBadge status={p.link === "up" ? "online" : "offline"} withLabel />
@@ -590,7 +635,7 @@ function Konfigurasi({ d }: { d: Detail }) {
         <Row label="Nama sistem (sysName)" value={d.sys_name ?? "—"} />
         <Row label="Lokasi (sysLocation)" value={d.sys_location ?? "—"} />
         <Row label="Pemilik" value={d.owner_name} />
-        <Row label="CLI" value={`${d.cli_protocol}://${d.cli_username}@:${d.cli_port}`} />
+        <Row label="CLI" value={`${d.cli_protocol}://${d.cli_username}@${d.host}:${d.cli_port}`} />
         <Row label="SNMP port" value={String(d.snmp_port)} />
         <Row label="Kapasitas" value={`${d.pon_port_count} PON x ${d.max_onu_per_port} ONU`} />
         <Row label="Lokasi" value={d.location ?? "—"} />
@@ -600,7 +645,19 @@ function Konfigurasi({ d }: { d: Detail }) {
         <div className="p-0">
           <TableCard
             query={cards}
-            columns={["Slot", "Tipe", "Port", "HW", "SW", "CPU", "RAM", "Status"]}
+            columns={["Slot", "Tipe", "Port", { label: "HW", className: "hidden lg:table-cell" }, { label: "SW", className: "hidden lg:table-cell" }, "CPU", "RAM", "Status"]}
+            card={(c) => (
+              <MobileCard key={c.slot}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono font-medium">Slot {c.slot}</span>
+                  <span className="text-xs text-muted">{c.status ?? "—"}</span>
+                </div>
+                <p className="truncate text-xs text-muted">{c.real_type ?? c.cfg_type ?? "—"}</p>
+                <p className="font-mono text-xs text-muted">
+                  Port {c.port_count ?? "—"} · CPU {pct(c.cpu_pct)} · RAM {pct(c.ram_pct)}
+                </p>
+              </MobileCard>
+            )}
             empty="Data kartu belum tersinkron."
             loadingText="Memuat kartu ..."
             row={(c) => (
@@ -608,8 +665,8 @@ function Konfigurasi({ d }: { d: Detail }) {
                 <td className={`${cell} font-mono`}>{c.slot}</td>
                 <td className={cell}>{c.real_type ?? c.cfg_type ?? "—"}</td>
                 <td className={`${cell} font-mono`}>{c.port_count ?? "—"}</td>
-                <td className={cell}>{c.hardware_version ?? "—"}</td>
-                <td className={cell}>{c.software_version ?? "—"}</td>
+                <td className={`${cell} hidden lg:table-cell`}>{c.hardware_version ?? "—"}</td>
+                <td className={`${cell} hidden lg:table-cell`}>{c.software_version ?? "—"}</td>
                 <td className={`${cell} font-mono`}>{pct(c.cpu_pct)}</td>
                 <td className={`${cell} font-mono`}>{pct(c.ram_pct)}</td>
                 <td className={cell}>{c.status ?? "—"}</td>
@@ -649,7 +706,31 @@ function DaftarOnu({ oltId }: { oltId: number }) {
       <TableCard
         query={rows}
         columns={["Serial", "Pelanggan", "PON", "Status", "Rx"]}
+        card={(o) => (
+          <MobileCard key={o.id}>
+            <div className="flex items-center justify-between gap-2">
+              <Link to={`/onu/${o.id}`} className="min-w-0 truncate font-medium text-fiber hover:underline">
+                {o.customer_name ?? o.name ?? "—"}
+              </Link>
+              <StatusBadge status={o.status} reason={o.last_down_reason} withLabel />
+            </div>
+            <p className="truncate font-mono text-xs text-muted">
+              {o.serial_number} · {o.slot}/{o.port}:{o.onu_index ?? "—"}
+            </p>
+            <p className="flex flex-wrap items-center gap-2 text-xs">
+              <SignalBar dbm={o.rx_power_dbm} />
+              <span className="font-mono text-muted">
+                {o.slot}/{o.port}:{o.onu_index ?? "—"}
+              </span>
+            </p>
+          </MobileCard>
+        )}
         empty="Belum ada ONU terdaftar di OLT ini."
+        emptyAction={(
+          <Link to={`/configured?olt_id=${oltId}`} className="text-fiber hover:underline">
+            Buka di Configured
+          </Link>
+        )}
         loadingText="Memuat ONU ..."
         row={(o) => (
           <tr key={o.id} className="border-b last:border-0">
@@ -658,8 +739,8 @@ function DaftarOnu({ oltId }: { oltId: number }) {
             </td>
             <td className={cell}>{o.customer_name ?? o.name ?? "—"}</td>
             <td className={`${cell} font-mono`}>{o.slot}/{o.port}:{o.onu_index ?? "—"}</td>
-            <td className={cell}><StatusBadge status={o.status} reason={o.last_down_reason} /></td>
-            <td className={`${cell} font-mono`}>{o.rx_power_dbm === null ? "LOS" : o.rx_power_dbm.toFixed(1)}</td>
+            <td className={cell}><StatusBadge status={o.status} reason={o.last_down_reason} withLabel /></td>
+            <td className={cell}><SignalBar dbm={o.rx_power_dbm} /></td>
           </tr>
         )}
       />
@@ -687,7 +768,14 @@ export function OltDetail() {
   const oltId = Number(id);
   const { isManager } = useAuth();
   const tabs = isManager ? TABS : TABS.filter((t) => !MANAGER_ONLY.includes(t));
-  const [tab, setTab] = useState<Tab>("Monitoring");
+  const [params, setParams] = useSearchParams();
+  const tabParam = params.get("tab") as Tab | null;
+  const tab: Tab = tabParam !== null && tabs.includes(tabParam) ? tabParam : "Monitoring";
+  const setTab = (t: Tab) => {
+    const p = new URLSearchParams(params);
+    if (t === "Monitoring") p.delete("tab"); else p.set("tab", t);
+    setParams(p, { replace: true });
+  };
 
   const q = useQuery({
     queryKey: ["olts", oltId, "detail"],
@@ -721,7 +809,7 @@ export function OltDetail() {
         <OltSyncProgress oltId={oltId} showIdle />
       </div>
 
-      <div className="mb-3 flex gap-1 overflow-x-auto border-b" role="tablist">
+      <div className="sticky top-14 z-10 mb-3 flex gap-1 overflow-x-auto border-b bg-surface" role="tablist">
         {tabs.map((t) => (
           <button
             key={t}
@@ -729,11 +817,11 @@ export function OltDetail() {
             role="tab"
             aria-selected={tab === t}
             onClick={() => setTab(t)}
-            className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm ${
+            className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors duration-150 ease-out motion-reduce:transition-none max-md:min-h-12 ${
               tab === t ? "border-fiber font-semibold text-fiber" : "border-transparent text-muted hover:text-ink"
             }`}
           >
-            {t}
+            {t === "Daftar ONU" ? `Daftar ONU · ${nf.format(d.onu_count)}` : t}
           </button>
         ))}
       </div>

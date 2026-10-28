@@ -5,6 +5,9 @@ import { BrowserRouter, Link, Route, Routes, useLocation } from "react-router";
 import { PageTitle } from "./components/data";
 import { Layout } from "./components/Layout";
 import { ChangePasswordPage, RequireAuth, useAuth } from "./lib/auth";
+// Side effect: lib/theme menerapkan tema tersimpan/sistem saat dimuat, sebelum
+// render pertama — penting untuk /login dan /setup yang tidak memanggil useTheme().
+import "./lib/theme";
 import { pageTitle } from "./lib/nav";
 import type { Role } from "./lib/api";
 import { Dashboard } from "./pages/Dashboard";

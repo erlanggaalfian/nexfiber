@@ -130,6 +130,10 @@ class OnuDetail(OnuRow):
     # Hasil parse `description` perangkat (read-only, sumber kedua saat kolom
     # master kosong; frontend sudah menampilkannya dengan label asal).
     device_metadata: DeviceMetadataOut | None = None
+    # Konfigurasi port terakhir ditulis Nexfiber (lihat model Onu.port_configs).
+    # None = belum pernah ditulis; UI melabelinya sebagai itu, bukan sebagai
+    # hasil baca perangkat.
+    port_configs: dict | None = None
 
 class OnuPage(BaseModel):
     items: list[OnuRow]

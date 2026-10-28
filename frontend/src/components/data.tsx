@@ -1,4 +1,4 @@
-import { Globe, GlobeX, LinkBreak, Plug, Prohibit, Question } from "@phosphor-icons/react";
+import { Globe, GlobeX, LinkBreak, Plug, Power, Prohibit, Question, Warning } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { Button } from "./ui/button";
@@ -6,23 +6,27 @@ import { Button } from "./ui/button";
 /** Satu-satunya peta status -> ikon/warna/label untuk seluruh aplikasi (AGENTS "DRY").
  *  Kunci = nilai enum backend: onus.status (online/offline/los/dying_gasp/power_off/
  *  unknown), onus.admin_state "disabled", dan olts.status (online/offline/unreachable).
- *  Warna BUKAN satu-satunya pembeda: bentuk ikon berbeda per status, plus label teks
- *  di `title` (tooltip) dan di span sr-only (pembaca layar). */
+ *  Warna BUKAN satu-satunya pembeda: bentuk ikon berbeda per status DAN label teks
+ *  tampil di samping ikon secara default (withLabel=true) — title/sr-only hanya
+ *  pelengkap, bukan satu-satunya pembawa label. Pasangan yang dulu duplikat ikon
+ *  kini dibedakan: offline GlobeX vs unreachable Warning, dying_gasp Plug vs
+ *  power_off Power (Power dari paket @phosphor-icons/react yang sama, bukan
+ *  dependensi baru; ikon lain di peta ini sudah dipakai proyek). */
 const ONU_STATUS: Record<string, [label: string, icon: Icon, color: string]> = {
   online: ["Online", Globe, "text-up"],
   offline: ["Offline", GlobeX, "text-down"],
   los: ["LOS — kabel/serat putus", LinkBreak, "text-down"],
   dying_gasp: ["Dying Gasp — listrik pelanggan mati", Plug, "text-down"],
-  power_off: ["Mati listrik", Plug, "text-down"],
+  power_off: ["Mati listrik", Power, "text-down"],
   disabled: ["Dinonaktifkan operator", Prohibit, "text-idle"],
   unknown: ["Belum diketahui", Question, "text-idle"],
-  unreachable: ["Tak terjangkau", GlobeX, "text-down"],
+  unreachable: ["Tak terjangkau", Warning, "text-down"],
 };
 
 /** `reason` dipakai saat ada keterangan tambahan dari perangkat (mis. last_down_reason):
  *  ikut masuk tooltip + label pembaca layar, tidak mengubah ikon. */
 export function StatusBadge(
-  { status, reason, withLabel = false }:
+  { status, reason, withLabel = true }:
   { status: string; reason?: string | null; withLabel?: boolean },
 ) {
   const [label, Ikon, color] = ONU_STATUS[status] ?? ["Belum diketahui", Question, "text-idle"];
@@ -55,25 +59,48 @@ export const RX_BUCKETS: Record<RxBucket, { label: string; segments: number; col
   good: { label: "Good", segments: 3, color: "bg-up" },
 };
 
-export function SignalBar({ dbm, big = false }: { dbm: number | null; big?: boolean }) {
+/* Varian `big` SignalBar sudah dihapus: grep membuktikan tidak ada caller yang
+ *  memakai big=true (hanya Configured yang memanggil, tanpa big). Pola sinyal
+ *  besar adalah RxBox di OnuDetail — itu dokumentasi untuk DESIGN.md, bukan kode
+ *  di sini (OnuDetail bukan file tahap ini). */
+export function SignalBar({ dbm }: { dbm: number | null }) {
   const b = rxBucket(dbm);
   const { segments, color, label } = b ? RX_BUCKETS[b] : { segments: 0, color: "", label: "LOS" };
   return (
     <span className="inline-flex items-center gap-2 font-mono" title={label}>
       <span className="flex w-12 gap-px" aria-hidden>
         {[0, 1, 2].map((i) => (
-          <span key={i} className={`h-1 flex-1 ${i < segments ? color : "bg-sunken"}`} />
+          <span key={i} className={`h-1 flex-1 transition-colors duration-300 ease-out motion-reduce:transition-none ${i < segments ? color : "bg-sunken"}`} />
         ))}
       </span>
-      <span className={big ? "text-metric font-semibold" : ""}>{dbm === null ? "LOS" : dbm.toFixed(1)}</span>
-      {big && dbm !== null && <span className="text-sm text-muted">dBm</span>}
+      <span>{dbm === null ? "LOS" : dbm.toFixed(1)}</span>
     </span>
   );
 }
 
+/** SATU bar bersama (DRY): dipakai UsageBar (crud.tsx) dan OltSyncProgress.
+ *  `pct` = persen 0–100 (dipotong di sini), `tone` = kelas warna isi, `className`
+ *  = lebar track (w-12 untuk UsageBar, w-24 untuk sinkron). Transisi lebar 300ms
+ *  yang sama di semua pemakai, dimatikan oleh prefers-reduced-motion. */
+export function Bar({ pct, tone = "bg-fiber", className = "w-12" }: { pct: number; tone?: string; className?: string }) {
+  const clamped = Math.max(0, Math.min(100, pct));
+  return (
+    <span className={`flex h-1 ${className} bg-sunken`} aria-hidden>
+      <span className={`h-1 transition-[width] duration-300 ease-out motion-reduce:transition-none ${tone}`} style={{ width: `${clamped}%` }} />
+    </span>
+  );
+}
+
+/* Header Panel = header sub-panel (uppercase text-xs muted), sengaja BERBEDA dari
+ *  header section halaman (Block/Section di OnuDetail, base bold fiber) — dua level
+ *  itu punya pekerjaan berbeda, jadi tidak disatukan. Panel punya padding default
+ *  p-4; caller yang memberi className sendiri tetap di-append terakhir. Perhatian
+ *  untuk verifikasi visual parent: tidak ada caller Panel yang memberi padding
+ *  berbeda, jadi p-4 ini berlaku ke semua Panel termasuk yang di OltDetail yang
+ *  isinya sudah px-4 sendiri (Row) — tampilannya perlu dicek, bukan diasumsikan. */
 export function Panel({ title, action, children, className = "" }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={`rounded-md border bg-surface ${className}`}>
+    <section className={`entrance rounded-md border bg-surface p-4 ${className}`}>
       {title && (
         <header className="flex items-center justify-between gap-2 border-b px-4 py-2">
           <h2 className="text-xs font-medium uppercase tracking-[0.02em] text-muted">{title}</h2>
@@ -106,11 +133,25 @@ export function Skeleton({ rows = 3, text }: { rows?: number; text: string }) {
   );
 }
 
-export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+/** Skeleton khusus kartu grafik: bentuknya meniru grafik (blok tinggi + baris
+ *  sumbu tipis), bukan bar generik — jadi kartu tidak melompat tinggi/bentuk
+ *  saat data datang. Tanpa pulse/shimmer (dilarang DESIGN.md). Pemakaian di
+ *  kartu grafik OnuDetail bukan file tahap ini, jadi tidak diganti di sini. */
+export function ChartSkeleton() {
+  return (
+    <div className="p-4" aria-busy>
+      <div className="h-36 border border-line/40 bg-sunken/20" />
+      <div className="mt-2 h-1 bg-sunken/20" />
+    </div>
+  );
+}
+
+export function ErrorState({ message, cause, onRetry }: { message: string; cause?: string; onRetry?: () => void }) {
   return (
     <div className="flex flex-wrap items-center gap-3 p-4" role="alert">
       <p className="text-down">{message}</p>
       {onRetry && <Button onClick={onRetry}>Coba lagi</Button>}
+      {cause && <p className="w-full text-xs text-muted">{cause}</p>}
     </div>
   );
 }

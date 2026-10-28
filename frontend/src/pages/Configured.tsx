@@ -12,7 +12,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
-  Confirm, FilterChip, MultiFilter, TableCard, cell, filterInput, input,
+  Confirm, FilterChip, MobileCard, MultiFilter, TableCard, cell, filterInput, input,
 } from "../components/crud";
 import { PageTitle, RX_BUCKETS, SignalBar, StatusBadge, fmtAgo, nf } from "../components/data";
 import { Button } from "../components/ui/button";
@@ -62,6 +62,7 @@ export function Configured() {
   const qc = useQueryClient();
   const { isManager } = useAuth();
   const [picked, setPicked] = useState<string[]>([]);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [bulk, setBulk] = useState<BulkAction | null>(null);
   const [note, setNote] = useState("");
   const [downloadError, setDownloadError] = useState("");
@@ -232,25 +233,32 @@ export function Configured() {
           options={(olts.data ?? []).map((o) => ({ value: String(o.id), label: o.name }))} />
         <MultiFilter label="Status" value={multi.status} onChange={(v) => patch({ status: v })}
           options={STATUS_OPTIONS} />
-        <MultiFilter label="Sinyal" value={multi.signal} onChange={(v) => patch({ signal: v })}
-          options={SIGNAL_OPTIONS} />
-        <MultiFilter label="Tipe" value={multi.onu_type} onChange={(v) => patch({ onu_type: v })}
-          options={onuTypes} />
-        <MultiFilter label="Profile download" value={multi.download_speed_profile_id}
-          onChange={(v) => patch({ download_speed_profile_id: v })}
-          options={(profiles.data ?? []).filter((p) => p.direction === "download")
-            .map((p) => ({ value: String(p.id), label: p.name }))} />
-        <MultiFilter label="Profile upload" value={multi.upload_speed_profile_id}
-          onChange={(v) => patch({ upload_speed_profile_id: v })}
-          options={(profiles.data ?? []).filter((p) => p.direction === "upload")
-            .map((p) => ({ value: String(p.id), label: p.name }))} />
-        <MultiFilter label="VLAN" value={multi.vlan_id} onChange={(v) => patch({ vlan_id: v })}
-          options={(vlans.data ?? []).map((v) => ({ value: String(v.id), label: `VLAN ${v.vlan_id} · ${v.name}` }))} />
-        <MultiFilter label="Zone" value={multi.zone_id} onChange={(v) => patch({ zone_id: v })}
-          options={(zones.data ?? []).map((z) => ({ value: String(z.id), label: z.name }))} />
-        <MultiFilter label="Splitter" value={multi.splitter_id}
-          onChange={(v) => patch({ splitter_id: v })}
-          options={(splitters.data ?? []).map((s) => ({ value: String(s.id), label: s.name }))} />
+        <Button size="sm" onClick={() => setShowMoreFilters((v) => !v)} aria-expanded={showMoreFilters}>
+          {showMoreFilters ? "Sembunyikan filter" : "Filter lainnya"}
+        </Button>
+        {showMoreFilters && (
+          <>
+            <MultiFilter label="Sinyal" value={multi.signal} onChange={(v) => patch({ signal: v })}
+              options={SIGNAL_OPTIONS} />
+            <MultiFilter label="Tipe" value={multi.onu_type} onChange={(v) => patch({ onu_type: v })}
+              options={onuTypes} />
+            <MultiFilter label="Profile download" value={multi.download_speed_profile_id}
+              onChange={(v) => patch({ download_speed_profile_id: v })}
+              options={(profiles.data ?? []).filter((p) => p.direction === "download")
+                .map((p) => ({ value: String(p.id), label: p.name }))} />
+            <MultiFilter label="Profile upload" value={multi.upload_speed_profile_id}
+              onChange={(v) => patch({ upload_speed_profile_id: v })}
+              options={(profiles.data ?? []).filter((p) => p.direction === "upload")
+                .map((p) => ({ value: String(p.id), label: p.name }))} />
+            <MultiFilter label="VLAN" value={multi.vlan_id} onChange={(v) => patch({ vlan_id: v })}
+              options={(vlans.data ?? []).map((v) => ({ value: String(v.id), label: `VLAN ${v.vlan_id} · ${v.name}` }))} />
+            <MultiFilter label="Zone" value={multi.zone_id} onChange={(v) => patch({ zone_id: v })}
+              options={(zones.data ?? []).map((z) => ({ value: String(z.id), label: z.name }))} />
+            <MultiFilter label="Splitter" value={multi.splitter_id}
+              onChange={(v) => patch({ splitter_id: v })}
+              options={(splitters.data ?? []).map((s) => ({ value: String(s.id), label: s.name }))} />
+          </>
+        )}
         {(activeChips.length > 0 || q) && (
           <Button variant="quiet" size="sm" onClick={() => { setSearchText(""); setParams(new URLSearchParams(), { replace: true }); }}>
             Reset
@@ -283,8 +291,44 @@ export function Configured() {
         query={{ ...onus, data: rows }}
         loadingText="Memuat ONU terkonfigurasi ..."
         empty="Tidak ada ONU yang cocok dengan filter ini."
-        columns={["", "Status", "Nama pelanggan", "Serial number", "OLT · PON", "VLAN",
-                  "Splitter", "Zone", "Rx ONU", "Rx OLT", "Terlihat"]}
+        columns={[
+          { label: "", header: (
+            <input type="checkbox" aria-label="Pilih semua di halaman ini" checked={allPicked}
+                   onChange={(e) => setPicked(e.target.checked ? rows.map((r) => r.serial_number) : [])} />
+          )},
+          "Status", "Nama pelanggan", "Serial number ↑", "OLT · PON", "VLAN",
+          { label: "Splitter", className: "hidden lg:table-cell" },
+          { label: "Zone", className: "hidden lg:table-cell" },
+          "Rx ONU",
+          { label: "Rx OLT", className: "hidden lg:table-cell" },
+          "Terlihat"]}
+        card={(o: OnuRow) => (
+          <MobileCard key={o.id} onClick={() => navigate(`/onu/${o.id}`)}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate font-medium">{o.customer_name ?? o.name ?? "—"}</span>
+              <span className="flex shrink-0 items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  aria-label={`Pilih ${o.serial_number}`}
+                  checked={picked.includes(o.serial_number)}
+                  onChange={(e) => setPicked(e.target.checked
+                    ? [...picked, o.serial_number]
+                    : picked.filter((s) => s !== o.serial_number))}
+                />
+                <StatusBadge status={o.admin_state === "disabled" ? "disabled" : o.status}
+                             reason={o.last_down_reason} withLabel />
+              </span>
+            </div>
+            <p className="truncate font-mono text-xs text-muted">
+              {o.serial_number} · {o.olt_name} · {o.slot}/{o.port}{o.onu_index === null ? "" : `:${o.onu_index}`}
+            </p>
+            <p className="flex flex-wrap items-center gap-2 text-xs">
+              <SignalBar dbm={o.rx_power_dbm} />
+              <span className="font-mono text-muted">VLAN {o.vlan_number ?? "—"}</span>
+              <span className="text-muted">Terlihat {fmtAgo(o.last_seen_at)}</span>
+            </p>
+          </MobileCard>
+        )}
         row={(o: OnuRow) => (
           <tr
             key={o.id}
@@ -303,7 +347,7 @@ export function Configured() {
             </td>
             <td className={cell}>
               <StatusBadge status={o.admin_state === "disabled" ? "disabled" : o.status}
-                           reason={o.last_down_reason} />
+                           reason={o.last_down_reason} withLabel />
             </td>
             <td className={cell}>{o.customer_name ?? o.name ?? "—"}</td>
             <td className={`${cell} font-mono`}>{o.serial_number}</td>
@@ -311,10 +355,10 @@ export function Configured() {
               {o.olt_name} · {o.slot}/{o.port}{o.onu_index === null ? "" : `:${o.onu_index}`}
             </td>
             <td className={`${cell} font-mono`}>{o.vlan_number ?? "—"}</td>
-            <td className={cell}>{o.splitter_name ?? "—"}</td>
-            <td className={cell}>{o.zone_name ?? "—"}</td>
+            <td className={`${cell} hidden lg:table-cell`}>{o.splitter_name ?? "—"}</td>
+            <td className={`${cell} hidden lg:table-cell`}>{o.zone_name ?? "—"}</td>
             <td className={cell}><SignalBar dbm={o.rx_power_dbm} /></td>
-            <td className={`${cell} font-mono`}>
+            <td className={`${cell} font-mono hidden lg:table-cell`}>
               {o.olt_rx_power_dbm === null ? "—" : Number(o.olt_rx_power_dbm).toFixed(1)}
             </td>
             <td className={`${cell} font-mono`}>{fmtAgo(o.last_seen_at)}</td>
@@ -338,7 +382,7 @@ export function Configured() {
       </div>
 
       {picked.length > 0 && (
-        <div className="sticky bottom-0 mt-2 flex flex-wrap items-center gap-2 rounded-md border bg-surface p-2 shadow-modal">
+        <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 mt-2 flex flex-wrap items-center gap-2 rounded-md border bg-surface p-2 shadow-modal lg:bottom-0">
           <span className="font-semibold">{picked.length} dipilih</span>
           <Button size="sm" onClick={() => setBulk("reboot_onu")}>Reboot</Button>
           <Button size="sm" onClick={() => setBulk("resync_onu")}>Resync config</Button>
@@ -366,16 +410,10 @@ export function Configured() {
         />
       )}
 
-      {/* ponytail: pilih-semua hanya untuk halaman yang tampil, bukan seluruh hasil filter —
-          aksi massal dibatasi 200 ONU di backend. skipped: "pilih semua hasil filter",
-          tambah kalau operator memang butuh aksi >200 ONU sekaligus. */}
-      {rows.length > 0 && (
-        <label className="mt-2 inline-flex items-center gap-2 text-muted">
-          <input type="checkbox" checked={allPicked}
-                 onChange={(e) => setPicked(e.target.checked ? rows.map((r) => r.serial_number) : [])} />
-          Pilih semua di halaman ini
-        </label>
-      )}
+      {/* ponytail: pilih-semua di header kolom pertama, hanya untuk halaman yang
+          tampil, bukan seluruh hasil filter — aksi massal dibatasi 200 ONU di backend.
+          skipped: "pilih semua hasil filter", tambah kalau operator memang butuh
+          aksi >200 ONU sekaligus. */}
     </>
   );
 }

@@ -12,27 +12,27 @@ export type ConfirmKind = "reboot" | "disable" | "enable" | "resync-config" | "r
 
 const TEXT: Record<ConfirmKind, { title: string; body: string; action: string; danger?: boolean; warn?: boolean }> = {
   reboot: {
-    title: "Reboot", action: "Reboot", warn: true,
+    title: "Restart ONU", action: "Restart", warn: true,
     body: "ONU mati sekitar satu menit lalu hidup kembali.",
   },
   disable: {
-    title: "Disable ONU", action: "Disable", warn: true,
+    title: "Nonaktifkan ONU", action: "Nonaktifkan", warn: true,
     body: "Semua layanan ONU ini dimatikan di OLT.",
   },
   enable: {
-    title: "Enable ONU", action: "Enable",
+    title: "Aktifkan ONU", action: "Aktifkan",
     body: "Layanan ONU ini dihidupkan kembali.",
   },
   "resync-config": {
-    title: "Recreate OLT config for this ONU", action: "Resync config", warn: true,
+    title: "Buat ulang konfigurasi OLT untuk ONU ini", action: "Sinkron ulang konfigurasi", warn: true,
     body: "Konfigurasi ONU di OLT dibuat ulang dari database Nexfiber (sekitar 30 detik).",
   },
   "restore-factory": {
-    title: "Restore to factory defaults", action: "Restore to factory defaults", warn: true,
+    title: "Kembalikan ke setelan pabrik", action: "Kembalikan ke setelan pabrik", danger: true,
     body: "Semua setelan pelanggan di perangkat hilang, termasuk SSID dan sandi WiFi.",
   },
   delete: {
-    title: "Delete", action: "Delete", danger: true,
+    title: "Hapus ONU", action: "Hapus", danger: true,
     body: "ONU dihapus dari OLT dan dari daftar Nexfiber. Riwayat sinyal tetap tersimpan.",
   },
 };
@@ -58,7 +58,7 @@ export function ConfirmActionModal(
   const [typed, setTyped] = useState("");
   const ok = !needsTyped || typed === serial;
   return (
-    <ModalShell title={t.title} action={t.action} danger={t.danger} warn={t.warn}
+    <ModalShell title={t.title} action={t.action} danger={t.danger} warn={t.warn} dirty={typed !== ""}
                 supported={supported} note={note}
                 busy={busy} error={error} disabled={!ok} onClose={onClose}
                 onSubmit={() => ok && onConfirm(kind)}>
@@ -69,7 +69,7 @@ export function ConfirmActionModal(
           <span className="mb-1.5 block text-sm font-semibold text-ink">
             Ketik serial number untuk konfirmasi
           </span>
-          <input className={field} value={typed} autoComplete="off" placeholder={serial}
+          <input className={field} value={typed} autoComplete="off" placeholder={serial} autoFocus
                  aria-label="Konfirmasi serial number"
                  onChange={(e) => setTyped(e.target.value.trim())} />
           {typed !== "" && typed !== serial && (

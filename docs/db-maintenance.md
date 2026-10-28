@@ -49,18 +49,27 @@ Status jujur: prosedur langkah 3 di atas belum pernah dijalankan/dites
 terhadap database produksi di repo ini. Jangan menjalankannya tanpa backup
 terbaru dan tanpa mengukur ukuran `activity_logs_default` dulu.
 
-## 2. Retensi — belum diputuskan (jangan hapus data berdasarkan dokumen ini)
+## 2. Retensi — otomatis, kecuali dua periode provisional
 
 - Retensi data graph (trafik/sinyal) **sudah otomatis**: purge harian pukul
   03:00 oleh scheduler (`purge_graph_data`), mengikuti setting di
-  Settings → Graph Data (default trafik 30 hari, sinyal 90 hari).
-- Retensi `activity_logs`, `jobs`, dan `olt_config_backups` **belum
-  diimplementasikan dan periodenya belum diputuskan pemilik**. Model
-  `activity_logs` menyebut "Retention 1 year" di docstring, tetapi tidak ada
-  kode purge untuk tabel itu, dan periode tersebut belum dikonfirmasi sebagai
-  keputusan. **Jangan menghapus log/jobs/backup berdasarkan asumsi periode
-  dari dokumen ini.** Bila pemilik sudah memutuskan periodenya, implementasi
-  purge harus ditambahkan sebagai job scheduler terpisah dan dites dulu.
+  Settings → Graph Data (default trafik 30 hari, sinyal 90 hari). Purge ini
+  dicatat ringkas di activity log (`housekeeping.purge_graph`: jumlah per
+  jenis, tanpa isi baris).
+- Retensi `activity_logs`, `jobs`, dan `olt_config_backups` **sudah otomatis**
+  lewat `housekeeping_service.purge_all`, dijadwalkan pukul 03:30 oleh
+  scheduler (`purge_housekeeping`), setelah purge graph. Aturan: hanya baris
+  melewati retensi yang dihapus, ber-batch, dan setiap jalan purge mencatat
+  satu baris ringkasan `housekeeping.purge` (jumlah per tabel, tanpa isi).
+  - `activity_logs`: 365 hari — angka ini ADA di PRD (Logs: retensi default
+    365 hari; raw_command/raw_output retensi 1 tahun) dan docstring model.
+  - `jobs`: 180 hari, hanya job terminal (success/failed/cancelled), tidak
+    pernah job pending/running, dan tidak pernah job yang masih dirujuk
+    activity_log. **PROVISIONAL: PRD diam soal retensi jobs, periode ini
+    masih butuh konfirmasi pemilik sebelum dianggap final.**
+  - `olt_config_backups`: 90 hari, dengan pengecualian backup terbaru tiap
+    OLT tidak pernah dihapus. **PROVISIONAL: PRD diam soal retensi backup,
+    periode ini masih butuh konfirmasi pemilik sebelum dianggap final.**
 - Enkripsi backup config: **belum diubah**. Backup (`olt_config_backups`)
   menyimpan running-config apa adanya; mengubah format penyimpanannya
   menjadi terenkripsi butuh migrasi data + pengujian baca-tulis dan tidak

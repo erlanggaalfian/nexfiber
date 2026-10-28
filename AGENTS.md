@@ -15,7 +15,7 @@ Nexfiber = aplikasi web manajemen OLT/ONU untuk ISP. Greenfield, dirawat satu or
 - Job queue: tabel Postgres `SELECT … FOR UPDATE SKIP LOCKED` + `LISTEN/NOTIFY`. **Bukan** Celery/Redis.
 - Frontend: React 19, Vite 7, TypeScript, Tailwind CSS v4, shadcn/ui (copy-in, token di-override), Phosphor Icons (npm), react-router v7 mode library (`BrowserRouter` + `Routes`), TanStack Query v5, TanStack Table, React Hook Form + Zod, font `@fontsource` IBM Plex Sans/Mono.
 - **Dilarang**: Next.js, Lucide, Redux/Zustand untuk data server, CDN apa pun (Google Fonts dll — server bisa tanpa internet), Docker/K8s.
-- Deploy: systemd + Caddy. `install.sh` / `update.sh` / `uninstall.sh` di root repo sudah final; ubah hanya path/variabel bila struktur folder nyata berbeda.
+- Deploy: systemd, LAN-only tanpa Caddy (keputusan terkunci di DECISIONS.md: satu port HTTP langsung, port 8088, frontend disajikan FastAPI; rencana Caddy di PRD sudah kedaluwarsa untuk server ini). `install.sh` / `update.sh` / `uninstall.sh` di root repo sudah final; ubah hanya path/variabel bila struktur folder nyata berbeda. Lihat `docs/deploy.md`.
 
 ## Aturan produk yang sering terlewat
 - Navigasi: **desktop ≥ 1024px menu di header atas** (tanpa sidebar). **< 1024px navigasi bawah 5 tab** (Dashboard · Unconfigured · Configured · Logs · Lainnya). Lihat DESIGN §11–§11.1.

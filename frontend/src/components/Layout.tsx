@@ -1,4 +1,4 @@
-import { ArrowLeft, CaretDown, MagnifyingGlass, WaveSine } from "@phosphor-icons/react";
+import { ArrowLeft, CaretDown, WaveSine } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DropdownMenu, Popover } from "radix-ui";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
@@ -12,7 +12,7 @@ import { fmtTime } from "./data";
 const ROLE_LABEL = { superadmin: "Superadmin", admin: "Admin", user: "User" };
 const overlay = "z-50 rounded-md border bg-surface p-1 shadow-overlay";
 const menuItem =
-  "flex h-9 cursor-pointer items-center gap-2 rounded-sm px-2 text-sm text-ink outline-none data-[highlighted]:bg-sunken";
+  "flex h-9 cursor-pointer items-center gap-2 rounded-sm px-2 text-sm text-ink outline-none data-[highlighted]:bg-sunken data-[highlighted]:outline-2 data-[highlighted]:outline-solid data-[highlighted]:outline-focus";
 
 function usePending() {
   return useQuery({
@@ -25,17 +25,17 @@ function usePending() {
 function Badge({ n, className = "" }: { n: number; className?: string }) {
   if (!n) return null;
   return (
-    <span className={`rounded-sm bg-amber px-1 font-mono text-xs leading-4 text-white ${className}`}>
+    <span className={`rounded-sm bg-amber px-1 font-mono text-xs leading-4 text-on-amber ${className}`}>
       {n > 99 ? "99+" : n}
     </span>
   );
 }
 
 const menuClass = (active: boolean) =>
-  `relative flex h-14 items-center gap-1.5 rounded-sm px-3 text-sm font-medium ${
+  `relative flex h-14 items-center gap-1.5 rounded-sm px-3 text-sm ${
     active
-      ? "text-ink after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-fiber"
-      : "text-muted hover:bg-sunken hover:text-ink"
+      ? "font-semibold text-ink after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-fiber"
+      : "font-medium text-muted hover:bg-sunken hover:text-ink"
   }`;
 
 function SettingsMenu() {
@@ -53,6 +53,7 @@ function SettingsMenu() {
           {items.map((i, idx) => {
             const sep = i.soon && !items[idx - 1]?.soon;
             const Ic = i.icon;
+            const isActive = pathname === i.to;
             return (
               <div key={i.to}>
                 {sep && <DropdownMenu.Separator className="my-1 h-px bg-line" />}
@@ -62,8 +63,8 @@ function SettingsMenu() {
                     <span className="text-xs">Segera</span>
                   </DropdownMenu.Item>
                 ) : (
-                  <DropdownMenu.Item asChild className={menuItem}>
-                    <Link to={i.to}>
+                  <DropdownMenu.Item asChild className={`${menuItem}${isActive ? " bg-sunken font-semibold text-ink" : ""}`}>
+                    <Link to={i.to} aria-current={isActive ? "page" : undefined}>
                       <Ic size={16} /> {i.label}
                     </Link>
                   </DropdownMenu.Item>
@@ -84,8 +85,11 @@ function SystemDot() {
     refetchInterval: 30_000,
   });
   const alive = q.data?.worker_alive;
-  const label = q.isPending ? "Memeriksa" : alive ? "Sistem aktif" : "Worker mati";
-  const color = q.isPending ? "bg-idle" : alive ? "bg-up" : "bg-down";
+  // Tertunda = worker hidup tapi masih ada job yang mengantre (data yang sudah
+  // diambil query ini, tanpa endpoint/polling baru, tanpa animasi pada titik).
+  const stalled = alive && (q.data?.jobs_pending ?? 0) > 0;
+  const label = q.isPending ? "Memeriksa" : stalled ? "Sistem tertunda" : alive ? "Sistem aktif" : "Worker mati";
+  const color = q.isPending ? "bg-idle" : stalled ? "bg-warn" : alive ? "bg-up" : "bg-down";
   return (
     <Popover.Root>
       <Popover.Trigger className="flex h-8 items-center gap-1.5 rounded-sm px-2 text-xs text-muted hover:bg-sunken" title={label}>
@@ -117,10 +121,12 @@ function AvatarMenu() {
   return (
     <DropdownMenu.Root modal={false}>
       <DropdownMenu.Trigger
-        className="flex size-7 items-center justify-center rounded-full bg-sunken text-xs font-semibold text-ink"
+        className="flex size-12 items-center justify-center lg:size-7"
         aria-label={`Akun ${me.full_name}`}
       >
-        {initials(me.full_name)}
+        <span className="flex size-7 items-center justify-center rounded-full bg-sunken text-xs font-semibold text-ink">
+          {initials(me.full_name)}
+        </span>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align="end" sideOffset={4} className={`${overlay} w-60`}>
@@ -166,18 +172,6 @@ function DesktopHeader({ pending }: { pending: number }) {
           <NavLink to="/logs" className={({ isActive }) => menuClass(isActive)}>Logs</NavLink>
         </nav>
         <div className="ml-auto flex items-center gap-2">
-          {/* Pencarian header BELUM berfungsi (command palette ditunda ke tahap search):
-              input dinonaktifkan supaya tidak terlihat bisa dipakai. */}
-          <label className="relative" title="Pencarian segera hadir">
-            <span className="sr-only">Cari (segera hadir)</span>
-            <input
-              type="search"
-              disabled
-              placeholder="Cari (segera hadir)"
-              className="h-8 w-60 rounded-sm border border-line-strong bg-surface pr-9 pl-2 text-sm placeholder:text-faint disabled:opacity-60"
-            />
-            <kbd aria-hidden className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 font-mono text-xs text-faint">Segera</kbd>
-          </label>
           <SystemDot />
           <AvatarMenu />
         </div>
@@ -194,14 +188,11 @@ function MobileTopBar({ isTab, title }: { isTab: boolean; title: string }) {
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b bg-surface px-3 lg:hidden">
       {!isTab && (
-        <button onClick={goBack} className="-ml-1 flex size-11 items-center justify-center" aria-label="Kembali">
+        <button onClick={goBack} className="-ml-1 flex size-12 items-center justify-center rounded-sm transition-colors duration-[var(--motion-hover)] hover:bg-sunken motion-reduce:transition-none" aria-label="Kembali">
           <ArrowLeft size={20} />
         </button>
       )}
       <span className="min-w-0 flex-1 truncate text-lg font-semibold" aria-hidden>{title}</span>
-      <button disabled title="Pencarian segera hadir" className="flex size-11 items-center justify-center text-muted disabled:opacity-60" aria-label="Cari (segera hadir)">
-        <MagnifyingGlass size={20} />
-      </button>
       <AvatarMenu />
     </header>
   );
@@ -232,7 +223,7 @@ function BottomNav({ pending }: { pending: number }) {
           >
             <span className="relative flex h-8 w-14 items-center justify-center">
               <span
-                className={`absolute inset-0 rounded-2xl bg-fiber/12 transition-transform duration-150 ease-out motion-reduce:transition-none ${active ? "scale-100" : "scale-0"}`}
+                className={`absolute inset-0 rounded-nav bg-fiber/12 transition-transform duration-[var(--motion-hover)] ease-out motion-reduce:transition-none ${active ? "scale-100" : "scale-0"}`}
                 aria-hidden
               />
               <Ic size={24} weight={active ? "fill" : "regular"} className={`relative ${active ? "text-fiber" : ""}`} />
@@ -263,7 +254,7 @@ export function Layout() {
       )}
       <DesktopHeader pending={pending} />
       <MobileTopBar isTab={isTab} title={pageTitle(pathname)} />
-      <main id="konten" className={`mx-auto max-w-[1440px] p-3 lg:p-4 ${isTab ? "pb-24 lg:pb-4" : ""}`}>
+      <main id="konten" className={`mx-auto max-w-[1440px] p-3 lg:p-4 ${isTab ? "pb-24 lg:pb-4" : "pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:pb-4"}`}>
         <Outlet />
       </main>
       {isTab && <BottomNav pending={pending} />}

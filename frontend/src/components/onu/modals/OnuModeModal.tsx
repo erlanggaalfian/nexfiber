@@ -53,6 +53,12 @@ export function OnuModeModal(
       pppoe_username?: string | null;
       /** Plaintext dari backend (manager saja); diisi ke field supaya bisa dilihat/diubah. */
       pppoe_password?: string | null;
+      /** Field ini saat ini TIDAK dikirim backend — bila suatu saat dikirim,
+       *  nilai awalnya dipakai, bukan di-reset ke default di bawah. */
+      config_method?: string | null;
+      wan_ip_source?: string | null;
+      wan_ip?: string | null;
+      wan_remote_access?: string | null;
     };
     supported: boolean | null;
     note?: string | null;
@@ -62,20 +68,38 @@ export function OnuModeModal(
     onSubmit: (body: OnuModeBody) => void;
   },
 ) {
-  const [wanVlan, setWanVlan] = useState(current.wan_vlan === null ? "" : String(current.wan_vlan));
-  const [mode, setMode] = useState<"routing" | "bridging">(
-    (current.onu_mode ?? "").toLowerCase() === "bridging" ? "bridging" : "routing",
-  );
-  const [wanMode, setWanMode] = useState<OnuModeBody["wan_mode"]>(() => {
-    const v = (current.wan_mode ?? "").toLowerCase();
-    return WAN_MODES.some((m) => m.value === v) ? (v as OnuModeBody["wan_mode"]) : "webpage";
-  });
-  const [cfg, setCfg] = useState<"omci" | "tr069">("omci");
-  const [ipSource, setIpSource] = useState<"pool" | "manual">("pool");
-  const [ip, setIp] = useState("");
-  const [user, setUser] = useState(current.pppoe_username ?? "");
-  const [pass, setPass] = useState(current.pppoe_password ?? "");
-  const [remote, setRemote] = useState("disabled");
+  const init = {
+    wanVlan: current.wan_vlan === null ? "" : String(current.wan_vlan),
+    mode: (current.onu_mode ?? "").toLowerCase() === "bridging" ? "bridging" : "routing",
+    wanMode: (() => {
+      const v = (current.wan_mode ?? "").toLowerCase();
+      return WAN_MODES.some((m) => m.value === v) ? (v as OnuModeBody["wan_mode"]) : "webpage";
+    })(),
+    // Jangan reset ke default bila nilai awal sudah ada di state/prop.
+    cfg: (current.config_method ?? "").toLowerCase() === "tr069" ? "tr069" : "omci",
+    ipSource: (current.wan_ip_source ?? "").toLowerCase() === "manual" ? "manual" : "pool",
+    ip: current.wan_ip ?? "",
+    user: current.pppoe_username ?? "",
+    pass: current.pppoe_password ?? "",
+    remote: (() => {
+      const v = (current.wan_remote_access ?? "").toLowerCase();
+      return REMOTE.some((r) => r.value === v) ? v : "disabled";
+    })(),
+  } as const;
+  const [wanVlan, setWanVlan] = useState(init.wanVlan);
+  const [mode, setMode] = useState<"routing" | "bridging">(init.mode);
+  const [wanMode, setWanMode] = useState<OnuModeBody["wan_mode"]>(init.wanMode);
+  const [cfg, setCfg] = useState<"omci" | "tr069">(init.cfg);
+  const [ipSource, setIpSource] = useState<"pool" | "manual">(init.ipSource);
+  const [ip, setIp] = useState(init.ip);
+  const [user, setUser] = useState(init.user);
+  const [pass, setPass] = useState(init.pass);
+  const [remote, setRemote] = useState(init.remote);
+  const dirty = wanVlan !== init.wanVlan || mode !== init.mode || wanMode !== init.wanMode
+    || cfg !== init.cfg || ipSource !== init.ipSource || ip !== init.ip || user !== init.user
+    || pass !== init.pass || remote !== init.remote;
+  const unread = current.config_method == null && current.wan_ip_source == null
+    && current.wan_ip == null && current.wan_remote_access == null;
 
   const routing = mode === "routing";
   const isStatic = routing && wanMode === "static";
@@ -88,8 +112,8 @@ export function OnuModeModal(
   const vlanChoices = wanVlanChoices(options?.vlans, current.attached_vlans, current.wan_vlan);
 
   return (
-    <ModalShell title="Update ONU mode" action="Update" supported={supported} note={note}
-                busy={busy} error={error} onClose={onClose}
+    <ModalShell title="Perbarui mode ONU" action="Simpan" supported={supported} note={note}
+                busy={busy} error={error} onClose={onClose} dirty={dirty}
                 onSubmit={() => onSubmit({
                   wan_vlan: wanVlan === "" ? null : Number(wanVlan),
                   onu_mode: mode,
@@ -101,11 +125,14 @@ export function OnuModeModal(
                   pppoe_password: isPppoe ? text(pass) : null,
                   wan_remote_access: remote,
                 })}>
+      <div className="mb-3.5">
+        <Help>Konfigurasi saat ini: <span className="font-mono">{init.mode} · {init.wanMode} · WAN VLAN {init.wanVlan === "" ? "—" : init.wanVlan}</span>{unread && ". Config method / sumber IP / akses remote belum dibaca dari perangkat, diisi nilai baru."}</Help>
+      </div>
       <Row label="WAN VLAN-ID"
            hint={<Help warn>
              Setelah WAN VLAN-ID diubah, periksa setelan port Ethernet dan perbarui VLAN sesuai kebutuhan.
            </Help>}>
-        <Select value={wanVlan} onChange={setWanVlan} placeholder="Tanpa VLAN" label="WAN VLAN-ID">
+        <Select value={wanVlan} onChange={setWanVlan} placeholder="Tanpa VLAN" label="WAN VLAN-ID" autoFocus>
           {vlanChoices.map((v) => (
             <option key={v.number} value={v.number}>
               {v.name === null ? v.number : `${v.number} - ${v.name}`}

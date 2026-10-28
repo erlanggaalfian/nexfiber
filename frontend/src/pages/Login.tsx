@@ -6,7 +6,10 @@ import { Button } from "../components/ui/button";
 import { api, setToken } from "../lib/api";
 import { login } from "../lib/auth";
 
-export const input = "h-10 w-full rounded-sm border border-line-strong bg-surface px-2 text-base";
+/* Kartu auth memakai tinggi form yang sama dengan form di dalam aplikasi
+   (DESIGN §8: 32px desktop, 48px di bawah 768px); tombol submit mengikuti
+   tinggi tombol default, bukan 40px terpisah. */
+export const input = "h-8 max-md:h-12 w-full min-w-0 rounded-sm border border-line-strong bg-surface px-3 text-sm";
 
 /** DESIGN 12.1: one card for Login and Setup. */
 export function AuthCard({ onSubmit, children }: { onSubmit: (e: FormEvent<HTMLFormElement>) => void; children: ReactNode }) {
@@ -15,7 +18,7 @@ export function AuthCard({ onSubmit, children }: { onSubmit: (e: FormEvent<HTMLF
       <p className="flex items-center gap-2 text-[15px] font-semibold">
         <WaveSine size={20} className="text-fiber" /> Nexfiber
       </p>
-      <form onSubmit={onSubmit} className="w-full max-w-[360px] rounded-md border bg-surface p-4">
+      <form onSubmit={onSubmit} className="entrance w-full max-w-[360px] rounded-md border bg-surface p-4">
         {children}
       </form>
     </main>
@@ -77,7 +80,7 @@ export function Login() {
       <Field label="Username" name="username" autoFocus autoComplete="username" />
       <Field label="Password" name="password" type="password" autoComplete="current-password" />
       {error && <p className="mb-3 text-down" role="alert">{error}</p>}
-      <Button type="submit" variant="fiber" size="lg" className="w-full" disabled={busy}>
+      <Button type="submit" variant="fiber" className="w-full" disabled={busy}>
         {busy ? "Masuk ..." : "Masuk"}
       </Button>
     </AuthCard>

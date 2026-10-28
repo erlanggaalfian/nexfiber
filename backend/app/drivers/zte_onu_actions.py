@@ -33,6 +33,15 @@ import re
 
 VLAN_MIN, VLAN_MAX = 1, 4094
 
+#: Rack OLT di semua nama interface `gpon-onu_`/`gpon-olt_`. SATU-SATUNYA sumber
+#: rack yang tersedia: tidak ada kolom rack di `olts`/`pon_ports` (hanya slot, port,
+#: dan ifindex), dan skema ifindex PON (1012.3.28) hanya mengkode slot/port — jadi
+#: rack tidak bisa diturunkan dari DB mana pun. `show card` memang punya kolom Rack,
+#: tapi kartu tidak disimpan per PON. Semua transkrip di repo memakai rack 1 (C320
+#: satu rak yang teramati); bila OLT multi-rak dipakai, rack harus jadi kolom DB +
+#: migrasi, bukan sekadar mengganti angka di sini.
+RACK = 1
+
 # Mode port eth: label SmartOLT -> mode CLI ZTE. "lan"/"access" dua-duanya tagged
 # single-VLAN di ZTE (tidak ada kata "lan"/"access" di CLI-nya).
 ETH_MODE_CLI = {
@@ -91,11 +100,11 @@ UNSUPPORTED_KINDS: dict[str, str] = {
 
 
 def onu_iface(slot: int, port: int, onu_id: int) -> str:
-    return f"gpon-onu_1/{slot}/{port}:{onu_id}"
+    return f"gpon-onu_{RACK}/{slot}/{port}:{onu_id}"
 
 
 def olt_iface(slot: int, port: int) -> str:
-    return f"gpon-olt_1/{slot}/{port}"
+    return f"gpon-olt_{RACK}/{slot}/{port}"
 
 
 def validate_vlan(vlan: int | None) -> int:
@@ -346,7 +355,16 @@ def build_mgmt_ip(slot: int, port: int, onu_id: int, *, mode: str, ip: str | Non
 
 
 def build_voip(slot: int, port: int, onu_id: int, *, enabled: bool) -> list[str]:
-    """Enable/Disable VoIP: `voip protocol sip` vs `voip protocol none`."""
+    """Enable/Disable VoIP: `voip protocol sip` vs `voip protocol none`.
+
+    Hanya itu yang terbukti: round-trip sip -> none -> sip di ONU uji
+    gpon-onu_1/4/1:11, 2026-10-25 (tests/test_live_onu_actions.py). TIDAK ada
+    sintaks akun SIP (nomor telepon/sandi) yang terbukti di repo — probe help
+    `pon-onu-mng` hanya memuat `voip protocol {sip|h248|mgcp|none|non-omci}`,
+    dan NEXFIBER-CLI-REFERENCE tidak punya blok akun SIP. Karena itu builder ini
+    sengaja TIDAK menerima nomor/sandi, dan service menolaknya eksplisit bila
+    dikirim — daripada diam-diam membuangnya seperti dulu.
+    """
     return [f"pon-onu-mng {onu_iface(slot, port, onu_id)}",
             f"voip protocol {'sip' if enabled else 'none'}", "exit"]
 

@@ -17,6 +17,7 @@ fetch_inventory + optical (Rx ONU/OLT) sekarang TERVERIFIKASI terhadap OLT SBI
 import re
 
 from app.drivers import onu_report
+from app.drivers import zte_onu_actions as za
 from app.drivers.base import OltDriver
 from app.drivers.errors import ZTE_ERROR_PATTERNS, has_confirmation_prompt, is_error_output
 from app.drivers.transport.snmp import SnmpTransport
@@ -284,8 +285,23 @@ class ZteC320Driver(OltDriver):
                                  message="OLT rejected command")
         return DriverResult(success=True, raw_command=command, raw_output=output)
 
-    async def _send_config(self, cli, commands: list[str]) -> DriverResult:
+    async def _send_config(self, cli, commands: list[str], *, persist: bool = False,
+                           ) -> DriverResult:
         """Kirim perintah config SATU PER SATU, berhenti pada error pertama.
+
+        `persist=True` menambah langkah terakhir `write` SETELAH keluar dari mode
+        config (persis urutan blok-blok NEXFIBER-CLI-REFERENCE yang berstatus
+        produksi: `... exit / exit / write`). Sebelum perubahan ini driver TIDAK
+        PERNAH mengirim `write`, jadi semua tulis konfigurasi hanya mengubah
+        running-config dan hilang bila OLT reboot. Default False, tapi semua
+        pemanggil tulis-konfigurasi (authorize/modify/delete/set_state/VLAN/
+        profil/port/set_onu_vlan) kini memakai persist=True; hanya reboot yang
+        tetap False karena bukan tulis konfigurasi. Pemanggil yang mengaktifkan
+        harus sadar: `write` sendiri belum pernah dijalankan lewat
+        driver ini (hanya terbukti lewat blok referensi), jadi bila `write`
+        menunggu konfirmasi atau ditolak, hasilnya dilaporkan GAGAL dengan pesan
+        "teraplikasi tapi belum tersimpan" — perintah yang sudah terkirim TIDAK
+        di-rollback, dan retry akan mengirim ulang perintah yang idempotent.
 
         Alasan: `send_config_set` netmiko mengirim seluruh daftar lalu mengembalikan
         satu output gabungan — perintah yang ditolak di tengah tetap diikuti perintah
@@ -349,6 +365,33 @@ class ZteC320Driver(OltDriver):
                     message=f"OLT menolak perintah '{cmd}'; perintah setelahnya "
                             "tidak dikirim")
         await _leave_config()
+        if not persist:
+            return DriverResult(success=True, raw_command=" ; ".join(sent),
+                                raw_output="\n".join(outputs))
+        # Di luar mode config (privileged) — `write` di dalam mode config akan
+        # ditolak perangkat. Prompt konfirmasi TIDAK pernah dijawab "y" diam-diam
+        # (kebijakan yang sama dengan perintah lain di atas).
+        write_out = await cli.send_command("write")
+        outputs.append(write_out)
+        sent.append("write")
+        if has_confirmation_prompt(write_out):
+            try:
+                outputs.append(await cli.send_command("n"))
+            except Exception:
+                pass
+            return DriverResult(
+                success=False, raw_command=" ; ".join(sent),
+                raw_output="\n".join(outputs),
+                message="Perintah teraplikasi, tapi 'write' menunggu konfirmasi; "
+                        "dibatalkan — konfigurasi BELUM tersimpan ke startup "
+                        "(hilang bila OLT reboot)")
+        if is_error_output(write_out, ZTE_ERROR_PATTERNS):
+            return DriverResult(
+                success=False, raw_command=" ; ".join(sent),
+                raw_output="\n".join(outputs),
+                message="Perintah teraplikasi, tapi 'write' ditolak OLT — "
+                        "konfigurasi BELUM tersimpan ke startup "
+                        "(hilang bila OLT reboot)")
         return DriverResult(success=True, raw_command=" ; ".join(sent),
                             raw_output="\n".join(outputs))
 
@@ -474,7 +517,7 @@ class ZteC320Driver(OltDriver):
             return DriverResult(success=True, raw_command="", raw_output="",
                                 message="Tidak ada port uplink yang dipilih")
         async with self._open_cli() as cli:
-            return await self._send_config(cli, commands)
+            return await self._send_config(cli, commands, persist=True)
 
     async def fetch_interfaces(self) -> list[InterfaceStatus]:
         """Status live port uplink lewat `show interface port-status <nama>`.
@@ -535,7 +578,7 @@ class ZteC320Driver(OltDriver):
         """
         commands = build_port_config_commands(port, auto_nego, speed, duplex)
         async with self._open_cli() as cli:
-            return await self._send_config(cli, commands)
+            return await self._send_config(cli, commands, persist=True)
 
     async def list_unconfigured(self) -> list[UnconfiguredOnu]:
         command = "show gpon onu uncfg"
@@ -558,7 +601,7 @@ class ZteC320Driver(OltDriver):
     async def authorize(self, req: AuthorizeRequest) -> DriverResult:
         commands = build_authorize_commands(req)
         async with self._open_cli() as cli:
-            return await self._send_config(cli, commands)
+            return await self._send_config(cli, commands, persist=True)
 
     async def modify(self, req: ModifyRequest) -> DriverResult:
         # PRD 4.2: ZTE needs delete-then-recreate for active VLAN changes; plain attribute
@@ -577,14 +620,14 @@ class ZteC320Driver(OltDriver):
             commands.append(f"gemport 1 traffic-limit downstream {req.download_profile}")
         commands.append("exit")
         async with self._open_cli() as cli:
-            return await self._send_config(cli, commands)
+            return await self._send_config(cli, commands, persist=True)
 
     async def delete(self, slot: int, port: int, onu_id: int) -> DriverResult:
         # UNVERIFIED: public syntax.
         iface = f"gpon-olt_1/{slot}/{port}"
         commands = [f"interface {iface}", f"no onu {onu_id}", "exit"]
         async with self._open_cli() as cli:
-            return await self._send_config(cli, commands)
+            return await self._send_config(cli, commands, persist=True)
 
     async def set_state(self, slot: int, port: int, onu_id: int, enabled: bool) -> DriverResult:
         # UNVERIFIED: public syntax.
@@ -592,14 +635,26 @@ class ZteC320Driver(OltDriver):
         state_cmd = "no shutdown" if enabled else "shutdown"
         commands = [f"interface {onu_iface}", state_cmd, "exit"]
         async with self._open_cli() as cli:
-            return await self._send_config(cli, commands)
+            return await self._send_config(cli, commands, persist=True)
 
     async def reboot(self, slot: int, port: int, onu_id: int) -> DriverResult:
-        # UNVERIFIED: public syntax.
-        command = f"pon-onu-mng gpon-onu_1/{slot}/{port}:{onu_id} reset"
+        """UNVERIFIED: uji di ONU test sebelum dipakai ke OLT produksi.
+
+        Kode lama mengirim satu baris `pon-onu-mng <iface> reset` — bentuk itu
+        TIDAK ADA di NEXFIBER-CLI-REFERENCE (tidak ada subperintah `reset` yang
+        tercatat untuk `pon-onu-mng`), jadi diganti ke urutan referensi
+        "Ubah — Reboot dan hapus ONU" (status referensi: belum terverifikasi):
+        `pon-onu-mng <iface>` / `reboot` / `exit`. Satu penyimpangan sadar dari
+        referensi: referensi menulis urutan itu TANPA `configure terminal`,
+        sedangkan transport repo ini selalu masuk `configure terminal` dulu untuk
+        semua perintah `pon-onu-mng` — dan jalur itu yang terbukti live untuk
+        eth/wifi/voip (ONU uji 2026-10-25), jadi reboot dikirim lewat
+        `_send_config` yang sama. Bukan tulis konfigurasi: tanpa `write`
+        (persist=False). Rack dari `za.onu_iface` (lihat RACK di sana).
+        """
+        commands = [f"pon-onu-mng {za.onu_iface(slot, port, onu_id)}", "reboot", "exit"]
         async with self._open_cli() as cli:
-            output = await cli.send_command(command)
-        return self._result(command, output)
+            return await self._send_config(cli, commands, persist=False)
 
     async def fetch_inventory(self) -> OltInventory:
         """ONU terdaftar + VLAN perangkat dalam SATU sesi CLI (read-only).
@@ -781,12 +836,12 @@ class ZteC320Driver(OltDriver):
             commands.append(f"description {description}")
         commands.append("exit")
         async with self._open_cli() as cli:
-            return await self._send_config(cli, commands)
+            return await self._send_config(cli, commands, persist=True)
 
     async def delete_vlan(self, vlan_id: int) -> DriverResult:
         commands = [f"no vlan {vlan_id}"]
         async with self._open_cli() as cli:
-            return await self._send_config(cli, commands)
+            return await self._send_config(cli, commands, persist=True)
 
     async def create_traffic_profile(
         self, name: str, direction: str, kbps: int
@@ -797,7 +852,7 @@ class ZteC320Driver(OltDriver):
         else:
             commands = ["gpon", f"profile traffic {name}_DN sir {kbps} pir {kbps}", "exit"]
         async with self._open_cli() as cli:
-            return await self._send_config(cli, commands)
+            return await self._send_config(cli, commands, persist=True)
 
     async def list_traffic_profiles(self) -> list[TrafficProfile]:
         command = "show running-config | include profile tcont"
@@ -1015,7 +1070,7 @@ class ZteC320Driver(OltDriver):
         commands += [f"flow 1 pri 0 vlan {new_vlan}",
                      f"vlan-filter iphost 1 pri 0 vlan {new_vlan}", "exit"]
         async with self._open_cli() as cli:
-            return await self._send_config(cli, commands)
+            return await self._send_config(cli, commands, persist=True)
 
     async def run_onu_commands(self, commands: list[str]) -> DriverResult:
         """Blok perintah aksi ONU dari `zte_onu_actions` — satu sesi CLI, satu result.
@@ -1023,11 +1078,18 @@ class ZteC320Driver(OltDriver):
         Terbukti di OLT TGR (ONU uji gpon-onu_1/4/1:11, 2026-10-25): `send_config_set`
         masuk `configure terminal` sendiri, jadi `commands` mulai dari `interface …`
         atau `pon-onu-mng …` tanpa `configure terminal` manual.
+
+        Aksi langsung dari modal adalah tulis konfigurasi, jadi dikirim dengan
+        persist=True (langkah `write` di akhir, lihat `_send_config`): tanpa ini
+        perubahan hanya hidup di running-config. Jalur job tulis-konfigurasi
+        (authorize/modify/delete/set_state/VLAN/profil/port/set_onu_vlan) kini
+        juga memakai persist=True; hanya reboot yang tetap tanpa persist karena
+        bukan tulis konfigurasi.
         """
         if not commands:
             raise ValueError("commands kosong")
         async with self._open_cli() as cli:
-            return await self._send_config(cli, commands)
+            return await self._send_config(cli, commands, persist=True)
 
     async def restore_factory(self, slot: int, port: int, onu_id: int) -> DriverResult:
         """# UNVERIFIED: uji di ONU test.
@@ -1037,10 +1099,14 @@ class ZteC320Driver(OltDriver):
         pola `pon-onu-mng` yang sama dengan reboot. JANGAN dipakai ke perangkat nyata
         sebelum ada transkrip asli dari ONU test.
         """
-        onu_iface = f"gpon-onu_1/{slot}/{port}:{onu_id}"
+        onu_iface = za.onu_iface(slot, port, onu_id)
         commands = [f"pon-onu-mng {onu_iface}", "restore factory", "exit"]
         async with self._open_cli() as cli:
-            return await self._send_config(cli, commands)
+            # persist=True: bila wipe berhasil, wipe itu juga yang harus tersimpan
+            # (tanpa write, reboot OLT akan mengembalikan startup-config lama).
+            # `write` hanya jalan bila seluruh perintah sukses; perintah yang
+            # ditolak menghentikan kiriman sebelum write (lihat _send_config).
+            return await self._send_config(cli, commands, persist=True)
 
 # Baris `show interface port-status <nama>` (format nyata ZXROS):
 #      Port      hybrid  Native Negotiation  Speed  Duplex Flow-   Admin      Link

@@ -58,6 +58,31 @@ _SECRET_RE = re.compile(
 )
 
 
+def port_config_entry(kind: str, body: dict) -> tuple[str, str, dict] | None:
+    """Entri port_configs untuk satu aksi port yang sukses: (bagian, kunci port,
+    nilai yang boleh disimpan). Dipakai run_action DAN diuji langsung — sandi
+    WiFi sengaja tidak pernah masuk nilai (modal selalu meminta sandi baru
+    saat auth != open, jadi prefill tidak membutuhkannya). Kind lain -> None."""
+    if kind == "eth-port":
+        return ("eth", str(body.get("port")), {
+            "enabled": body.get("enabled", True),
+            "mode": body.get("mode"),
+            "vlan_id": body.get("vlan_id"),
+            "allowed_vlans": body.get("allowed_vlans") or [],
+            "dhcp": body.get("dhcp", "none"),
+        })
+    if kind == "wifi-port":
+        return ("wifi", str(body.get("port")), {
+            "enabled": body.get("enabled", True),
+            "mode": body.get("mode"),
+            "vlan_id": body.get("vlan_id"),
+            "allowed_vlans": body.get("allowed_vlans") or [],
+            "ssid": body.get("ssid"),
+            "auth_mode": body.get("auth_mode", "wpa2"),
+        })
+    return None
+
+
 def redact_commands(commands: list[str]) -> list[str]:
     """Buang nilai setelah kata kunci rahasia. Satu-satunya pintu keluar perintah."""
     return [_SECRET_RE.sub(r"\1 <REDACTED>", c) for c in commands]
@@ -259,6 +284,18 @@ def _build_commands(kind: str, onu: Onu, pon: PonPort, body: dict,
         return za.build_mgmt_ip(slot, port, idx, mode=_str_field(body, "mode"),
                                 ip=body.get("ip"), netmask=body.get("netmask"))
     if kind in ("voip-enable", "voip-disable"):
+        # Nomor/sandi SIP TIDAK punya sintaks OLT-CLI yang terbukti (hanya
+        # `voip protocol sip|none`). Modal lama mengirim keduanya dan backend
+        # membuangnya diam-diam — sekarang ditolak eksplisit (422) supaya tidak
+        # ada yang mengira akun SIP sudah diprovisi. Modal baru sudah tidak
+        # lagi mengirim field ini; penolakan ini menjaga pemanggil API langsung.
+        for key in ("phone_number", "password"):
+            value = body.get(key)
+            if isinstance(value, str) and value.strip():
+                raise ValidationError(
+                    f"VoIP {key} tidak bisa diprovisi lewat CLI OLT: tidak ada "
+                    "sintaks akun SIP yang terbukti; hanya protocol sip/none "
+                    "yang didukung")
         return za.build_voip(slot, port, idx, enabled=kind == "voip-enable")
     if kind == "replace-sn":
         return za.build_replace_sn(slot, port, idx, onu_type=onu.onu_type or "ALL-ONT",
@@ -480,6 +517,22 @@ async def run_action(db: AsyncSession, onu_id: int, kind: str, body: dict,
             UnconfiguredOnu.serial_number == new_serial))
     if result.success and kind == "move" and target_pon_id is not None:
         onu.pon_port_id = target_pon_id
+    # Port Eth/WiFi sukses wajib ditulis balik (pola sama dengan attached-vlans):
+    # tanpa ini modal dibuka ulang menampilkan default, bukan nilai yang baru
+    # ditulis. Hanya field non-rahasia yang disimpan (lihat port_config_entry).
+    if result.success and (entry := port_config_entry(kind, body)) is not None:
+        section_name, port_key, value = entry
+        stored = dict(onu.port_configs or {})
+        section = dict(stored.get(section_name) or {})
+        section[port_key] = value
+        stored[section_name] = section
+        onu.port_configs = stored
+    if result.success and kind == "wifi-clear":
+        stored = dict(onu.port_configs or {})
+        section = dict(stored.get("wifi") or {})
+        section.pop(str(body.get("port")), None)
+        stored["wifi"] = section
+        onu.port_configs = stored
     # Mgmt-IP sukses wajib ditulis balik: tanpa ini modal dibuka ulang menampilkan
     # mode/IP lama sampai sync berikutnya. Mode perintah dipetakan kembali ke mode
     # perangkat: manual -> static, release -> inactive. Pool (auto-assign) tidak

@@ -76,7 +76,7 @@ export function LocationModal(
   };
 
   return (
-    <ModalShell title="Update location details" action="Update" busy={busy} error={error}
+    <ModalShell title="Perbarui detail lokasi" action="Simpan" busy={busy} error={error} dirty={JSON.stringify(f) !== JSON.stringify({ zone_id: str(current.zone_id), splitter_id: str(current.splitter_id), splitter_port: str(current.splitter_port), customer_name: str(current.customer_name), address: str(current.address), contact: str(current.contact), latitude: str(current.latitude), longitude: str(current.longitude) })}
                 onClose={onClose} disabled={!coordsValid || !portValid}
                 onSubmit={() => onSubmit({
                   zone_id: num(f.zone_id), splitter_id: num(f.splitter_id),
@@ -86,7 +86,7 @@ export function LocationModal(
                   latitude: num(f.latitude), longitude: num(f.longitude),
                 })}>
       <Row label="Zone">
-        <Select value={f.zone_id} placeholder="Tanpa zone" label="Zone"
+        <Select value={f.zone_id} placeholder="Tanpa zone" label="Zone" autoFocus
                 onChange={(v) => setF((p) => ({ ...p, zone_id: v, splitter_id: "", splitter_port: "" }))}>
           {(options?.zones ?? []).map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
         </Select>
@@ -132,7 +132,7 @@ export function LocationModal(
       </Row>
       {/* Acuan: tombol lokasi + tautan peta sebaris di bawah Longitude. */}
       <div className="flex flex-wrap items-center gap-3 sm:pl-[25%]">
-        <Button size="md" onClick={locate}>Get current location</Button>
+        <Button size="md" onClick={locate}>Ambil lokasi saat ini</Button>
         {hasCoords && (
           <a className="text-sm text-fiber hover:underline" target="_blank" rel="noreferrer"
              href={`https://www.openstreetmap.org/?mlat=${f.latitude}&mlon=${f.longitude}#map=17/${f.latitude}/${f.longitude}`}>

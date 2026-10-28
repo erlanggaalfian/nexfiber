@@ -1,13 +1,17 @@
 from fastapi import APIRouter, Depends, Request
+from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
 from app.core.deps import get_current_user
 from app.core.exceptions import NotFoundError
+from app.core.security import decode_access_token
 from app.models.user import User
 from app.schemas.auth import LoginRequest, MeResponse, SetupRequest, SetupStatus, TokenResponse
 from app.services import auth_service
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
 class ChangePasswordRequest(BaseModel):
@@ -38,6 +42,27 @@ async def setup(body: SetupRequest, db: AsyncSession = Depends(get_db)) -> Token
         raise NotFoundError("Not found")
     token = await auth_service.setup(db, body.username, body.full_name, body.password)
     return TokenResponse(access_token=token)
+
+@router.post("/logout", status_code=204)
+async def logout(db: AsyncSession = Depends(get_db),
+                 user: User = Depends(get_current_user),
+                 token: str = Depends(oauth2_scheme)) -> None:
+    """Logout server-side: jti token ini dicatat di daftar revoked (tabel
+    settings) sehingga deps menolaknya pada request berikutnya, meski belum
+    kedaluwarsa. Idempotent: token yang sudah tidak valid tetap dijawab 204
+    bila user-nya masih lolos get_current_user; token tanpa jti (diterbitkan
+    sebelum perubahan ini) tidak punya apa-apa untuk dicatat — ia hanya bisa
+    dicabut lewat ganti password, dan kedaluwarsa sendiri maksimal 8 jam.
+    Frontend tetap harus membuang token dari localStorage-nya sendiri."""
+    try:
+        payload = decode_access_token(token)
+    except Exception:
+        return
+    jti, exp = payload.get("jti"), payload.get("exp")
+    if isinstance(jti, str) and isinstance(exp, (int, float)):
+        await auth_service.record_token_jti(db, auth_service.REVOKED_TOKENS_KEY, jti, exp)
+        await db.commit()
+
 
 @router.get("/me", response_model=MeResponse)
 async def me(user: User = Depends(get_current_user)) -> User:

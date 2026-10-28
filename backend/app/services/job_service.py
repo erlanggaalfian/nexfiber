@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import SessionLocal
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.core.rbac import MANAGERS, Scope, scope_olt_ids, scoped
-from app.core.security import decode_access_token, password_token_claim
+from app.core.security import decode_sse_token, password_token_claim
 from app.models.job import Job
 from app.models.user import User
 from app.repositories import job_repo
@@ -180,15 +180,20 @@ async def _stream_viewer(user_id: int) -> User | None:
 
 
 async def _revalidate_stream_token(token: str) -> tuple[User | None, Scope]:
-    """Validasi penuh token SSE: decode (termasuk exp), user dari DB, klaim ph.
+    """Validasi penuh token SSE: decode token SSE (typ=sse, termasuk exp),
+    user dari DB, klaim ph.
 
     Mengembalikan (user_segara, scope_segara) atau (None, scope_lama) bila
     validasi gagal — pemanggil harus menghentikan stream. Scope dihitung ulang
     dari user segar, supaya perubahan kepemilikan/akses OLT di tengah koneksi
-    langsung berlaku, bukan scope saat koneksi dibuka.
+    langsung berlaku, bukan scope saat koneksi dibuka. Sengaja TIDAK memeriksa
+    "terpakai": token ini sudah ditandai terpakai saat koneksi dibuka, dan
+    pemeriksaan itu hanya berlaku di gerbang pembuka koneksi (jobs.py) —
+    kalau diperiksa di sini, stream yang sedang berjalan akan berhenti sendiri.
+    Token akses biasa ditolak di sini (decode_sse_token memeriksa typ).
     """
     try:
-        payload = decode_access_token(token)
+        payload = decode_sse_token(token)
         user_id = int(payload["sub"])
     except Exception:
         return None, None

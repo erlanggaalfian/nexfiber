@@ -8,7 +8,7 @@
 import { useOltSync, useSyncAll, isSyncActive, syncSummary } from "../lib/oltSync";
 import { useAuth } from "../lib/auth";
 import { Button } from "./ui/button";
-import { nf } from "./data";
+import { Bar, nf } from "./data";
 
 export function OltSyncProgress({ oltId, showIdle = false }: { oltId: number; showIdle?: boolean }) {
   const { isManager } = useAuth();
@@ -38,9 +38,8 @@ export function OltSyncProgress({ oltId, showIdle = false }: { oltId: number; sh
         {head}
         {onu !== null && <span className="ml-1 font-mono">ONU {nf.format(onu)}</span>}
       </span>
-      <span className="flex h-1 w-24 shrink-0 bg-sunken" aria-hidden>
-        <span className={`h-1 ${tone}`} style={{ width: `${pct}%` }} />
-      </span>
+      <Bar pct={pct} tone={tone} className="w-24 shrink-0" />
+      <span className="font-mono">{Math.round(pct)}%</span>
       {failed.length > 0 && (
         <span className="min-w-0 truncate text-down">
           {failed[0].label}: {failed[0].error ?? "gagal tanpa pesan"}

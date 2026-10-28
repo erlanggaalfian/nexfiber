@@ -9,7 +9,7 @@
     <title>Nexfiber</title>
     <script>
       // Apply theme before first paint to avoid a light flash in dark mode.
-      const t = localStorage.getItem("theme") || "light";
+      const t = localStorage.getItem("theme") || "system";
       const dark = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
       document.documentElement.classList.toggle("dark", dark);
       document.querySelector('meta[name="theme-color"]').setAttribute("content", dark ? "#1b1c19" : "#ffffff");
