@@ -91,6 +91,8 @@ echo -e "${CYAN}[3/5]${NC} Migrasi database (alembic upgrade head)..."
 
 echo -e "${CYAN}[4/5]${NC} Build ulang frontend..."
 ( cd "$APP_DIR/frontend" && npm ci -q && npm run build )
+# umask 027 membuat artefak build 640; service (User=nexfiber) harus bisa baca.
+chmod -R a+rX "$APP_DIR/frontend/dist"
 
 echo -e "${CYAN}[5/5]${NC} Start service..."
 systemctl start nexfiber-api nexfiber-worker

@@ -225,6 +225,8 @@ echo ""
 # =========================================================
 log "[6/8] Build frontend..."
 ( cd "$APP_DIR/frontend" && npm ci >> "$LOG_FILE" 2>&1 && npm run build >> "$LOG_FILE" 2>&1 )
+# umask 027 membuat artefak build 640; service (User=nexfiber) harus bisa baca.
+chmod -R a+rX "$APP_DIR/frontend/dist"
 success "Frontend ter-build (${APP_DIR}/frontend/dist, disajikan langsung oleh API)"
 echo ""
 
