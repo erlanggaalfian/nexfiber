@@ -63,10 +63,11 @@ async def stream_jobs(token: str = Query(""),
     log/proxy dan bertahan lama bila bocor. Di sini token SSE divalidasi
     (typ=sse, exp, klaim ph vs password_hash, user aktif) dan ditolak bila
     jti-nya sudah terpakai; lalu jti ditandai terpakai SEBELUM stream dimulai.
-    Validasi ulang di dalam stream (tiap 60 detik) memeriksa exp/ph/user/scope
-    lagi, tapi TIDAK memeriksa "terpakai" — kalau tidak, stream yang sedang
-    berjalan akan membunuh dirinya sendiri. Koneksi kedua dengan token yang
-    sama tetap ditolak di gerbang ini.
+    Exp HANYA gerbang di sini: validasi ulang di dalam stream (tiap 60 detik)
+    memeriksa ph/user/scope lagi, tapi TIDAK memeriksa exp maupun "terpakai" —
+    kalau tidak, stream yang sedang berjalan akan membunuh dirinya sendiri
+    (tiap 120 detik karena exp). Koneksi kedua dengan token yang sama tetap
+    ditolak di gerbang ini.
     """
     try:
         payload = decode_sse_token(token)

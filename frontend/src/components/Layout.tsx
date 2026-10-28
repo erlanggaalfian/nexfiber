@@ -12,7 +12,7 @@ import { fmtTime } from "./data";
 const ROLE_LABEL = { superadmin: "Superadmin", admin: "Admin", user: "User" };
 const overlay = "z-50 rounded-md border bg-surface p-1 shadow-overlay";
 const menuItem =
-  "flex h-9 cursor-pointer items-center gap-2 rounded-sm px-2 text-sm text-ink outline-none data-[highlighted]:bg-sunken data-[highlighted]:outline-2 data-[highlighted]:outline-solid data-[highlighted]:outline-focus";
+  "flex h-9 cursor-pointer items-center gap-2 rounded-sm px-2 text-sm text-ink outline-none data-[highlighted]:bg-sunken data-[highlighted]:outline-2 data-[highlighted]:outline-solid data-[highlighted]:outline-focus max-lg:min-h-12";
 
 function usePending() {
   return useQuery({
@@ -186,7 +186,7 @@ function MobileTopBar({ isTab, title }: { isTab: boolean; title: string }) {
   // Dashboard, bukan navigate(-1) yang tidak ke mana-mana.
   const goBack = () => { window.history.length > 1 ? navigate(-1) : navigate("/"); };
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b bg-surface px-3 lg:hidden">
+    <header className="sticky top-0 z-40 flex h-[calc(3.5rem+env(safe-area-inset-top))] items-center gap-2 border-b bg-surface px-3 pt-[env(safe-area-inset-top)] lg:hidden">
       {!isTab && (
         <button onClick={goBack} className="-ml-1 flex size-12 items-center justify-center rounded-sm transition-colors duration-[var(--motion-hover)] hover:bg-sunken motion-reduce:transition-none" aria-label="Kembali">
           <ArrowLeft size={20} />
@@ -254,7 +254,7 @@ export function Layout() {
       )}
       <DesktopHeader pending={pending} />
       <MobileTopBar isTab={isTab} title={pageTitle(pathname)} />
-      <main id="konten" className={`mx-auto max-w-[1440px] p-3 lg:p-4 ${isTab ? "pb-24 lg:pb-4" : "pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:pb-4"}`}>
+      <main id="konten" className={`mx-auto max-w-[1440px] p-3 lg:p-4 ${isTab ? "pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-4" : "pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:pb-4"}`}>
         <Outlet />
       </main>
       {isTab && <BottomNav pending={pending} />}

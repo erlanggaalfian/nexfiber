@@ -180,20 +180,23 @@ async def _stream_viewer(user_id: int) -> User | None:
 
 
 async def _revalidate_stream_token(token: str) -> tuple[User | None, Scope]:
-    """Validasi penuh token SSE: decode token SSE (typ=sse, termasuk exp),
-    user dari DB, klaim ph.
+    """Validasi ulang stream yang SEDANG berjalan: decode token SSE (typ=sse,
+    TANPA memeriksa exp), user dari DB, klaim ph.
 
     Mengembalikan (user_segara, scope_segara) atau (None, scope_lama) bila
     validasi gagal — pemanggil harus menghentikan stream. Scope dihitung ulang
     dari user segar, supaya perubahan kepemilikan/akses OLT di tengah koneksi
     langsung berlaku, bukan scope saat koneksi dibuka. Sengaja TIDAK memeriksa
-    "terpakai": token ini sudah ditandai terpakai saat koneksi dibuka, dan
-    pemeriksaan itu hanya berlaku di gerbang pembuka koneksi (jobs.py) —
-    kalau diperiksa di sini, stream yang sedang berjalan akan berhenti sendiri.
-    Token akses biasa ditolak di sini (decode_sse_token memeriksa typ).
+    "terpakai" DAN tidak memeriksa exp: token ini sudah ditandai terpakai saat
+    koneksi dibuka, dan exp hanya gerbang pembuka koneksi (jobs.py) — kalau
+    keduanya diperiksa di sini, stream yang sedang berjalan akan berhenti
+    sendiri (exp: tiap 120 detik; terpakai: seketika). Yang menghentikan
+    stream dari sini hanyalah user nonaktif/dihapus atau password diubah
+    (klaim ph tidak cocok). Token akses biasa ditolak di sini
+    (decode_sse_token memeriksa typ).
     """
     try:
-        payload = decode_sse_token(token)
+        payload = decode_sse_token(token, verify_exp=False)
         user_id = int(payload["sub"])
     except Exception:
         return None, None

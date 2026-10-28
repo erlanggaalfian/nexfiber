@@ -28,11 +28,14 @@ const DEFAULT_SIZE = 50;
 function Detail({ log, onClose }: { log: LogRow; onClose: () => void }) {
   return (
     <ModalShell title={log.action} onClose={onClose} closeLabel="Tutup">
-      <dl className="mb-3 grid grid-cols-2 gap-1 text-sm">
+      {/* dd dipaksa min-w-0 + break-words: di grid 2 kolom, nilai default
+          grid (min-width auto) membuat serial/nama panjang meluber keluar
+          dialog di 390px; serial pakai break-all karena tanpa spasi. */}
+      <dl className="mb-3 grid grid-cols-2 gap-1 text-sm [&>dd]:min-w-0 [&>dd]:break-words">
         <dt className="text-muted">Waktu</dt><dd>{new Date(log.created_at).toLocaleString("id-ID")}</dd>
         <dt className="text-muted">User</dt><dd>{log.username ?? "sistem"}</dd>
         <dt className="text-muted">OLT</dt><dd>{log.olt_name ?? "—"}</dd>
-        <dt className="text-muted">ONU</dt><dd>{log.onu_serial ?? "—"}</dd>
+        <dt className="text-muted">ONU</dt><dd className="break-all font-mono">{log.onu_serial ?? "—"}</dd>
         <dt className="text-muted">Hasil</dt><dd>{log.success ? "Sukses" : "Gagal"}</dd>
       </dl>
       {log.raw_command && (
@@ -103,7 +106,9 @@ export function Logs() {
 
   return (
     <>
-      <PageTitle title="Logs" />
+      <PageTitle title="Logs">
+        <span className="text-muted">{nf.format(total)} log</span>
+      </PageTitle>
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <select value={category} onChange={(e) => patch({ category: e.target.value })}
@@ -164,12 +169,18 @@ export function Logs() {
         row={(l: LogRow) => (
           <tr key={l.id} className="cursor-pointer border-b last:border-0 hover:bg-sunken"
               onClick={() => setDetail(l)}>
-            <td className={`${cell} font-mono`}>{fmtDateTime(l.created_at)}</td>
+            <td className={`${cell} font-mono whitespace-nowrap`}>{fmtDateTime(l.created_at)}</td>
             <td className={cell}>{l.username ?? "sistem"}</td>
-            <td className={cell}>{l.olt_name ?? "—"}</td>
+            <td className={cell}>
+              <span className="block max-w-40 truncate" title={l.olt_name ?? undefined}>
+                {l.olt_name ?? "—"}
+              </span>
+            </td>
             <td className={`${cell} font-mono`}>{l.onu_serial ?? "—"}</td>
             <td className={cell}>{CATEGORIES.find((c) => c.value === l.category)?.label ?? l.category}</td>
-            <td className={cell}>{l.action}</td>
+            <td className={cell}>
+              <span className="block max-w-64 truncate" title={l.action}>{l.action}</span>
+            </td>
             <td className={cell}>
               <span className="inline-flex items-center gap-1.5">
                 <span className={`size-1.5 shrink-0 ${l.success ? "bg-up" : "bg-down"}`} aria-hidden />

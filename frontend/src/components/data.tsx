@@ -100,9 +100,9 @@ export function Bar({ pct, tone = "bg-fiber", className = "w-12" }: { pct: numbe
  *  isinya sudah px-4 sendiri (Row) — tampilannya perlu dicek, bukan diasumsikan. */
 export function Panel({ title, action, children, className = "" }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={`entrance rounded-md border bg-surface p-4 ${className}`}>
+    <section className={`entrance rounded-lg border border-line/60 bg-surface p-4 shadow-xs max-md:p-3 ${className}`}>
       {title && (
-        <header className="flex items-center justify-between gap-2 border-b px-4 py-2">
+        <header className="flex items-center justify-between gap-2 pb-2">
           <h2 className="text-xs font-medium uppercase tracking-[0.02em] text-muted">{title}</h2>
           {action}
         </header>
@@ -115,7 +115,7 @@ export function Panel({ title, action, children, className = "" }: { title?: Rea
 /** DESIGN 11 title row. On mobile the top bar already shows the title, so h1 is visually hidden there. */
 export function PageTitle({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <div className="mb-3 flex min-h-12 flex-wrap items-center justify-between gap-2">
+    <div className="mb-3 flex min-h-12 flex-wrap items-center justify-between gap-2 max-lg:mb-0 max-lg:min-h-0">
       <h1 className="text-xl font-semibold max-lg:sr-only">{title}</h1>
       {children && <div className="flex items-center gap-2 max-lg:ml-auto">{children}</div>}
     </div>
@@ -127,7 +127,7 @@ export function Skeleton({ rows = 3, text }: { rows?: number; text: string }) {
     <div className="p-4" aria-busy>
       <p className="mb-2 text-muted">{text}</p>
       {Array.from({ length: Math.min(rows, 8) }, (_, i) => (
-        <div key={i} className="mb-1 h-8 bg-sunken" />
+        <div key={i} className="mb-1 h-8 rounded-sm bg-sunken" />
       ))}
     </div>
   );
@@ -140,8 +140,8 @@ export function Skeleton({ rows = 3, text }: { rows?: number; text: string }) {
 export function ChartSkeleton() {
   return (
     <div className="p-4" aria-busy>
-      <div className="h-36 border border-line/40 bg-sunken/20" />
-      <div className="mt-2 h-1 bg-sunken/20" />
+      <div className="h-36 rounded-md border border-line/40 bg-sunken/20" />
+      <div className="mt-2 h-1 rounded-sm bg-sunken/20" />
     </div>
   );
 }

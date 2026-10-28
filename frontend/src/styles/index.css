@@ -58,6 +58,7 @@
   --radius-*: initial;
   --radius-sm: 3px;
   --radius-md: 8px;
+  --radius-lg: 12px;
   --radius-nav: 16px;
 
   --shadow-*: initial;
@@ -131,6 +132,10 @@
    Spesifitas .dark .shadow-* (0,2,0) menang atas utility (0,1,0). */
 .dark .shadow-overlay { --tw-shadow: 0 4px 12px rgba(28, 27, 24, 0.35); }
 .dark .shadow-modal { --tw-shadow: 0 12px 32px rgba(28, 27, 24, 0.5); }
+/* shadow-xs dipakai permanen (hemat) di Panel/TableCard/MobileCard: tanpa
+   override ini nilainya tetap versi terang (hitam 0.06, nyaris tak terlihat
+   di atas permukaan gelap). Pola yang sama dengan overlay/modal di atas. */
+.dark .shadow-xs { --tw-shadow: 0 1px 2px rgba(28, 27, 24, 0.35); }
 
 @layer base {
   html {

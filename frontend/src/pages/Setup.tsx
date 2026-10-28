@@ -34,6 +34,7 @@ export function Setup() {
   if (!setup.data?.needed) return <Navigate to="/login" replace />;
   return (
     <AuthCard onSubmit={submit}>
+      <h1 className="mb-4 text-base font-semibold">Setup awal</h1>
       <Field label="Username" name="username" autoFocus autoComplete="username" pattern="[A-Za-z0-9_.\-]{3,64}" />
       <Field label="Nama" name="full_name" autoComplete="name" />
       <Field label="Password" name="password" type="password" minLength={12} autoComplete="new-password" />

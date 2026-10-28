@@ -48,7 +48,7 @@ function ChangePasswordForm({ onDone, title }: { onDone: () => void; title?: str
   }
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-4 p-4">
-      <form onSubmit={submit} className="w-full max-w-[360px] rounded-md border bg-surface p-4">
+      <form onSubmit={submit} className="w-full max-w-[360px] rounded-lg border border-line/60 bg-surface p-4">
         <p className="mb-4 text-sm font-medium">{title ?? "Password Anda harus diganti"}</p>
         <label className="mb-4 block">
           <span className="mb-1 block text-muted">Password lama</span>

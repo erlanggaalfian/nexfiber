@@ -3,9 +3,9 @@ import type { ButtonHTMLAttributes } from "react";
 /* Aturan hover per keluarga: tombol isi (fiber/primary/dangerSolid) hover:opacity-90,
    tombol garis (secondary/danger) hover:bg-sunken, quiet hover:underline.
    Teks di atas tombol isi: terang text-white, gelap token on-accent (dark:text-on-*)
-   yang disediakan lapisan tema — token itu BUKAN didefinisikan di sini, jadi sampai
-   lapisan tema menambahkannya, varian dark: di bawah belum menghasilkan CSS dan
-   teks gelap tetap putih (tidak ada regresi, tapi kontras gelap belum terperbaiki). */
+   dari index.css (--color-on-fiber/--color-on-amber). dangerSolid memakai
+   dark:text-on-fiber sebagai teks tinta gelap di atas merah terang tema gelap
+   (token on-down khusus belum tersedia). */
 const VARIANTS = {
   fiber: "bg-fiber text-white dark:text-on-fiber font-semibold border border-fiber hover:opacity-90",
   primary: "bg-amber text-white dark:text-on-amber font-semibold border border-amber hover:opacity-90",
@@ -27,7 +27,7 @@ type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 export const buttonClass = (variant: keyof typeof VARIANTS = "secondary", size: keyof typeof SIZES = "md") =>
-  `inline-flex items-center justify-center gap-1.5 rounded-sm text-sm whitespace-nowrap transition duration-150 ease-out motion-reduce:transition-none active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 ${VARIANTS[variant]} ${SIZES[size]}`;
+  `inline-flex items-center justify-center gap-1.5 rounded-md text-sm whitespace-nowrap transition duration-150 ease-out motion-reduce:transition-none active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 ${VARIANTS[variant]} ${SIZES[size]}`;
 
 export function Button({ variant = "secondary", size = "md", className = "", type = "button", ...rest }: Props) {
   return <button type={type} className={`${buttonClass(variant, size)} ${className}`} {...rest} />;

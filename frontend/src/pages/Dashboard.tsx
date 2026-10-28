@@ -67,7 +67,7 @@ function Strip({ d, isManager, changed }: { d: Dash; isManager: boolean; changed
     .map((s) => `status=${s}`).join("&");
   return (
     // gap-px over bg-line draws the 1px dividers for both 4x1 and 2x2.
-    <div className="stagger grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-line lg:grid-cols-4">
+    <div className="stagger grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line/60 bg-line lg:grid-cols-4">
       {/* olt_by_status dihitung dari OLT aktif saja, sedangkan tabel OLT di bawah
           menampilkan semua OLT non-terhapus — labelnya dibuat jujur, bukan "Total". */}
       <Cell label="OLT Aktif" value={sum(d.olt_by_status)} sub={`${nf.format(d.olt_by_status.online ?? 0)} terhubung`} to={isManager ? "/settings/olts" : undefined} changed={changed.has("olt")} />
@@ -95,15 +95,15 @@ function SignalRow({ onu_by_signal, changed }: { onu_by_signal: Record<string, n
     + (onu_by_signal.weak ?? 0) + (onu_by_signal.critical ?? 0) + los;
   // Aksen hanya untuk sel urgent; Good netral tanpa aksen. Urutan strip sama dengan
   // Cell: garis --teal-glow (berubah) dulu, lalu aksen status.
-  const signalCell = (key: string, label: string, dot: string, accent: string | undefined, value: number, to: string) => (
-    <Link key={key} to={to} className="hover-lift block bg-surface p-3 hover:bg-sunken">
+  const signalCell = (key: string, label: string, dot: string, accent: string | undefined, value: number, to: string, cls = "") => (
+    <Link key={key} to={to} className={`hover-lift block bg-surface p-3 hover:bg-sunken lg:p-4 ${cls}`}>
       {changed.has(key) && (
-        <span aria-hidden className="-mx-3 -mt-3 block h-0.5"
+        <span aria-hidden className="-mx-3 -mt-3 block h-0.5 lg:-mx-4 lg:-mt-4"
               style={{ backgroundColor: "var(--teal-glow)" }} />
       )}
       {accent && (
         <span aria-hidden
-              className={`-mx-3 block h-0.5 ${changed.has(key) ? "" : "-mt-3"} ${accent}`} />
+              className={`-mx-3 block h-0.5 lg:-mx-4 ${changed.has(key) ? "" : "-mt-3 lg:-mt-4"} ${accent}`} />
       )}
       <p className="flex items-center gap-1.5 text-xs text-muted"><span className={`size-1.5 shrink-0 ${dot}`} aria-hidden />{label}</p>
       <p className="font-mono text-metric font-semibold tabular-nums">{nf.format(value)}</p>
@@ -111,7 +111,7 @@ function SignalRow({ onu_by_signal, changed }: { onu_by_signal: Record<string, n
     </Link>
   );
   return (
-    <div className="stagger grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-line md:grid-cols-5">
+    <div className="stagger grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line/60 bg-line md:grid-cols-5">
       {(Object.entries(RX_BUCKETS) as [RxBucket, (typeof RX_BUCKETS)[RxBucket]][]).map(
         ([bucket, { label, color }]) => signalCell(
           bucket, label, color,
@@ -119,7 +119,9 @@ function SignalRow({ onu_by_signal, changed }: { onu_by_signal: Record<string, n
           onu_by_signal[bucket] ?? 0, `/configured?signal=${bucket}`,
         ),
       )}
-      {signalCell("los", "LOS", "bg-down", "bg-down", los, "/configured?signal=los")}
+      {/* Sel ke-5 pada grid 2 kolom mobile: bentang penuh supaya tidak tersisa
+          slot kosong beralas bg-line di baris terakhir. */}
+      {signalCell("los", "LOS", "bg-down", "bg-down", los, "/configured?signal=los", "col-span-2 md:col-span-1")}
     </div>
   );
 }
@@ -163,7 +165,7 @@ function OltTable({ olts }: { olts: OltRow[] }) {
     <div className="grid gap-2 p-2 md:hidden">
       {sorted.map((o) => (
         <Link key={o.id} to={`/olt/${o.id}`}
-              className="block min-h-[72px] rounded-md border bg-surface px-3 py-2 transition-transform duration-150 ease-out motion-reduce:transition-none active:scale-[0.99]">
+              className="block min-h-[72px] rounded-lg border border-line/60 bg-surface px-3 py-2 transition-transform duration-150 ease-out motion-reduce:transition-none active:scale-[0.99]">
           <div className="flex items-center justify-between gap-2">
             <span className="min-w-0 truncate font-medium">{o.name}</span>
             <StatusBadge status={o.status} withLabel />
@@ -190,7 +192,7 @@ function OltTable({ olts }: { olts: OltRow[] }) {
           {sorted.map((o) => (
             <tr key={o.id} onClick={() => navigate(`/olt/${o.id}`)}
                 className="cursor-pointer border-b last:border-0 hover:bg-sunken">
-              <td className="px-3 py-2"><Link to={`/olt/${o.id}`} className="hover:underline">{o.name}</Link></td>
+              <td className="px-3 py-2"><Link to={`/olt/${o.id}`} className="block max-w-60 truncate hover:underline">{o.name}</Link></td>
               <td className="px-3 py-2"><StatusBadge status={o.status} withLabel /></td>
               <td className="px-3 py-2"><OnuRatioBar online={o.onu_online} count={o.onu_count} /></td>
               <td className="px-3 py-2 font-mono">{o.cpu_pct == null ? "—" : `${o.cpu_pct.toFixed(0)}%`}</td>
@@ -218,11 +220,11 @@ function ActivityFeed({ items }: { items: Dash["recent_activity"] }) {
             to={l.onu_serial ? `/logs?q=${encodeURIComponent(l.onu_serial)}` : "/logs"}
             className="flex min-h-11 items-center justify-between gap-3 px-3 py-2 text-sm hover:bg-sunken"
           >
-            <span className="flex items-center gap-1.5 truncate">
+            <span className="flex min-w-0 items-center gap-1.5 truncate">
               <span className={`size-1.5 shrink-0 ${l.success ? "bg-up" : "bg-down"}`} aria-hidden />
-              <span className="text-muted">{l.username ?? "sistem"}</span>
-              <span>{LOG_CATEGORIES.find((c) => c.value === l.category)?.label ?? l.category}</span>
-              {l.onu_serial && <span className="font-mono text-muted">{l.onu_serial}</span>}
+              <span className="shrink-0 text-muted">{l.username ?? "sistem"}</span>
+              <span className="truncate">{LOG_CATEGORIES.find((c) => c.value === l.category)?.label ?? l.category}</span>
+              {l.onu_serial && <span className="min-w-0 truncate font-mono text-muted">{l.onu_serial}</span>}
               {l.olt_name && <span className="text-muted">@ {l.olt_name}</span>}
             </span>
             <span className="shrink-0 font-mono text-xs text-muted">{fmtAgo(l.created_at)}</span>
@@ -239,7 +241,7 @@ function DashboardSkeleton() {
   return (
     <div className="flex flex-col gap-4" aria-busy>
       <p className="text-muted">Menarik data dari OLT ...</p>
-      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-line lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line/60 bg-line lg:grid-cols-4">
         {Array.from({ length: 4 }, (_, i) => (
           <div key={i} className="bg-surface p-3 lg:p-4">
             <div className="h-4 bg-sunken" />
@@ -248,16 +250,16 @@ function DashboardSkeleton() {
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-line md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line/60 bg-line md:grid-cols-5">
         {Array.from({ length: 5 }, (_, i) => (
-          <div key={i} className="bg-surface p-3">
+          <div key={i} className="bg-surface p-3 lg:p-4">
             <div className="h-4 bg-sunken" />
             <div className="mt-2 h-7 bg-sunken" />
             <div className="mt-1 h-4 bg-sunken" />
           </div>
         ))}
       </div>
-      <div className="rounded-md border bg-surface p-3">
+      <div className="rounded-lg border border-line/60 bg-surface p-3">
         {Array.from({ length: 3 }, (_, i) => (
           <div key={i} className="mb-1 h-8 bg-sunken last:mb-0" />
         ))}
@@ -322,11 +324,11 @@ export function Dashboard() {
         <div className="flex flex-col gap-4">
           <Strip d={q.data} isManager={isManager} changed={changed} />
           <SignalRow onu_by_signal={q.data.onu_by_signal} changed={changed} />
-          <section className="entrance rounded-md border bg-surface">
+          <section className="entrance rounded-lg border border-line/60 bg-surface">
             <h2 className="border-b px-3 py-2 text-sm font-medium">OLT</h2>
             <OltTable olts={q.data.olts} />
           </section>
-          <section className="entrance rounded-md border bg-surface">
+          <section className="entrance rounded-lg border border-line/60 bg-surface">
             <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
               <h2 className="text-sm font-medium">Aktivitas terbaru</h2>
               <Link to="/logs" className="text-sm text-fiber hover:underline">Lihat semua</Link>

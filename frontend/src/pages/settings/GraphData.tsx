@@ -64,7 +64,9 @@ function GraphCard({ kind, stat, retention, olts, isSuperadmin }: {
     mutationFn: () => api<DeleteResult>("/api/settings/graph-data/preview-delete", {
       method: "POST", json: payload,
     }),
-    onSuccess: setPreview,
+    // Hasil hapus lama dikosongkan: kalau tidak, baris status menampilkan
+    // "N baris ditemukanM baris dihapus." menempel tanpa pemisah.
+    onSuccess: (result) => { setPreview(result); setDeleted(null); },
   });
   const remove = useMutation({
     mutationFn: () => api<DeleteResult>("/api/settings/graph-data/delete", {
@@ -87,7 +89,7 @@ function GraphCard({ kind, stat, retention, olts, isSuperadmin }: {
   };
 
   return (
-    <section data-graph-kind={kind} className="entrance rounded-md border bg-surface p-4">
+    <section data-graph-kind={kind} className="entrance rounded-lg border border-line/60 bg-surface p-4">
       <div className="mb-4 flex items-center gap-2">
         <Icon size={20} className="text-fiber" aria-hidden />
         <h2 className="font-medium">{meta.title}</h2>
@@ -145,7 +147,7 @@ function GraphCard({ kind, stat, retention, olts, isSuperadmin }: {
           </div>
         )}
       </div>
-      <div className="mt-3 flex min-h-8 items-center justify-between gap-3">
+      <div className="mt-3 flex min-h-8 flex-wrap items-center justify-between gap-3">
         <p aria-live="polite" className="text-sm text-muted">
           {preview && `${number.format(preview.total)} baris ditemukan`}
           {deleted && `${number.format(deleted.total)} baris dihapus.`}

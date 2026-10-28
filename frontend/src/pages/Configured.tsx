@@ -221,7 +221,7 @@ export function Configured() {
         </Button>
       </PageTitle>
 
-      <div className="mb-2 flex flex-wrap items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <input
           className={`${input} max-w-xs`}
           placeholder="Nama, SN, alamat, PPPoE, external ID ..."
@@ -267,7 +267,7 @@ export function Configured() {
       </div>
 
       {activeChips.length > 0 && (
-        <div className="mb-2 flex flex-wrap items-center gap-1">
+        <div className="mb-3 flex flex-wrap items-center gap-1">
           {activeChips.map(({ key, value }) => (
             <FilterChip
               key={`${key}:${value}`}
@@ -293,7 +293,7 @@ export function Configured() {
         empty="Tidak ada ONU yang cocok dengan filter ini."
         columns={[
           { label: "", header: (
-            <input type="checkbox" aria-label="Pilih semua di halaman ini" checked={allPicked}
+            <input type="checkbox" className="size-5" aria-label="Pilih semua di halaman ini" checked={allPicked}
                    onChange={(e) => setPicked(e.target.checked ? rows.map((r) => r.serial_number) : [])} />
           )},
           "Status", "Nama pelanggan", "Serial number ↑", "OLT · PON", "VLAN",
@@ -308,6 +308,7 @@ export function Configured() {
               <span className="min-w-0 truncate font-medium">{o.customer_name ?? o.name ?? "—"}</span>
               <span className="flex shrink-0 items-center gap-2" onClick={(e) => e.stopPropagation()}>
                 <input
+                  className="size-5 shrink-0"
                   type="checkbox"
                   aria-label={`Pilih ${o.serial_number}`}
                   checked={picked.includes(o.serial_number)}
@@ -337,6 +338,7 @@ export function Configured() {
           >
             <td className={cell} onClick={(e) => e.stopPropagation()}>
               <input
+                className="size-5"
                 type="checkbox"
                 aria-label={`Pilih ${o.serial_number}`}
                 checked={picked.includes(o.serial_number)}
@@ -346,17 +348,41 @@ export function Configured() {
               />
             </td>
             <td className={cell}>
+              {/* Kolom Status tabel ini ikon-saja (permintaan user 2026-10-28):
+               * keterangan lengkap tetap ada di title (hover mouse) dan di
+               * sr-only untuk pembaca layar — withLabel={false} memakai keduanya
+               * lewat StatusBadge, tanpa tooltip kustom. Kartu mobile halaman
+               * ini tetap berlabel karena sentuhan tidak punya hover. */}
               <StatusBadge status={o.admin_state === "disabled" ? "disabled" : o.status}
-                           reason={o.last_down_reason} withLabel />
+                           reason={o.last_down_reason} withLabel={false} />
             </td>
-            <td className={cell}>{o.customer_name ?? o.name ?? "—"}</td>
+            {/* Nama/OLT/splitter/zone dibungkus span block truncate: di
+                layout tabel auto, truncate langsung di <td> tidak menahan
+                kolom melebar saat nama pelanggan panjang — span dengan
+                max-w-lah yang memotongnya, title menampilkan nilai penuh. */}
+            <td className={cell}>
+              <span className="block max-w-56 truncate" title={o.customer_name ?? o.name ?? undefined}>
+                {o.customer_name ?? o.name ?? "—"}
+              </span>
+            </td>
             <td className={`${cell} font-mono`}>{o.serial_number}</td>
             <td className={`${cell} font-mono`}>
-              {o.olt_name} · {o.slot}/{o.port}{o.onu_index === null ? "" : `:${o.onu_index}`}
+              <span className="block max-w-44 truncate"
+                    title={`${o.olt_name} · ${o.slot}/${o.port}${o.onu_index === null ? "" : `:${o.onu_index}`}`}>
+                {o.olt_name} · {o.slot}/{o.port}{o.onu_index === null ? "" : `:${o.onu_index}`}
+              </span>
             </td>
             <td className={`${cell} font-mono`}>{o.vlan_number ?? "—"}</td>
-            <td className={`${cell} hidden lg:table-cell`}>{o.splitter_name ?? "—"}</td>
-            <td className={`${cell} hidden lg:table-cell`}>{o.zone_name ?? "—"}</td>
+            <td className={`${cell} hidden lg:table-cell`}>
+              <span className="block max-w-40 truncate" title={o.splitter_name ?? undefined}>
+                {o.splitter_name ?? "—"}
+              </span>
+            </td>
+            <td className={`${cell} hidden lg:table-cell`}>
+              <span className="block max-w-40 truncate" title={o.zone_name ?? undefined}>
+                {o.zone_name ?? "—"}
+              </span>
+            </td>
             <td className={cell}><SignalBar dbm={o.rx_power_dbm} /></td>
             <td className={`${cell} font-mono hidden lg:table-cell`}>
               {o.olt_rx_power_dbm === null ? "—" : Number(o.olt_rx_power_dbm).toFixed(1)}
@@ -382,7 +408,7 @@ export function Configured() {
       </div>
 
       {picked.length > 0 && (
-        <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 mt-2 flex flex-wrap items-center gap-2 rounded-md border bg-surface p-2 shadow-modal lg:bottom-0">
+        <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-line/60 bg-surface p-2 shadow-modal lg:bottom-0">
           <span className="font-semibold">{picked.length} dipilih</span>
           <Button size="sm" onClick={() => setBulk("reboot_onu")}>Reboot</Button>
           <Button size="sm" onClick={() => setBulk("resync_onu")}>Resync config</Button>

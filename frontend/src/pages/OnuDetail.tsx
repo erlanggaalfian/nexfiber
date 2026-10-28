@@ -155,7 +155,7 @@ function Section(
   // isi padat di dalam bingkai permukaan. Dipakai blok Profil Kecepatan ke bawah.
   if (card) {
     return (
-      <section id={id} className={`entrance rounded-md border bg-surface p-4 transition-colors hover:border-line-strong ${className}`}>
+      <section id={id} className={`entrance rounded-lg border border-line/60 bg-surface p-4 ${className}`}>
         <div className="mb-3 flex items-center justify-between gap-2 border-b border-line pb-2.5">
           <h2 className="flex items-center gap-2 text-base font-bold text-fiber">
             <TitleIcon title={label} />{label}
@@ -188,7 +188,7 @@ function Block(
   { title: string; action?: React.ReactNode; children: React.ReactNode; className?: string },
 ) {
   return (
-    <section className={`entrance rounded-md border bg-surface p-4 transition-colors hover:border-line-strong ${className}`}>
+    <section className={`entrance rounded-lg border border-line/60 bg-surface p-4 ${className}`}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2.5">
         <h2 className="flex items-center gap-2 text-base font-bold text-fiber">
           <TitleIcon title={title} />{title}
@@ -213,7 +213,7 @@ function DRow(
   return (
     <div className={shape}>
       <span className={`font-semibold ${ROW_LH} text-muted`}>{label}</span>
-      <span className={`flex min-w-0 flex-wrap items-center gap-1.5 pr-11 ${ROW_LH} text-muted`}>
+      <span className={`flex min-w-0 flex-wrap items-center gap-1.5 ${onEdit ? "pr-11 " : ""}${ROW_LH} text-muted`}>
         {dot && <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[dot]}`} />}
         {value}
       </span>
@@ -296,7 +296,7 @@ function LastLogPopover(
     <Popover.Root>
       <Popover.Trigger asChild>
         <button type="button"
-                className="inline-flex items-center gap-1.5 rounded border border-line bg-sunken/40 px-2.5 py-1 text-xs font-medium text-fiber transition-colors hover:bg-sunken min-h-11 sm:min-h-0">
+                className="inline-flex items-center gap-1.5 rounded border border-line bg-sunken/40 px-2.5 py-1 text-xs font-medium text-fiber transition-colors hover:bg-sunken min-h-11 lg:min-h-0">
           Log aksi terakhir
           <CaretDown size={12} aria-hidden />
         </button>
@@ -332,9 +332,11 @@ function LastLogPopover(
 }
 
 function ConfigureLink({ label, onClick }: { label: string; onClick: () => void }) {
+  // Ambang lg, bukan md: navigasi bawah sentuh berlaku sampai 1024px,
+  // jadi target "Atur" harus tetap 44px di 768–1023px.
   return (
     <button type="button" onClick={onClick} aria-label={label} title={label}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 px-2 text-fiber hover:underline md:min-h-0 md:min-w-0 md:px-0">
+            className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 px-2 text-fiber hover:underline lg:min-h-0 lg:min-w-0 lg:px-0">
       <PlusCircle size={13} aria-hidden />
       Atur
     </button>
@@ -369,7 +371,7 @@ function PppoePassword({ password }: { password: string | null }) {
       <button type="button" onClick={() => setShown(!shown)}
               aria-pressed={shown}
               aria-label={shown ? "Sembunyikan kata sandi PPPoE" : "Tampilkan kata sandi PPPoE"}
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-sm text-fiber hover:bg-sunken md:min-h-0 md:min-w-0"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-sm text-fiber hover:bg-sunken lg:min-h-0 lg:min-w-0"
               title={shown ? "Sembunyikan" : "Tampilkan"}>
         {shown ? <EyeSlash size={14} aria-hidden /> : <Eye size={14} aria-hidden />}
       </button>
@@ -421,8 +423,10 @@ function RxBox({ title, value }: { title: string; value: number | null }) {
   // Nilai kritis ditonjolkan merah kuat supaya terbaca sekilas.
   const strong = b === "critical";
   const tone = b === "good" ? "text-up" : b ? "text-warn" : "text-muted";
+  // De-nesting: tanpa border sendiri, latar sunken di dalam Block — sebelumnya
+  // kotak berborder di dalam kartu berborder (bingkai ganda).
   return (
-    <div className="min-w-0 rounded-md border bg-surface p-3">
+    <div className="min-w-0 rounded-lg bg-sunken/20 p-3">
       {/* flex-wrap: di 390px badge bisa turun baris — label tak pernah dipotong (mock). */}
       <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1.5">
         <span className="text-xs font-medium leading-tight text-muted" title={title}>{title}</span>
@@ -505,7 +509,7 @@ function RxChart({ points }: { points: SignalPoint[] }) {
       <div className="flex h-36 w-8 shrink-0 flex-col justify-between py-1 text-right font-mono text-[10px] text-faint">
         {ticks.map((t, i) => <span key={i}>{t.toFixed(1)}</span>)}
       </div>
-      <div className="min-w-0 grow rounded-sm border border-line/40 bg-sunken/20 p-1">
+      <div className="min-w-0 grow rounded-lg bg-surface p-1">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-36 w-full" role="img"
              aria-label={`Grafik Rx ONU dan OLT, ${all.length} titik, terendah ${dataMin.toFixed(1)} dBm`}>
           {ticks.map((t, i) => (
@@ -650,7 +654,7 @@ function LiveChart({ points }: { points: TrafficPoint[] }) {
       <div className="flex h-40 w-12 shrink-0 flex-col justify-between py-0.5 text-right font-mono text-[10px] text-faint">
         {[...ticks].reverse().map((t, i) => <span key={i}>{axisTick(t)}</span>)}
       </div>
-      <div className="min-w-0 grow rounded-sm border border-line/40 bg-sunken/20 p-1">
+      <div className="min-w-0 grow rounded-lg bg-surface p-1">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-40 w-full" role="img"
              aria-label={`Grafik trafik LIVE, ${points.length} sampel, puncak ${peak.toFixed(2)} Mbps`}>
           {ticks.map((t) => (
@@ -753,7 +757,7 @@ function TrafficHistoryChart({ points }: { points: TrafficHistoryPoint[] }) {
       <div className="flex h-36 w-8 shrink-0 flex-col justify-between py-1 text-right font-mono text-[10px] text-faint">
         {[...ticks].reverse().map((t, i) => <span key={i}>{axisTick(t)}</span>)}
       </div>
-      <div className="min-w-0 grow rounded-sm border border-line/40 bg-sunken/20 p-1">
+      <div className="min-w-0 grow rounded-lg bg-surface p-1">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-36 w-full" role="img"
              aria-label={`Grafik histori trafik, ${rated.length} sampel, puncak ${peak.toFixed(2)} Mbps`}>
           {ticks.map((t) => (
@@ -847,8 +851,9 @@ function ChartCard(
   { title, toggle, children, legend }:
   { title: string; toggle?: React.ReactNode; children: React.ReactNode; legend?: React.ReactNode },
 ) {
+  // De-nesting: kartu grafik tanpa border sendiri di dalam section berborder.
   return (
-    <div className="min-w-0 rounded-md border bg-surface p-4">
+    <div className="min-w-0 rounded-lg bg-sunken/20 p-4">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-bold text-ink">{title}</h3>
         {toggle}
@@ -882,7 +887,7 @@ function RangeToggle(
       {RANGES.map(([v, label]) => (
         <button key={v} type="button" role="tab" aria-selected={value === v}
           onClick={() => onChange(v)}
-          className={`min-h-11 rounded-sm px-2 py-0.5 text-xs sm:min-h-0 ${value === v
+          className={`min-h-11 rounded-sm px-2 py-0.5 text-xs lg:min-h-0 ${value === v
             ? "bg-surface font-semibold text-fiber shadow-xs"
             : "font-medium text-muted hover:text-ink"}`}>
           {label}
@@ -1111,7 +1116,7 @@ function PrimaryVlanModal({ serial, oltId, currentVlanId, onClose, onDone }: {
                 disabled={!selected || Number(selected) === currentVlanId}
                 onSubmit={() => save.mutate()}>
       <Field label="VLAN">
-        <select className="w-full rounded border border-line bg-surface px-2 py-1.5"
+        <select className="h-8 max-md:h-12 w-full rounded border border-line bg-surface px-2"
                 value={selected} onChange={(e) => setSelected(e.target.value)}>
           <option value="">Pilih VLAN ...</option>
           {rows.map((v) => (
@@ -1381,9 +1386,11 @@ export function OnuDetail() {
   };
 
   return (
-    // pb-20 di mobile saja: bar aksi sticky (~60px) tidak boleh menutupi section
-    // terakhir; desktop tetap tanpa padding bawah tambahan.
-    <div className="space-y-3 pb-20 md:pb-0">
+    // Padding bawah mobile = tinggi bar aksi sticky (~65px: tombol 48px + py-2 +
+    // border) + safe-area iPhone, supaya section terakhir tidak tertutup bar — di
+    // ponsel berponi, pb-20 mentah kalah oleh tinggi bar + safe-area (65+34px).
+    // Desktop tetap tanpa padding bawah tambahan.
+    <div className="space-y-3 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">
       {/* Judul halaman hanya untuk pembaca layar: teksnya diminta dihapus dari tampilan
           (desktop maupun mobile), heading dipertahankan demi hierarki aksesibilitas. */}
       <h1 className="sr-only">Detail ONU</h1>
@@ -1396,10 +1403,10 @@ export function OnuDetail() {
           DIPINDAH ke sini dari blok Status (tidak diduplikasi); urutan section di bawah
           tidak berubah. Nama = customer_name, fallback name; chip SN gaya yang sama
           dengan chip SN di blok Identitas. */}
-      <div className="entrance flex flex-wrap items-center gap-2 rounded-md border bg-surface px-3 py-2">
-        <span className="text-base font-semibold">{d.customer_name || d.name || "—"}</span>
+      <div className="entrance flex flex-wrap items-center gap-2 rounded-lg border border-line/60 bg-surface px-3 py-2">
+        <span className="min-w-0 break-words text-base font-semibold">{d.customer_name || d.name || "—"}</span>
         <StatusBadge status={statusKey} reason={d.last_down_reason} withLabel />
-        <span className="rounded border border-line bg-sunken px-1.5 py-0.5 font-mono font-semibold text-fiber">{d.serial_number}</span>
+        <span className="shrink-0 rounded border border-line bg-sunken px-1.5 py-0.5 font-mono font-semibold text-fiber">{d.serial_number}</span>
         <Link className="text-fiber hover:underline" to={`/olt/${d.olt_id}`}>{d.olt_name}</Link>
         <span className="font-mono text-xs text-muted">{onuIf}</span>
       </div>
@@ -1437,7 +1444,7 @@ export function OnuDetail() {
           </div>
           {/* Telemetri 6 baris dalam satu kartu (mock): label grid 140px, titik status kecil
               untuk nilai berstatus, nilai kosong "—" redup. */}
-          <div className="divide-y divide-line rounded-md border bg-sunken/20 px-3.5 text-xs">
+          <div className="divide-y divide-line rounded-lg bg-sunken/20 px-3.5 text-xs">
             <TRow label="Jarak kabel" dot={d.distance_m != null ? "up" : null}>
               <span className="font-mono">{d.distance_m != null ? fmtDistance(d.distance_m) : DASH}</span>
             </TRow>
@@ -1458,7 +1465,7 @@ export function OnuDetail() {
         </div>
       </Block>
 
-      <div className="entrance grid gap-4 lg:grid-cols-12 lg:items-start">
+      <div className="entrance grid gap-3 lg:grid-cols-12 lg:items-start">
         <Block title="Identitas" className="lg:col-span-6"
                action={<span className="font-mono text-xs text-faint">ID: {d.id}</span>}>
           <div className="flex flex-col gap-1">
@@ -1619,7 +1626,7 @@ export function OnuDetail() {
           140px kiri, tombol operasi hijau mengisi baris, TR-069 mati + LIVE! di ujung kanan.
           Logika/handler diagnostik TIDAK diubah — tetap lewat job CLI backend, dan
           running-config tetap manager-only. */}
-      <section className="entrance rounded-md border bg-surface p-4">
+      <section className="entrance rounded-lg border border-line/60 bg-surface p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="lg:w-[140px] lg:shrink-0">
             <h2 className="flex items-center gap-1.5 text-base font-bold text-fiber"><TitleIcon title="Diagnostik" />Diagnostik</h2>
@@ -1628,19 +1635,19 @@ export function OnuDetail() {
           <div className="flex flex-wrap items-center justify-between gap-3 grow">
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-1.5">
               <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex sm:flex-wrap sm:gap-1.5">
-                <Button className="min-h-11 w-full sm:min-h-0 sm:w-auto" size="sm" variant="fiber"
+                <Button className="min-h-11 w-full lg:min-h-0 lg:w-auto" size="sm" variant="fiber"
                         onClick={() => runDiag("status")} disabled={diagRunning}>
                   {DIAG_LABEL.status}{diagRunning && diagRunView === "status" ? " ..." : ""}
                 </Button>
                 {/* Running-config utuh memuat nilai konfigurasi sensitif: tombolnya hanya dirender
                     untuk admin/superadmin, dan backend tetap menolak role lain (403). */}
                 {isManager && (
-                  <Button className="min-h-11 w-full sm:min-h-0 sm:w-auto" size="sm" variant="fiber"
+                  <Button className="min-h-11 w-full lg:min-h-0 lg:w-auto" size="sm" variant="fiber"
                           onClick={() => runDiag("running")} disabled={diagRunning}>
                     {DIAG_LABEL.running}{diagRunning && diagRunView === "running" ? " ..." : ""}
                   </Button>
                 )}
-                <Button className="min-h-11 w-full sm:min-h-0 sm:w-auto" size="sm" variant="fiber"
+                <Button className="min-h-11 w-full lg:min-h-0 lg:w-auto" size="sm" variant="fiber"
                         onClick={() => runDiag("software")} disabled={diagRunning}>
                   {DIAG_LABEL.software}{diagRunning && diagRunView === "software" ? " ..." : ""}
                 </Button>
@@ -1649,17 +1656,17 @@ export function OnuDetail() {
                 {/* Tombol TR-069 ada di acuan, tapi Nexfiber belum punya ACS internal
                     (DECISIONS.md): dirender MATI dengan alasan yang jelas, bukan tombol yang
                     menembak endpoint karangan. */}
-                <Button className="min-h-11 w-full sm:min-h-0 sm:w-auto" size="sm" variant="secondary" disabled
+                <Button className="min-h-11 w-full lg:min-h-0 lg:w-auto" size="sm" variant="secondary" disabled
                         title="Butuh profil ACS/TR-069 internal yang belum ada di Nexfiber">
                 TR-069
               </Button>
                 {diagView && diagOutput && !diagRunning && (
-                  <Button className="min-h-11 w-full sm:min-h-0 sm:w-auto" size="sm" variant="quiet"
+                  <Button className="min-h-11 w-full lg:min-h-0 lg:w-auto" size="sm" variant="quiet"
                           onClick={() => navigator.clipboard?.writeText(diagOutput)}>
                     Salin
                   </Button>
                 )}
-                <Button className="min-h-11 w-full sm:min-h-0 sm:w-auto" size="sm"
+                <Button className="min-h-11 w-full lg:min-h-0 lg:w-auto" size="sm"
                         variant={live ? "fiber" : "secondary"} aria-pressed={live}
                         onClick={() => setLive(!live)}>
                   <Gear size={13} aria-hidden />
@@ -1675,7 +1682,7 @@ export function OnuDetail() {
             {/* Panel realtime HANYA saat LIVE aktif (acuan screenshot ke-2): grafik Mbps +
                 dua baris ringkasan arah. Saat LIVE mati panel ini TIDAK dirender sama sekali. */}
             {live && (
-              <div className="entrance mt-3 rounded-sm border bg-sunken p-3">
+              <div className="entrance mt-3 rounded-lg bg-sunken/20 p-3">
                 <CardHead title="LIVE traffic"
                           note={`${traffic.points.length} sampel · tiap ${TRAFFIC_MS / 1000}s`} />
                 <LiveChart points={traffic.points} />
@@ -1721,12 +1728,12 @@ export function OnuDetail() {
       {/* 3. `Trafik & Histori Sinyal` gaya mock: judul + "Rentang ..." di kanan, dua kartu
           grafik sejajar lg:grid-cols-2 (menumpuk di bawah lg). Sumber data tetap endpoint
           histori/sinyal yang ada; grafik hanya menggambar sampel yang benar-benar tersimpan. */}
-      <section className="entrance rounded-md border bg-surface p-4">
+      <section className="entrance rounded-lg border border-line/60 bg-surface p-4">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
           <h2 className="flex items-center gap-2 text-base font-bold text-fiber"><TitleIcon title="Trafik & Histori Sinyal" />Trafik & Histori Sinyal</h2>
           <span className="font-mono text-xs text-muted">Trafik {RANGE_TITLE[range]} · Sinyal {RANGE_TITLE[srange]}</span>
         </div>
-        <div className="stagger grid gap-5 lg:grid-cols-2">
+        <div className="stagger grid gap-3 lg:grid-cols-2">
           <ChartCard title={`Trafik ${RANGE_TITLE[range]}`}
             toggle={<RangeToggle value={range} onChange={pickRange("range", setRange)} aria="Rentang histori trafik" />}
             legend={
@@ -1779,7 +1786,7 @@ export function OnuDetail() {
       {/* 5. SPEED PROFILE (mock pemilik): 3 kolom, nama profil mono hijau + nama asli
           perangkat kecil abu dalam kurung. */}
       <Section label="Profil Kecepatan" note="Rate-limit QoS" card>
-        <div className="mb-2 hidden overflow-x-auto rounded border border-line md:block">
+        <div className="mb-2 hidden overflow-x-auto md:block">
           <table className="w-full table-fixed border-collapse text-left">
             <thead>
               <tr className="border-b border-line bg-sunken text-muted">
@@ -1806,7 +1813,7 @@ export function OnuDetail() {
             </tbody>
           </table>
         </div>
-        <div className="grid min-w-0 grid-cols-2 gap-x-3 border bg-surface px-3 py-2 md:hidden">
+        <div className="grid min-w-0 grid-cols-2 gap-x-3 rounded-lg bg-sunken/20 px-3 py-2 md:hidden">
           <div className="min-w-0">
             <p className="text-xs text-muted">Download</p>
             <p className="truncate font-mono text-fiber">{dash(d.download_profile_name)}</p>
@@ -1825,11 +1832,11 @@ export function OnuDetail() {
       </Section>
 
       {/* 6. Port Ethernet + WiFi sejajar dua kolom (mock pemilik), kartu padat di mobile. */}
-      <div className="grid items-start gap-5 lg:grid-cols-2">
+      <div className="grid items-start gap-3 lg:grid-cols-2">
         <Section label="Port Ethernet" note={specs ? specs.name : undefined} card>
         {specs && specs.eth_ports > 0 ? (
           <>
-            <div className="mb-2 hidden overflow-x-auto rounded border border-line md:block">
+            <div className="mb-2 hidden overflow-x-auto md:block">
               <table className="w-full table-fixed border-collapse text-left">
                 <thead>
                   <tr className="border-b border-line bg-sunken text-muted">
@@ -1864,7 +1871,7 @@ export function OnuDetail() {
               {Array.from({ length: specs.eth_ports }, (_, i) => {
                 const cfg = d.port_configs?.eth?.[String(i + 1)];
                 return (
-                <article key={i} className="min-w-0 border bg-surface px-3 py-2">
+                <article key={i} className="min-w-0 rounded-lg bg-sunken/20 px-3 py-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <div className="min-w-0 grow">
                       <p className="font-semibold text-ink">LAN {i + 1}</p>
@@ -1895,7 +1902,7 @@ export function OnuDetail() {
       <Section label="WiFi (WLAN)" note={specs ? `${specs.wifi_ssids} SSID` : undefined} card>
         {specs && specs.wifi_ssids > 0 ? (
           <>
-            <div className="mb-2 hidden overflow-x-auto rounded border border-line md:block">
+            <div className="mb-2 hidden overflow-x-auto md:block">
               <table className="w-full table-fixed border-collapse text-left">
                 <thead>
                   <tr className="border-b border-line bg-sunken text-muted">
@@ -1928,7 +1935,7 @@ export function OnuDetail() {
               {Array.from({ length: specs.wifi_ssids }, (_, i) => {
                 const cfg = d.port_configs?.wifi?.[String(i + 1)];
                 return (
-                <article key={i} className="min-w-0 border bg-surface px-3 py-2">
+                <article key={i} className="min-w-0 rounded-lg bg-sunken/20 px-3 py-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <div className="min-w-0 grow">
                       <p className="font-semibold text-ink">SSID {i + 1}</p>
@@ -1988,8 +1995,8 @@ export function OnuDetail() {
           merusak tetap manager-only. "Log aksi terakhir" = pop up dari tombol di kepala
           section, entri menaut ke `/logs?q=<serial>`. */}
       <Section label="Aksi ONU" card id="aksi-onu" action={<LastLogPopover query={logs} serial={d.serial_number} />}>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="flex flex-col justify-between rounded-md border bg-sunken/20 p-3.5">
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="flex flex-col justify-between rounded-lg bg-sunken/20 p-3.5">
             <div>
               <div className="mb-1.5 flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-muted">Aksi Operasional</span>
@@ -2017,7 +2024,7 @@ export function OnuDetail() {
               )}
             </div>
           </div>
-          <div className="flex flex-col justify-between rounded-md border border-down p-3.5">
+          <div className="flex flex-col justify-between rounded-lg border border-down p-3.5">
             <div>
               <div className="mb-1.5 flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-down">Aksi Destruktif</span>
@@ -2056,7 +2063,7 @@ export function OnuDetail() {
       {/* Bar aksi sticky mobile-only: hanya aksi rutin (Reboot, Resync config) +
           anchor ke section Aksi penuh. Aksi destruktif TIDAK PERNAH di bar ini.
           Desktop tidak berubah (bar md:hidden). */}
-      <div className="fixed inset-x-0 bottom-0 z-40 flex items-center gap-2 border-t bg-surface px-3 py-2 md:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 flex items-center gap-2 border-t bg-surface px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] md:hidden">
         <Button className="grow" size="sm" variant="secondary"
                 onClick={() => setModal({ kind: "reboot" })}>
           Reboot

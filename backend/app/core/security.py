@@ -81,9 +81,23 @@ def create_sse_token(user_id: int, role: str, password_hash: str | None = None) 
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def decode_sse_token(token: str) -> dict:
-    """Decode token SSE; menolak token akses biasa (tanpa klaim typ=sse)."""
-    payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+def decode_sse_token(token: str, *, verify_exp: bool = True) -> dict:
+    """Decode token SSE; menolak token akses biasa (tanpa klaim typ=sse).
+
+    `verify_exp=True` (default) dipakai GERBANG pembuka koneksi di jobs.py:
+    token hanya boleh membuka koneksi dalam 120 detik pertama. Validasi ulang
+    DI DALAM stream (job_service._revalidate_stream_token) memakai
+    `verify_exp=False` dengan sengaja: begitu koneksi terotentikasi dan token
+    ditandai terpakai, umur token pembuka tidak boleh lagi membunuh stream —
+    kalau tidak, setiap stream mati tiap 120 detik dan frontend menampilkan
+    banner putus berulang. Tanda tangan tetap diverifikasi di kedua jalur, dan
+    keamanan stream yang berjalan dipegang pemeriksaan user-aktif + klaim ph
+    (password diubah = stream berhenti), bukan exp token pembuka. Token curian
+    tetap tidak bisa membuka koneksi kedua karena jti-nya sudah tercatat
+    terpakai di gerbang.
+    """
+    payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm],
+                         options={"verify_exp": verify_exp})
     if payload.get("typ") != "sse":
         raise ValueError("Bukan token SSE")
     return payload

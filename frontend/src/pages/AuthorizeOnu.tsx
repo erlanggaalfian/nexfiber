@@ -265,7 +265,7 @@ export function AuthorizeOnu() {
         </Button>
       </div>
 
-      <p className="mb-3 font-mono text-muted">
+      <p className="mb-3 break-words font-mono text-muted">
         {onu.serial_number} · {onu.olt_name} · {onu.slot}/{onu.port}
         {onu.onu_type ? ` · ${onu.onu_type}` : ""}
       </p>
@@ -273,7 +273,7 @@ export function AuthorizeOnu() {
 
       <form onSubmit={handleSubmit((f) => authorize.mutate(f))}>
         <div className="entrance grid gap-3 lg:grid-cols-2">
-          <Panel title="Layanan" className="p-4">
+          <Panel title="Layanan">
             <Field label="Tipe ONU *" error={formState.errors.onu_type_id?.message}>
               <select className={input} {...register("onu_type_id")}>
                 <option value="">Pilih tipe ONU</option>
@@ -331,7 +331,7 @@ export function AuthorizeOnu() {
             )}
           </Panel>
 
-          <Panel title="Pelanggan" className="p-4">
+          <Panel title="Pelanggan">
             <Field label="Nama pelanggan *" error={formState.errors.customer_name?.message}>
               <input className={input} autoFocus autoComplete="off" {...register("customer_name")} />
             </Field>

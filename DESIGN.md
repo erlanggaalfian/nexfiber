@@ -177,10 +177,15 @@ Tiga tingkat, bukan satu.
 |---|---|---|---|
 | `radius-0` | `0` | Sel tabel, header tabel | Grid data dibaca sebagai matriks; sudut membulat memecah garis baca. |
 | `radius-sm` | `3px` | Input, select, tombol, badge status | Cukup untuk menandai elemen interaktif, tidak menghapus bentuk persegi. |
-| `radius-md` | `8px` | Panel, kartu, modal, popover | Menandai lapisan di atas grid. |
+| `radius-md` | `8px` | Popover, dropdown | Lapisan mengambang kecil tetap 8px agar tidak terlihat seperti kartu. |
+| `radius-lg` | `12px` | Panel, kartu, modal, bottom sheet (sudut atas) | Lapisan permukaan utama. Dipakai sejak de-boxing 2026-10-28: radius 8px + border penuh di semua permukaan membuat seluruh aplikasi terasa kotak; 12px + hairline lebih lembut tanpa mengubah layout. Jangan menulis angka radius lain per komponen — pakai token ini. |
 | `radius-nav` | `16px` | Indikator navigasi bawah | Satu-satunya bentuk membulat penuh di app (lihat §11.1). |
 
 Tidak ada pill. Alasan: bentuk kapsul menghapus perbedaan antara badge, tombol, dan input di layar yang penuh kontrol kecil. Pita status history memakai `radius-sm`, bukan pill.
+
+**De-boxing (2026-10-28, keluhan user "masih terkesan kotak-kotak"):** kartu/panel memakai `rounded-lg` + hairline `border-line/60` (bukan border penuh `--border`), sehingga tepi lebih lembut di terang dan tetap terbaca di gelap. Header Panel tanpa garis `border-b` (judul + jarak sudah cukup sebagai pemisah). Larangan bersarang: tabel/kartu/daftar di dalam kartu tidak menggambar border penuh sendiri — pembungkus tabel desktop di dalam Section, daftar inset `bg-sunken`, dan kartu port mobile di dalam Section kehilangan bordernya sendiri (atau hanya memakai hairline bila memang daftar mandiri).
+
+**Audit menyeluruh 2026-10-28 (keluhan kedua user, sama):** hierarki radius ditegaskan — kartu/modal `lg` (12px) > kontrol (tombol, input, select, popover, kontainer `VlanMulti`) `md` (8px) > chip/badge/elemen kecil `sm` (3px) > pill navigasi bawah `nav` (16px); kontrol `rounded-sm` (3px) di atas kartu `rounded-lg` adalah sumber kesan kotak yang tersisa dan sudah disamakan ke `md`. Di dalam kartu berborder, elemen anak tidak memakai border penuh sendiri: pakai latar `sunken/20` tanpa border; area grafik di dalam kartu inset memakai `bg-surface` tanpa border. Pengecualian §7 yang baru: `Panel`, `TableCard`, dan `MobileCard` kini memakai `shadow-xs` permanen yang hemat (lihat §7) — satu-satunya pengecualian dari larangan bayangan permanen, diputuskan karena user dua kali menilai hasil tanpa shadow belum modern; tidak ada shadow baru yang kuat dan tidak ada glow.
 
 ## 7. Shadow & depth
 
@@ -191,8 +196,9 @@ Dua level shadow untuk elevasi nyata (dropdown, modal), **plus** satu level dept
 | `shadow-overlay` | `0 4px 12px rgba(28,27,24,0.14)` | Dropdown, popover, context menu |
 | `shadow-modal` | `0 12px 32px rgba(28,27,24,0.22)` | Dialog, drawer |
 | `shadow-hover-lift` | `0 6px 16px rgba(28,27,24,0.12)` + `translateY(-2px)` | Kartu metric Dashboard, kartu Settings saat `:hover`/`:focus-visible`, transisi `motion-hover` (150ms) |
+| `shadow-xs` | `0 1px 2px rgba(28,27,24,0.06)` | **Satu-satunya** shadow permanen yang diizinkan: `Panel`, `TableCard`, dan `MobileCard` (audit menyeluruh 2026-10-28; di tema gelap di-override ke hitam 0.35 karena nilai terang tidak terlihat di atas permukaan gelap) |
 
-Panel, kartu statis, tabel, dan header tetap **tidak** memakai shadow saat diam; pemisahan tetap memakai `--border` dan perbedaan latar (layer `--bg-surface`/`--bg-sunken`, lihat §3 untuk depth lewat warna). `shadow-hover-lift` HANYA aktif saat interaksi (hover/focus), bukan status diam — alasan: elevasi harus berarti "ini responsif", bukan hiasan permanen. Nilai shadow di tema gelap lebih pekat (overlay 0,35, modal 0,5); shadow tetap hitam netral, bukan glow berwarna. Popover/dropdown memakai `shadow-overlay`, bukan `shadow-modal` (yang hanya untuk dialog).
+Panel, kartu statis, tabel, dan header tetap **tidak** memakai shadow saat diam — KECUALI ketiga kartu utama di atas yang memakai `shadow-xs` hemat; pemisahan selain itu tetap memakai `--border` dan perbedaan latar (layer `--bg-surface`/`--bg-sunken`, lihat §3 untuk depth lewat warna). `shadow-hover-lift` HANYA aktif saat interaksi (hover/focus), bukan status diam — alasan: elevasi harus berarti "ini responsif", bukan hiasan permanen. Nilai shadow di tema gelap lebih pekat (overlay 0,35, modal 0,5); shadow tetap hitam netral, bukan glow berwarna. Popover/dropdown memakai `shadow-overlay`, bukan `shadow-modal` (yang hanya untuk dialog).
 
 Fokus: `outline: 2px solid var(--fiber); outline-offset: 1px` di light, `--amber` di dark. Tidak pernah `outline: none` tanpa pengganti. Item dropdown yang difokuskan/disorot keyboard memakai outline 2px token fokus di samping latar sunken, bukan hanya perubahan warna latar.
 
@@ -212,7 +218,7 @@ Tanpa panah dekoratif di tombol. Alasan: tidak ada tombol di aplikasi ini yang a
 
 ### Badge status
 
-Teks + titik 6px berwarna status, radius-sm, tanpa glow, tanpa uppercase lebar, tanpa animasi pulse. Titik menandai state perangkat nyata (R-31). Satu-satunya elemen yang boleh "berkedip" adalah banner alarm kritis baru, sekali selama 2 detik lalu berhenti. Alasan: perhatian ditarik saat kejadian, bukan terus-menerus. Default di tabel adalah berlabel (teks di samping ikon); ikon-saja hanya bila ruang terbukti tidak cukup. Pasangan status yang mudah tertukar wajib berikon berbeda (offline ≠ unreachable, dying-gasp ≠ power-off).
+Teks + titik 6px berwarna status, radius-sm, tanpa glow, tanpa uppercase lebar, tanpa animasi pulse. Titik menandai state perangkat nyata (R-31). Satu-satunya elemen yang boleh "berkedip" adalah banner alarm kritis baru, sekali selama 2 detik lalu berhenti. Alasan: perhatian ditarik saat kejadian, bukan terus-menerus. Default di tabel adalah berlabel (teks di samping ikon); ikon-saja hanya bila ruang terbukti tidak cukup. Pengecualian atas permintaan user (2026-10-28): kolom Status tabel Configured ikon-saja, keterangan lengkap muncul saat hover (atribut title StatusBadge) dan tetap tersedia untuk pembaca layar (sr-only); kartu mobile Configured tetap berlabel karena sentuhan tidak punya hover. Pasangan status yang mudah tertukar wajib berikon berbeda (offline ≠ unreachable, dying-gasp ≠ power-off).
 
 ### Signal bar (motif)
 
@@ -224,7 +230,8 @@ Balok lebar 48px tinggi 4px, radius 0, terbagi jadi segmen terisi sesuai bucket 
 
 ### Tabel
 
-- Header lengket (sticky, `top-14` di bawah header aplikasi 56px, `bg-surface`, diverifikasi di `TableCard` bukan per halaman), kolom pertama lengket pada viewport < 1280px.
+- Header lengket (sticky, di tiap `<th>` — bukan `<thead>` — `top-[calc(3.5rem+env(safe-area-inset-top))]` di bawah header aplikasi, `bg-surface` di tiap `th` supaya menutupi baris yang lewat, diverifikasi di `TableCard` bukan per halaman), kolom pertama lengket pada viewport < 1280px.
+- Sel tabel yang nilainya bisa panjang (nama pelanggan, nama OLT/splitter/zone, keterangan log) wajib dibungkus `span` block `truncate` dengan `max-w` eksplisit dan atribut `title` berisi nilai penuh. Truncate langsung di `<td>` tidak boleh dipakai: pada layout tabel auto ia tidak menahan kolom melebar.
 - Virtualisasi wajib di atas 200 baris.
 - Zebra mati secara default; pemisah baris memakai garis 1px `--border`. Alasan: pada baris 32px, zebra menambah getaran visual saat scroll cepat.
 - Hover baris: latar `--bg-sunken`. Baris terpilih: latar `--bg-sunken` + garis kiri 2px `--amber` (penanda state nyata, bukan dekorasi).
@@ -256,6 +263,8 @@ Selama belum terhubung ke perangkat nyata, sel kosong dibiarkan kosong atau dibe
 | < 768px | Sama dengan di atas + tabel jadi daftar kartu (§12.10), aksi lewat bottom sheet, target sentuh 48px |
 
 Tanpa overflow horizontal di level halaman; scroll horizontal hanya di dalam container tabel.
+
+**Target sentuh mengikuti navigasi, bukan breakpoint kartu (audit 2026-10-28):** selama navigasi bawah tampil (< 1024px, `lg`), semua kontrol interaktif minimal 44–48px. Jangan memakai `md:` (768px) untuk mengecilkan target sentuh — 768–1023px masih wilayah sentuh. **Safe-area:** tinggi top bar mobile dan offset sticky `<th>` memakai `calc(3.5rem + env(safe-area-inset-top))` yang sama; padding bawah konten halaman tab memakai `calc(6rem + env(safe-area-inset-bottom))` agar tidak tertutup bottom nav di HP ber-notch; bar aksi sticky mobile (bulk bar, Reboot/Resync) memakai padding bawah `calc(… + env(safe-area-inset-bottom))`, bukan angka mentah. **Pengecualian yang tetap berlaku:** tombol hapus `FilterChip` dikecualikan dari target 44px penuh (tombol ✕ ~18px) agar chip tidak membengkak; checkbox pilih tabel/kartu memakai 20px sebagai kompromi kerapatan vs keterjangkauan. **Urutan footer pop up di mobile (kolom):** aksi utama, batal, destruktif terakhir — diwujudkan lewat order mobile di footer shell (DOM-nya batal dulu, visualnya utama dulu).
 
 ## 10. Aksesibilitas
 
@@ -533,7 +542,7 @@ Tinggi minimum 72px, seluruh kartu bisa diketuk, jarak antar kartu 8px, tanpa sh
 | Aksi ke OLT | Tombol berubah jadi status job inline: `Menunggu…` → `Mengirim ke OLT…` → `Selesai` (hijau, 3 detik) / `Gagal: [pesan OLT]` + **Coba lagi**. Tidak ada optimistic update. Status job tampil di tempat aksi ditekan (baris yang diklik), bukan hanya di atas halaman |
 | Toast | Hanya untuk hasil job yang selesai saat user sudah pindah halaman. Kanan bawah, maks 3, hilang 5 detik, kecuali gagal (tetap sampai ditutup) |
 | Konfirmasi | Dialog kecil 400px: judul = aksi + target ("Reboot [SN]?"), satu kalimat dampak, tombol aksi di kanan. Aksi berbahaya: ketik SN/nama |
-| Drawer | Kanan, 480px, `shadow-modal`, `Esc` menutup, perubahan belum disimpan = konfirmasi. Form konfigurasi perangkat selalu dibuka dengan nilai saat ini; bila nilai saat ini tidak tersedia, tampilkan ringkasan nilai saat ini di atas form, bukan form default kosong — dan jangan pernah mengarang nilai yang belum dibaca. Pengecualian jujur untuk port Eth/WiFi: perangkat tidak terbukti mengirimkan mode/VLAN port lewat running-config yang tersedia, jadi "nilai saat ini" di modal dan di seksi Port Detail ONU adalah **terakhir ditulis Nexfiber** (`onus.port_configs`, dihapus saat restore-factory) dan selalu dilabeli begitu; bila belum pernah ditulis, modal tetap membuka default dengan ringkasan "belum dibaca" |
+| Drawer | Dialog TENGAH seperti modal (dulu kanan 480px — diubah atas permintaan user 2026-10-28 supaya semua pop up seragam di tengah), `shadow-modal`, `Esc` menutup, perubahan belum disimpan = konfirmasi. Form konfigurasi perangkat selalu dibuka dengan nilai saat ini; bila nilai saat ini tidak tersedia, tampilkan ringkasan nilai saat ini di atas form, bukan form default kosong — dan jangan pernah mengarang nilai yang belum dibaca. Pengecualian jujur untuk port Eth/WiFi: perangkat tidak terbukti mengirimkan mode/VLAN port lewat running-config yang tersedia, jadi "nilai saat ini" di modal dan di seksi Port Detail ONU adalah **terakhir ditulis Nexfiber** (`onus.port_configs`, dihapus saat restore-factory) dan selalu dilabeli begitu; bila belum pernah ditulis, modal tetap membuka default dengan ringkasan "belum dibaca" |
 | Bottom sheet | Di bottom sheet, aksi destruktif tidak pernah menjadi tombol pertama; urutan dari atas: aksi utama, batal, lalu aksi destruktif |
 | Setelan instan | Setelan yang langsung berlaku menampilkan status Tersimpan; perubahan yang memperpendek retensi meminta konfirmasi |
 | Loading | Skeleton baris di tabel; tombol yang ditekan menampilkan spinner 14px di dalam tombol, label tetap |

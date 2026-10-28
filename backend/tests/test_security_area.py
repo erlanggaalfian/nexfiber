@@ -116,3 +116,22 @@ async def test_daftar_revoked_dan_consumed_di_settings():
                 del value[drop]
                 row.value = value
         await db.commit()
+
+
+def test_token_sse_kedaluwarsa_ditolak_di_gerbang_tapi_bukan_di_stream():
+    """Regresi banner putus tiap 120 detik: exp hanya gerbang pembuka koneksi.
+    Token yang sudah kedaluwarsa WAJIB ditolak decode ketat (gerbang jobs.py),
+    tapi DITERIMA decode tanpa exp (validasi ulang di dalam stream) — kalau
+    tidak, stream yang sedang berjalan mati sendiri tiap SSE_TOKEN_SECONDS."""
+    import jwt as _jwt
+
+    from app.core.config import settings
+
+    expired = _jwt.encode(
+        {"sub": "1", "role": "admin", "typ": "sse", "jti": "expired-test",
+         "exp": int(time.time()) - 60},
+        settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    with pytest.raises(Exception):
+        decode_sse_token(expired)
+    payload = decode_sse_token(expired, verify_exp=False)
+    assert payload["typ"] == "sse" and payload["jti"] == "expired-test"

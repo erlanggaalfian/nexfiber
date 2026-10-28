@@ -3,22 +3,23 @@ import { useQuery } from "@tanstack/react-query";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router";
 import { Button } from "../components/ui/button";
+import { input } from "../components/crud";
 import { api, setToken } from "../lib/api";
 import { login } from "../lib/auth";
 
-/* Kartu auth memakai tinggi form yang sama dengan form di dalam aplikasi
-   (DESIGN §8: 32px desktop, 48px di bawah 768px); tombol submit mengikuti
-   tinggi tombol default, bukan 40px terpisah. */
-export const input = "h-8 max-md:h-12 w-full min-w-0 rounded-sm border border-line-strong bg-surface px-3 text-sm";
+/* Kartu auth memakai token input bersama (crud.input, DESIGN §8: 32px
+   desktop, 48px di bawah 768px) — dulu string ini diduplikasi di sini dengan
+   radius lama, sehingga radius sistem bisa menyimpang lagi. Tombol submit
+   mengikuti tinggi tombol default, bukan 40px terpisah. */
 
 /** DESIGN 12.1: one card for Login and Setup. */
 export function AuthCard({ onSubmit, children }: { onSubmit: (e: FormEvent<HTMLFormElement>) => void; children: ReactNode }) {
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-4 p-4">
-      <p className="flex items-center gap-2 text-[15px] font-semibold">
+      <p className="flex items-center gap-2 text-lg font-semibold">
         <WaveSine size={20} className="text-fiber" /> Nexfiber
       </p>
-      <form onSubmit={onSubmit} className="entrance w-full max-w-[360px] rounded-md border bg-surface p-4">
+      <form onSubmit={onSubmit} className="entrance w-full max-w-[360px] rounded-lg border border-line/60 bg-surface p-4">
         {children}
       </form>
     </main>
@@ -77,6 +78,7 @@ export function Login() {
   if (setup.data?.needed) return <Navigate to="/setup" replace />;
   return (
     <AuthCard onSubmit={submit}>
+      <h1 className="mb-4 text-base font-semibold">Masuk</h1>
       <Field label="Username" name="username" autoFocus autoComplete="username" />
       <Field label="Password" name="password" type="password" autoComplete="current-password" />
       {error && <p className="mb-3 text-down" role="alert">{error}</p>}

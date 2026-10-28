@@ -12,7 +12,7 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="entrance mb-4">
       <h2 className="mb-1 px-1 text-xs text-muted">{title}</h2>
-      <ul className="divide-y rounded-md border bg-surface">{children}</ul>
+      <ul className="divide-y rounded-lg border border-line/60 bg-surface">{children}</ul>
     </section>
   );
 }

@@ -86,7 +86,7 @@ function Monitoring({ d, oltId }: { d: Detail; oltId: number }) {
   };
   return (
     <>
-      <div className="stagger mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-line lg:grid-cols-4">
+      <div className="stagger mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line/60 bg-line lg:grid-cols-4">
         <Metric label="CPU" value={pct(d.cpu_pct)} fill={d.cpu_pct} />
         <Metric label="RAM" value={pct(d.ram_pct)} fill={d.ram_pct} />
         <Metric
@@ -135,13 +135,13 @@ function Monitoring({ d, oltId }: { d: Detail; oltId: number }) {
       </Panel>
       {refresh.isError && (
         <Panel title="Refresh gagal">
-          <p className="p-4 text-down">{refresh.error.message}</p>
+          <p className="text-down">{refresh.error.message}</p>
         </Panel>
       )}
       <JobTrace jobId={jobId} />
       {d.last_error && (
         <Panel title="Kesalahan terakhir">
-          <p className="p-4 text-down">{d.last_error}</p>
+          <p className="text-down">{d.last_error}</p>
         </Panel>
       )}
     </>
@@ -565,10 +565,10 @@ function Interfaces({ oltId }: { oltId: number }) {
   return (
     <>
       <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-xs text-muted">
+        <p className="min-w-0 text-xs text-muted">
           Dibaca langsung dari OLT saat tab dibuka, bukan dari database.
         </p>
-        <Button size="sm" onClick={() => q.refetch()} disabled={q.isFetching}>
+        <Button size="sm" className="shrink-0" onClick={() => q.refetch()} disabled={q.isFetching}>
           <ArrowClockwise size={14} /> {q.isFetching ? "Membaca ..." : "Baca ulang"}
         </Button>
       </div>
@@ -614,10 +614,13 @@ function Interfaces({ oltId }: { oltId: number }) {
 }
 
 function Row({ label, value }: { label: string; value: string }) {
+  // Tanpa px-4: Panel sudah p-4, jadi px-4 di sini = padding ganda 32px.
+  // Nilai break-all: string CLI/SNMP panjang tidak punya titik patah alami
+  // dan meluber di 390px.
   return (
-    <div className="flex justify-between gap-3 border-b px-4 py-2 last:border-0">
-      <span className="text-muted">{label}</span>
-      <span className="font-mono text-right">{value}</span>
+    <div className="flex justify-between gap-3 border-b py-2 last:border-0">
+      <span className="shrink-0 text-muted">{label}</span>
+      <span className="min-w-0 break-all font-mono text-right">{value}</span>
     </div>
   );
 }
@@ -679,7 +682,7 @@ function Konfigurasi({ d }: { d: Detail }) {
         {d.uplink_ports.length === 0 ? (
           <Empty>Belum tersinkron.</Empty>
         ) : (
-          <p className="p-4 font-mono text-sm">{d.uplink_ports.join(", ")}</p>
+          <p className="break-all font-mono text-sm">{d.uplink_ports.join(", ")}</p>
         )}
       </Panel>
     </>
@@ -717,11 +720,9 @@ function DaftarOnu({ oltId }: { oltId: number }) {
             <p className="truncate font-mono text-xs text-muted">
               {o.serial_number} · {o.slot}/{o.port}:{o.onu_index ?? "—"}
             </p>
-            <p className="flex flex-wrap items-center gap-2 text-xs">
+            {/* PON sudah tampil di baris serial di atas — tidak diulang lagi. */}
+            <p className="text-xs">
               <SignalBar dbm={o.rx_power_dbm} />
-              <span className="font-mono text-muted">
-                {o.slot}/{o.port}:{o.onu_index ?? "—"}
-              </span>
             </p>
           </MobileCard>
         )}
@@ -744,7 +745,7 @@ function DaftarOnu({ oltId }: { oltId: number }) {
           </tr>
         )}
       />
-      <div className="mt-3 flex items-center justify-between gap-3">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted">
           Menampilkan {from}–{to} dari {total} ONU
           {total > 200 ? " — daftar ini dipaginasi, halaman lain bisa dibuka." : ""}
@@ -797,9 +798,9 @@ export function OltDetail() {
           <ArrowLeft size={16} className="inline" /> OLT
         </Link>
       </PageTitle>
-      <div className="entrance mb-3 flex flex-wrap items-center gap-3 rounded-md border bg-surface px-4 py-3">
+      <div className="entrance mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-line/60 bg-surface px-4 py-3">
         <StatusBadge status={d.status} withLabel />
-        <span className="font-mono text-sm">{d.host}</span>
+        <span className="min-w-0 break-all font-mono text-sm">{d.host}</span>
         <span className="text-sm text-muted">{d.vendor} {d.model}</span>
         <span className="ml-auto text-sm">
           <span className="font-mono font-semibold">{nf.format(online)}</span>
@@ -809,7 +810,12 @@ export function OltDetail() {
         <OltSyncProgress oltId={oltId} showIdle />
       </div>
 
-      <div className="sticky top-14 z-10 mb-3 flex gap-1 overflow-x-auto border-b bg-surface" role="tablist">
+      {/* z-20, bukan z-10: thead TableCard juga sticky top-14 z-10, jadi tab
+          dengan z-10 bisa tertutup header tabel saat scroll (DOM tabel lebih
+          akhir). z-20 tetap di bawah header aplikasi z-40. Catatan: thead yang
+          menempel di top-14 tetap tersembunyi di balik bar tab ini — itu
+          butuh offset di komponen bersama, lihat laporan ke koordinator. */}
+      <div className="sticky top-14 z-20 mb-3 flex gap-1 overflow-x-auto border-b bg-surface" role="tablist">
         {tabs.map((t) => (
           <button
             key={t}
@@ -817,7 +823,7 @@ export function OltDetail() {
             role="tab"
             aria-selected={tab === t}
             onClick={() => setTab(t)}
-            className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors duration-150 ease-out motion-reduce:transition-none max-md:min-h-12 ${
+            className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors duration-150 ease-out motion-reduce:transition-none max-lg:min-h-12 ${
               tab === t ? "border-fiber font-semibold text-fiber" : "border-transparent text-muted hover:text-ink"
             }`}
           >

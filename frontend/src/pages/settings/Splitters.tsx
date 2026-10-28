@@ -157,18 +157,22 @@ function SplitterDrawer({ edit, zones, onClose }: {
       {edit && (
         <div className="mt-2">
           <p className="mb-1 text-xs uppercase tracking-[0.02em] text-muted">ONU terpasang</p>
-          {detail.data?.onus.length ? (
-            <table className="w-full border-collapse text-sm">
-              <tbody>
-                {detail.data.onus.map((o) => (
-                  <tr key={o.id} className="border-b last:border-0">
-                    <td className={`${cell} font-mono`}>{o.splitter_port ?? "—"}</td>
-                    <td className={`${cell} font-mono`}>{o.serial_number}</td>
-                    <td className={cell}>{o.customer_name ?? o.name ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {detail.isPending ? (
+            <p className="text-muted">Memuat ONU ...</p>
+          ) : detail.data?.onus.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <tbody>
+                  {detail.data.onus.map((o) => (
+                    <tr key={o.id} className="border-b last:border-0">
+                      <td className={`${cell} font-mono`}>{o.splitter_port ?? "—"}</td>
+                      <td className={`${cell} font-mono`}>{o.serial_number}</td>
+                      <td className={cell}>{o.customer_name ?? o.name ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : <p className="text-muted">Belum ada ONU.</p>}
         </div>
       )}

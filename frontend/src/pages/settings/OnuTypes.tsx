@@ -73,7 +73,7 @@ function OnuTypeDrawer({ edit, onClose }: { edit: OnuType | null; onClose: () =>
       <Field label="Nama tipe ONU (sama dengan nama di OLT)" error={formState.errors.name?.message}>
         <input className={input} autoFocus autoComplete="off" {...register("name")} />
       </Field>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-2 max-md:grid-cols-1">
         <Field label="Port Ethernet"><input className={input} type="number" min={0} {...register("eth_ports")} /></Field>
         <Field label="SSID WiFi"><input className={input} type="number" min={0} {...register("wifi_ssids")} /></Field>
         <Field label="Port VoIP"><input className={input} type="number" min={0} {...register("voip_ports")} /></Field>
@@ -142,6 +142,7 @@ export function OnuTypes() {
             </div>
             <p className="font-mono text-xs text-muted">
               {label(PON_TYPES, t.pon_type)} · ONU {t.onu_count} · Eth {t.eth_ports} · WiFi {t.wifi_ssids}
+              {t.voip_ports ? ` · VoIP ${t.voip_ports}` : ""}{t.catv ? " · CATV" : ""}
             </p>
             <p className="text-xs text-muted">{label(CAPABILITIES, t.capability)}</p>
             {canWrite && (

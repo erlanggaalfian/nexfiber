@@ -10,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { MobileCard, TableCard, cell, filterInput } from "../components/crud";
-import { PageTitle, fmtAgo, fmtDateTime } from "../components/data";
+import { PageTitle, fmtAgo, fmtDateTime, nf } from "../components/data";
 import { Button } from "../components/ui/button";
 import { api, qs, type Olt, type PendingOnu } from "../lib/api";
 
@@ -43,6 +43,7 @@ export function Unconfigured() {
   return (
     <>
       <PageTitle title="Unconfigured">
+        <span className="text-muted">{nf.format((pending.data ?? []).length)} ONU</span>
         <span className="text-muted">Scan terakhir {fmtDateTime(lastSeen)}</span>
         <Button onClick={() => rescan.mutate()} disabled={!oltId || rescan.isPending}>
           {rescan.isPending ? "Meminta scan ..." : "Scan ulang"}
@@ -85,13 +86,19 @@ export function Unconfigured() {
         )}
         row={(p: PendingOnu) => (
           <tr key={p.id} className="border-b last:border-0 hover:bg-sunken">
-            <td className={cell}>{p.olt_name}</td>
+            <td className={cell}>
+              <span className="block max-w-44 truncate" title={p.olt_name}>{p.olt_name}</span>
+            </td>
             <td className={`${cell} font-mono`}>{p.slot}</td>
             <td className={`${cell} font-mono`}>{p.port}</td>
             <td className={`${cell} font-mono`}>{p.serial_number}</td>
-            <td className={cell}>{p.onu_type ?? "—"}</td>
-            <td className={cell}>{fmtDateTime(p.first_seen_at)}</td>
-            <td className={`${cell} font-mono`}>{fmtAgo(p.last_seen_at)}</td>
+            <td className={cell}>
+              <span className="block max-w-40 truncate" title={p.onu_type ?? undefined}>
+                {p.onu_type ?? "—"}
+              </span>
+            </td>
+            <td className={`${cell} whitespace-nowrap`}>{fmtDateTime(p.first_seen_at)}</td>
+            <td className={`${cell} font-mono whitespace-nowrap`}>{fmtAgo(p.last_seen_at)}</td>
             <td className={cell}>
               <Button size="sm" variant="fiber"
                       onClick={() => navigate(`/unconfigured/authorize/${p.olt_id}/${p.serial_number}`)}>

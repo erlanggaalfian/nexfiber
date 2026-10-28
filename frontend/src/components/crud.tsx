@@ -1,5 +1,5 @@
-/** Shared list+drawer CRUD bits for the Settings pages (DESIGN 12.8: judul + tambah, filter, tabel,
- *  drawer kanan 480px, hapus = dialog konfirmasi kecil). Satu sumber supaya tiap halaman tidak
+/** Shared list+dialog CRUD bits for the Settings pages (DESIGN 12.8: judul + tambah, filter, tabel,
+ *  form edit = dialog tengah seperti modal, hapus = dialog konfirmasi kecil). Satu sumber supaya tiap halaman tidak
  *  menulis ulang markup yang sama.
  */
 import { CaretDown, X } from "@phosphor-icons/react";
@@ -16,10 +16,10 @@ import { Button } from "./ui/button";
    768px naik ke 48px (target sentuh DESIGN §9). min-w-0 mencegah input
    meluber di grid sempit (mis. lat/long AuthorizeOnu). */
 export const input =
-  "h-8 max-md:h-12 w-full min-w-0 rounded-sm border border-line-strong bg-surface px-3 text-sm";
+  "h-8 max-md:h-12 w-full min-w-0 rounded-md border border-line-strong bg-surface px-3 text-sm";
 export const cell = "px-3 py-2 text-left align-middle";
 export const filterInput =
-  "h-8 max-md:h-12 min-w-0 rounded-sm border border-line-strong bg-surface px-3 text-sm placeholder:text-faint";
+  "h-8 max-md:h-12 min-w-0 rounded-md border border-line-strong bg-surface px-3 text-sm placeholder:text-faint";
 
 export function Field({ label, error, children }: { label: string; error?: string; children: ReactNode }) {
   return (
@@ -90,7 +90,7 @@ export function JobTrace({ jobId }: { jobId: number | null }) {
  *  dipakai semua `card` di bawah supaya kartu HP tidak ditulis ulang per halaman
  *  dengan struktur berbeda-beda. */
 export function MobileCard({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
-  const cls = "min-h-[72px] rounded-md border bg-surface px-3 py-2";
+  const cls = "min-h-[72px] rounded-lg border border-line/60 bg-surface px-3 py-2 shadow-xs";
   /* Bukan <button>: satu-satunya MobileCard yang bisa diklik (Configured) berisi
    *  checkbox di dalamnya, jadi <button> akan menelankan konten interaktif dan
    *  berisiko merusak checkbox itu. Sebagai gantinya: role + tabIndex + keyboard
@@ -164,7 +164,7 @@ export function TableCard<T>({ query, columns, empty, emptyAction, row, card, lo
     return () => io.disconnect();
   }, [windowing, rows.length]);
   return (
-    <section className="entrance rounded-md border bg-surface">
+    <section className="entrance rounded-lg border border-line/60 bg-surface shadow-xs">
       {query.isPending ? (
         <Skeleton text={loadingText} rows={4} />
       ) : query.isError ? (
@@ -179,16 +179,22 @@ export function TableCard<T>({ query, columns, empty, emptyAction, row, card, lo
           <div className={`overflow-x-auto ${card ? "hidden md:block" : ""}`}>
             <table className="w-full border-collapse text-sm">
               {/* Sticky di bawah header aplikasi: header itu sticky top-0 h-14
-               *  (Layout.tsx:155,197), jadi top-14 = 56px tepat di bawahnya,
-               *  z-10 di bawah z-40 header, bg-surface menutup baris yang lewat.
-               *  CATATAN untuk verifikasi visual parent: thead sticky di dalam
-               *  wrapper overflow-x-auto ini belum tentu menempel saat halaman
-               *  di-scroll (bukan saat container di-scroll) — itu hanya bisa
-               *  dipastikan di browser, bukan dari kode saja. */}
-              <thead className="sticky top-14 z-10 bg-surface text-xs text-muted">
+               *  desktop dan h-[calc(3.5rem+safe-area-inset-top)] di mobile
+               *  (Layout.tsx), jadi top memakai calc yang sama; di browser
+               *  tanpa notch safe-area = 0 dan nilainya tetap 56px.
+               *  z-10 di bawah z-40 header.
+               *  PERBAIKAN bug "tabel menumpuk" (laporan user 2026-10-28, screenshot
+               *  OLT Management + Configured): sticky + background SEBELUMNYA
+               *  dipasang di <thead>, dan browser tidak menempelkan thead secara
+               *  andal — background thead tidak menutupi baris yang lewat, jadi
+               *  baris yang di-scroll tampil menumpuk di atas/di balik header.
+               *  Sticky dan bg-surface WAJIB di tiap <th> (bukan thead): itu pola
+               *  yang didukung Chrome/Firefox/Safari, dan bg di th menutupi
+               *  baris yang lewat. Jangan kembalikan sticky ke thead. */}
+              <thead className="text-xs text-muted">
                 <tr className="border-b">{columns.map((c, i) => {
                   const col = typeof c === "string" ? { label: c } : c;
-                  return <th key={col.label || i} scope="col" className={`${cell} ${col.className ?? ""}`}>{col.header ?? col.label}</th>;
+                  return <th key={col.label || i} scope="col" className={`sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-10 bg-surface ${cell} ${col.className ?? ""}`}>{col.header ?? col.label}</th>;
                 })}</tr>
               </thead>
               <tbody>{shownRows.map(row)}</tbody>

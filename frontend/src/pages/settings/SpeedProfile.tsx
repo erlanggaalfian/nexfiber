@@ -172,8 +172,9 @@ export function SpeedProfile() {
     .filter((p) => p.direction === direction)
     .filter((p) => !needle || p.name.toLowerCase().includes(needle));
 
+  // Sama dengan tab Splitters: 32px desktop, 48px di mobile (target sentuh).
   const tabClass = (t: string) =>
-    `h-8 px-3 text-sm ${direction === t ? "border-b-2 border-fiber font-medium" : "text-muted"}`;
+    `h-8 max-md:min-h-12 px-3 text-sm ${direction === t ? "border-b-2 border-fiber font-medium" : "text-muted"}`;
 
   return (
     <>

@@ -163,7 +163,7 @@ function UserDrawer({ edit, onClose }: { edit: UserRow | null; onClose: () => vo
                       {(olts.data ?? []).map((o) => (
                         <label
                           key={o.id}
-                          className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-sunken"
+                          className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-sunken max-md:py-3"
                         >
                           <input
                             type="checkbox"
@@ -257,7 +257,7 @@ export function UserManagement() {
         </select>
       </div>
 
-      <section className="entrance rounded-md border bg-surface">
+      <section className="entrance rounded-lg border border-line/60 bg-surface">
         {users.isPending ? (
           <Skeleton text="Memuat user ..." rows={4} />
         ) : users.isError ? (
@@ -268,7 +268,7 @@ export function UserManagement() {
           <>
           <div className="grid gap-2 p-2 md:hidden">
             {rows.map((u) => (
-              <article key={u.id} className="min-h-[72px] rounded-md border bg-surface px-3 py-2">
+              <article key={u.id} className="min-h-[72px] rounded-lg border border-line/60 bg-surface px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="min-w-0 truncate font-medium">{u.full_name}</span>
                   <span className="inline-flex shrink-0 items-center gap-1.5 text-xs">

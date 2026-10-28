@@ -145,7 +145,8 @@ function OltDrawer({ edit, onClose }: { edit: OltRow | null; onClose: () => void
       </Field>
       {edit && (
         <Field label="Status">
-          <label className="flex items-center gap-2 text-sm">
+          {/* Baris checkbox sama dengan ONU Types: target sentuh 48px di mobile. */}
+          <label className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-sunken max-md:py-3">
             <input type="checkbox" {...register("is_active")} />
             Aktif (sinkron berjalan)
           </label>
@@ -207,7 +208,7 @@ function OltDrawer({ edit, onClose }: { edit: OltRow | null; onClose: () => void
       <Field label="Pemilik utama">
         <p className="text-muted">{edit ? edit.owner_name : me.full_name}</p>
       </Field>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button onClick={() => test.mutate()} disabled={test.isPending || !watch("snmp_community")}>
           {test.isPending ? "Mengecek ..." : "Cek koneksi"}
         </Button>

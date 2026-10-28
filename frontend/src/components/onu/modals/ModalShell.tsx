@@ -18,7 +18,7 @@ import { Button } from "../../ui/button";
  *  32px desktop, 48px di bawah 768px). Nilai ini sengaja identik dengan
  *  crud.input — jangan diubah di satu tempat saja. */
 export const field =
-  "h-8 max-md:h-12 w-full min-w-0 rounded-sm border border-line-strong bg-surface px-3 text-sm";
+  "h-8 max-md:h-12 w-full min-w-0 rounded-md border border-line-strong bg-surface px-3 text-sm";
 export const selectCls = field;
 
 /** Kotak catatan acuan (`.help-block` di dalam panel): kartu `surface` di atas badan `sunken`. */
@@ -62,7 +62,7 @@ export function Radios<T extends string>(
   return (
     <div className="flex min-h-9 flex-col gap-1.5 py-1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1.5">
       {options.map((o, i) => (
-        <label key={o.value} className="flex cursor-pointer items-center gap-1.5 text-sm">
+        <label key={o.value} className="flex cursor-pointer items-center gap-1.5 text-sm max-md:min-h-11">
           <input type="radio" name={name} value={o.value} checked={value === o.value}
                  disabled={o.disabled} autoFocus={autoFocus && i === 0}
                  onChange={() => onChange(o.value)} />
@@ -118,7 +118,7 @@ export function VlanMulti(
   const toggle = (n: number) =>
     onChange(value.includes(n) ? value.filter((x) => x !== n) : [...value, n].sort((a, b) => a - b));
   return (
-    <div className="rounded-sm border border-line-strong bg-surface">
+    <div className="rounded-md border border-line-strong bg-surface">
       <div className="flex items-center gap-2 border-b p-2">
         <input className={field} placeholder="Cari VLAN ..." value={q} aria-label={`Cari ${label}`}
                autoFocus={autoFocus} onChange={(e) => setQ(e.target.value)} />
@@ -167,19 +167,20 @@ export function Select(
 }
 
 /* ---------------------------------------------------------------------------
- * Kerangka bersama SEMUA pop up aplikasi (modal ONU, drawer Settings, dialog
- * konfirmasi, dialog detail Logs). Satu overlay, satu radius/shadow, satu
+ * Kerangka bersama SEMUA pop up aplikasi (modal ONU, form Settings/edit,
+ * dialog konfirmasi, dialog detail Logs). Satu overlay, satu posisi tengah,
+ * satu radius/shadow, satu
  * header (judul + silang), satu badan `sunken` yang bisa discroll, satu footer
  * kanan. Di bawah `sm` semuanya jadi bottom sheet penuh lebar (DESIGN §12.8).
  * Jangan menulis markup `Dialog.*` baru di halaman: pakai salah satu shell.
  * ------------------------------------------------------------------------- */
 const OVERLAY =
   "fixed inset-0 z-40 bg-black/50 data-[state=open]:animate-[fade-in_150ms_ease-out] data-[state=closed]:animate-[dialog-fade-out_150ms_ease-in] motion-reduce:animate-none";
-const PANEL = "fixed z-50 flex flex-col overflow-hidden border bg-surface shadow-modal";
+const PANEL = "fixed z-50 flex flex-col overflow-hidden border border-line/60 bg-surface shadow-modal";
 /** Mobile (<768px, sama dengan batas kartu DESIGN §12.10): tempel ke bawah
  *  layar, sudut atas membulat, animasi naik, hormati safe-area. */
 const SHEET =
-  "max-md:inset-x-0 max-md:top-auto max-md:bottom-0 max-md:left-0 max-md:max-h-[88vh] max-md:w-full max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-t-md max-md:rounded-b-none max-md:border-x-0 max-md:border-b-0 max-md:pb-[env(safe-area-inset-bottom)]";
+  "max-md:inset-x-0 max-md:top-auto max-md:bottom-0 max-md:left-0 max-md:max-h-[88vh] max-md:w-full max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-t-lg max-md:rounded-b-none max-md:border-x-0 max-md:border-b-0 max-md:pb-[env(safe-area-inset-bottom)]";
 /* Dialog tengah: fade + naik 8px, 225ms. Keyframe-nya hanya menganimasikan
    `transform: translateY` — pemusatan -50%/-50% tetap dipegang utility Tailwind
    (properti `translate` di Tailwind v4), jadi keyframe yang menulis
@@ -188,13 +189,14 @@ const SHEET =
    tetap menang seperti sebelumnya; prefers-reduced-motion dimatikan global
    oleh index.css untuk konten dialog. */
 const CENTER =
-  "top-1/2 left-1/2 max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-1/2 rounded-md data-[state=open]:animate-[dialog-center-in_225ms_ease-out] motion-reduce:animate-none";
-const DRAWER =
-  "inset-y-0 right-0 w-full max-w-[480px] border-l data-[state=closed]:animate-[drawer-out_200ms_ease-in] data-[state=open]:animate-[drawer-in_250ms_ease-out]";
+  "top-1/2 left-1/2 max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg data-[state=open]:animate-[dialog-center-in_225ms_ease-out] motion-reduce:animate-none";
+/* TIDAK ADA lagi varian drawer/samping (permintaan user 2026-10-28: semua
+ * pop up — Settings maupun edit — di tengah, seragam dengan modal ONU dan
+ * dialog konfirmasi. Varian drawer kanan 480px dihapus supaya tidak ada
+ * halaman yang bisa kembali ke posisi samping diam-diam. */
 
-export function ModalFrame({ variant = "center", width = "max-w-[600px]", title, onClose, onSubmit, footer, children }: {
-  variant?: "center" | "drawer";
-  /** Hanya dipakai `center`: kelas `max-w-*`. */
+export function ModalFrame({ width = "max-w-[600px]", title, onClose, onSubmit, footer, children }: {
+  /** Kelas `max-w-*` dialog tengah. */
   width?: string;
   title: ReactNode;
   onClose: () => void;
@@ -212,12 +214,12 @@ export function ModalFrame({ variant = "center", width = "max-w-[600px]", title,
       <Dialog.Portal>
         <Dialog.Overlay className={OVERLAY} />
         <Dialog.Content
-          className={`${PANEL} ${variant === "drawer" ? DRAWER : `${CENTER} ${width}`} ${SHEET}`}
+          className={`${PANEL} ${CENTER} ${width} ${SHEET}`}
         >
-          <div className="flex items-start justify-between gap-3 border-b px-5 py-3.5">
+          <div className="flex items-start justify-between gap-3 border-b px-4 py-3.5 sm:px-5">
             <Dialog.Title className="text-lg font-semibold text-ink">{title}</Dialog.Title>
             <Dialog.Close
-              className="-mr-1 flex size-11 shrink-0 items-center justify-center rounded-sm text-faint hover:text-ink"
+              className="-mr-1 flex size-11 shrink-0 items-center justify-center rounded-sm text-faint hover:bg-sunken hover:text-ink"
               aria-label="Tutup"
             >
               <X size={16} aria-hidden />
@@ -228,10 +230,13 @@ export function ModalFrame({ variant = "center", width = "max-w-[600px]", title,
             className="flex min-h-0 flex-1 flex-col"
           >
             {/* Badan lebih teredam dari header+footer supaya form menonjol. */}
-            <div className="min-h-0 flex-1 overflow-y-auto bg-sunken px-5 py-4">{children}</div>
+            <div className="min-h-0 flex-1 overflow-y-auto bg-sunken px-4 py-4 sm:px-5">{children}</div>
             {/* HP: footer jadi kolom tombol penuh lebar (target sentuh 48px dari
-                Button) supaya aksi tidak berdesakan di kanan sheet. */}
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t px-5 py-3 max-md:flex-col max-md:items-stretch max-md:[&>button]:w-full">
+                Button) supaya aksi tidak berdesakan di kanan sheet.
+                Selektor keturunan (bukan anak langsung): tombol `extra`
+                ModalShell dibungkus <span>, jadi [&>button] dulu melewatkannya
+                dan tombol itu tidak penuh lebar di HP. */}
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t px-4 py-3 sm:px-5 max-md:flex-col max-md:items-stretch max-md:[&button]:w-full">
               {footer}
             </div>
           </form>
@@ -311,14 +316,16 @@ export function ModalShell({
       onSubmit={unsupported ? undefined : onSubmit}
       footer={
         <>
-          {/* Mobile (<768px): footer jadi kolom, jadi extra diurutkan terakhir
-              (order-3) — aksi utama, batal, lalu aksi destruktif. Desktop
-              tidak berubah: extra tetap di kiri lewat mr-auto. */}
+          {/* Mobile (<768px): footer jadi kolom, jadi urutan visual harus
+              aksi utama, batal, lalu aksi destruktif — DOM-nya batal dulu,
+              maka tombol diberi order mobile (order-1 utama, order-2 batal,
+              order-3 extra destruktif). Desktop tidak berubah: extra tetap
+              di kiri lewat mr-auto. */}
           {extra && <span className="mr-auto max-md:order-3">{extra}</span>}
           {/* Tanpa tombol aksi, tombol tutup yang jadi aksi utama. */}
-          <Button size="md" variant={onSubmit ? "quiet" : "fiber"} onClick={requestClose}>{closeLabel}</Button>
+          <Button size="md" variant={onSubmit ? "quiet" : "fiber"} onClick={requestClose} className="max-md:order-2">{closeLabel}</Button>
           {onSubmit && (
-            <Button size="md" type="submit"
+            <Button size="md" type="submit" className="max-md:order-1"
                     variant={danger ? "dangerSolid" : warn ? "primary" : "fiber"}
                     disabled={busy || unsupported || disabled}>
               {busy ? busyLabel : action}
@@ -340,7 +347,10 @@ export function ModalShell({
   );
 }
 
-/** Drawer kanan 480px (DESIGN §13) — tema sama dengan modal, hanya posisinya beda. */
+/** Form Settings/edit (DESIGN §13) — dulu drawer kanan 480px, kini dialog
+ *  TENGAH yang sama dengan modal ONU (permintaan user 2026-10-28: seragamkan
+ *  semua pop up di tengah). Nama komponen dipertahankan supaya halaman-halaman
+ *  pemakai tidak perlu diubah; yang berubah hanya posisinya. */
 export function DrawerShell({
   title, onClose, onSubmit, busy, error, disabled, dirty,
   action = "Simpan", busyLabel = "Menyimpan ...", closeLabel = "Batal", children,
@@ -353,14 +363,13 @@ export function DrawerShell({
   return (
     <>
     <ModalFrame
-      variant="drawer"
       title={title}
       onClose={requestClose}
       onSubmit={onSubmit}
       footer={
         <>
-          <Button size="md" variant="quiet" onClick={requestClose}>{closeLabel}</Button>
-          <Button size="md" type="submit" variant="fiber" disabled={busy || disabled}>
+          <Button size="md" variant="quiet" onClick={requestClose} className="max-md:order-2">{closeLabel}</Button>
+          <Button size="md" type="submit" variant="fiber" disabled={busy || disabled} className="max-md:order-1">
             {busy ? busyLabel : action}
           </Button>
         </>
@@ -394,9 +403,9 @@ export function ConfirmShell({
       onSubmit={onConfirm}
       footer={
         <>
-          <Button size="md" variant="quiet" onClick={requestClose}>{closeLabel}</Button>
+          <Button size="md" variant="quiet" onClick={requestClose} className="max-md:order-2">{closeLabel}</Button>
           <Button size="md" type="submit" variant={danger ? "dangerSolid" : "primary"}
-                  disabled={busy || disabled}>
+                  disabled={busy || disabled} className="max-md:order-1">
             {action}
           </Button>
         </>
