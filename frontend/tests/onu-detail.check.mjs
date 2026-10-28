@@ -346,10 +346,11 @@ check("baris spesifikasi koneksi memakai label hasil rename (tabel pemilik)", ()
                    "PPPoE username", "PPPoE password", "Mode setup WAN", "Akses remote WAN"]) {
     assert.ok(!page.includes(`label="${l}"`), `label lama masih ada: ${l}`);
   }
-  // Tanpa data: TR069 `Inactive`, Mgmt IP belum terbaca, dan mode "—" redup; bukan fakta karangan.
+  // Tanpa data: TR069 `Inactive`, Mgmt IP mode kosong = "None" (keputusan user: bukan
+  // "belum terbaca", bukan fakta karangan), dan mode "—" redup.
   assert.ok(page.includes('label="Profil TR069" value={<>Inactive'), "Profil TR069 Inactive");
-  assert.ok(page.includes('mgmtMode === null ? <span className="text-faint">— (belum terbaca)</span>'),
-            "Mgmt IP belum terbaca");
+  assert.ok(page.includes('mgmtMode === null ? <span className="text-faint">None</span>'),
+            "Mgmt IP kosong = None");
   assert.ok(page.includes("wanMode === null ? DASH"), "Setup WAN kosong = — redup");
 });
 

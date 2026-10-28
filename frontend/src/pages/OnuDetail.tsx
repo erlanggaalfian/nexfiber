@@ -1282,10 +1282,10 @@ export function OnuDetail() {
                             online={d.status === "online" && d.admin_state !== "disabled"} />
             )}
             {/* Mgmt IP mengikuti mock: "<Static|DHCP> - vlan: N" + chip IP hijau menuju
-                Web GUI ONU. Mode kosong berarti belum terbaca dari perangkat, bukan fakta
-                `Inactive`. */}
+                Web GUI ONU. Mode kosong = perangkat tak melaporkan → tampil "None"
+                (bukan fakta `Inactive`, bukan "belum terbaca"). */}
             <DRow label="Mgmt IP" value={
-              mgmtMode === null ? <span className="text-faint">— (belum terbaca)</span> : (
+              mgmtMode === null ? <span className="text-faint">None</span> : (
                 <>
                   <span>
                     {mgmtMode}
