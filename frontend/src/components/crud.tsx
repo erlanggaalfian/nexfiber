@@ -87,12 +87,16 @@ export function JobTrace({ jobId }: { jobId: number | null }) {
   );
 }
 
-/** Kartu mobile DESIGN §12.10 (maks 3 baris: identitas+status, mono redup,
- *  angka penentu keputusan; min 72px, gap 8px, tanpa shadow). Pola yang sama
- *  dipakai semua `card` di bawah supaya kartu HP tidak ditulis ulang per halaman
+/** Baris daftar mobile DESIGN §8/§12.10 (maks 3 baris: identitas+status, mono
+ *  redup, angka penentu keputusan). Barisnya sendiri BUKAN kartu berkotak
+ *  (bahasa kartu 2026-10-29): tanpa bingkai, tanpa latar sendiri, tanpa
+ *  shadow, tanpa tinggi minimum — baris menyatu dengan kartu tabel induk
+ *  dan dipisah dari baris lain oleh pembatas container TableCard
+ *  (divide-y), dengan napas vertikal py-3. Pola yang sama dipakai semua
+ *  `card` di bawah supaya daftar HP tidak ditulis ulang per halaman
  *  dengan struktur berbeda-beda. */
 export function MobileCard({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
-  const cls = "min-h-[72px] rounded-lg border border-line/60 bg-surface px-3 py-2 shadow-xs";
+  const cls = "px-3 py-3";
   /* Bukan <button>: satu-satunya MobileCard yang bisa diklik (Configured) berisi
    *  checkbox di dalamnya, jadi <button> akan menelankan konten interaktif dan
    *  berisiko merusak checkbox itu. Sebagai gantinya: role + tabIndex + keyboard
@@ -166,7 +170,7 @@ export function TableCard<T>({ query, columns, empty, emptyAction, row, card, lo
     return () => io.disconnect();
   }, [windowing, rows.length]);
   return (
-    <section className="entrance rounded-lg border border-line/60 bg-surface shadow-xs">
+    <section className="entrance overflow-hidden rounded-lg border border-line bg-surface shadow-xs">
       {query.isPending ? (
         <Skeleton text={loadingText} rows={4} />
       ) : query.isError ? (
@@ -176,22 +180,33 @@ export function TableCard<T>({ query, columns, empty, emptyAction, row, card, lo
       ) : (
         <>
           {card && (
-            <div className="grid gap-2 p-2 md:hidden">{shownRows.map(card)}</div>
+            <div className="divide-y divide-line/60 md:hidden">{shownRows.map(card)}</div>
           )}
           <div className={`overflow-x-auto ${card ? "hidden md:block" : ""}`}>
-            <table className="tbl tbl--sticky">
-              {/* Padding/garis/hover tabel diatur di bagian TABEL TERPUSAT
-               *  di frontend/src/styles/index.css — itu sumber kebenarannya,
-               *  jangan menulis ulang bg, padding, atau border di
-               *  <table>/<th> di sini. Header tabel sengaja TIDAK sticky
-               *  (putusan user 2026-10-29: konten tidak boleh tertutup
-               *  header; sticky + pembungkus overflow-x selalu rusak di satu
-               *  browser, laporan 2026-10-28/29). thead hanya pembungkus
-               *  tanpa class dan <tr> header sengaja tanpa border. Tabel
-               *  memakai border-separate, dan garis digambar lewat sel karena
-               *  border di <tr> diabaikan di model itu. Jangan kembalikan ke
-               *  border-collapse. Class per kolom (col.className) tetap
-               *  dipertahankan apa adanya di tiap <th>. */}
+            <table className="tbl">
+              {/* Bahasa kartu 2026-10-29 (DESIGN §8): section di atas adalah
+               *  SATU kartu lembut (rounded-lg + border-line + bg-surface +
+               *  shadow-xs + overflow-hidden, terjemahan token Nexfiber dari
+               *  rounded-xl/shadow-sm contoh) di atas latar halaman app, dan
+               *  tabel di dalamnya berbasis pembatas — bukan kartu per baris.
+               *  State loading/empty/error tetap di dalam kartu ini, tidak
+               *  dikeluarkan dari section. Tabel ini tanpa modifier sticky/
+               *  inset (keduanya dihapus total, jangan dihidupkan lagi).
+               *  Padding/garis/header/hover tabel diatur di bagian TABEL
+               *  TERPUSAT di frontend/src/styles/index.css — itu sumber
+               *  kebenarannya, jangan menulis ulang bg, padding, atau
+               *  border di <table>/<th> di sini. Header tabel TIDAK PERNAH
+               *  sticky (putusan terkunci DECISIONS.md 2026-10-29: konten
+               *  tidak boleh tertutup header; sticky + pembungkus overflow-x
+               *  selalu rusak di satu browser, laporan 2026-10-28/29) —
+               *  jangan mengembalikan sticky dalam bentuk apa pun. thead
+               *  hanya pembungkus tanpa class dan <tr> header sengaja tanpa
+               *  border. Tabel memakai border-separate, dan garis digambar
+               *  lewat sel karena border di <tr> diabaikan di model itu.
+               *  Jangan kembalikan ke border-collapse. Aksi dalam baris
+               *  memakai teks tenang warna fiber (varian quiet), bukan
+               *  tombol dan bukan biru contoh. Class per kolom
+               *  (col.className) tetap dipertahankan apa adanya di tiap <th>. */}
               <thead>
                 <tr>{columns.map((c, i) => {
                   const col = typeof c === "string" ? { label: c } : c;

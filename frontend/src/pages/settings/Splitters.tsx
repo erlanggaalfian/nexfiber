@@ -7,7 +7,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import {
-  Confirm, Drawer, Field, MobileCard, TableCard, UsageBar, cell, filterInput, input,
+  Confirm, Drawer, Field, MobileCard, TableCard, UsageBar, filterInput, input,
 } from "../../components/crud";
 import { PageTitle } from "../../components/data";
 import { Button } from "../../components/ui/button";
@@ -167,7 +167,7 @@ function SplitterDrawer({ edit, zones, onClose }: {
                     <tr key={o.id}>
                       <td className="font-mono">{o.splitter_port ?? "—"}</td>
                       <td className="font-mono">{o.serial_number}</td>
-                      <td>{o.customer_name ?? o.name ?? "—"}</td>
+                      <td className="font-semibold">{o.customer_name ?? o.name ?? "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -431,25 +431,25 @@ export function Splitters() {
               </p>
               {isManager && (
                 <div className="mt-1 flex flex-wrap gap-2">
-                  <Button size="sm" onClick={() => setPresetDrawer({ edit: p })}>Edit</Button>
-                  <Button size="sm" variant="danger" onClick={() => setDelPreset(p)}>Hapus</Button>
+                  <Button size="sm" variant="quiet" onClick={() => setPresetDrawer({ edit: p })}>Edit</Button>
+                  <Button size="sm" variant="quiet" onClick={() => setDelPreset(p)}>Hapus</Button>
                 </div>
               )}
             </MobileCard>
           )}
           row={(p) => (
-            <tr key={p.id} className="border-b last:border-0">
-              <td className={cell}>{p.name}</td>
-              <td className={cell}>{onuTypes.data?.find((t) => t.id === p.onu_type_id)?.name ?? p.onu_type_id}</td>
-              <td className={`${cell} font-mono`}>{p.vlan ?? "—"}</td>
-              <td className={cell}>{p.download_profile ?? "—"}</td>
-              <td className={cell}>{p.upload_profile ?? "—"}</td>
-              <td className={cell}>{p.onu_mode}/{p.wan_mode}</td>
-              <td className={cell}>
+            <tr key={p.id}>
+              <td className="font-semibold">{p.name}</td>
+              <td>{onuTypes.data?.find((t) => t.id === p.onu_type_id)?.name ?? p.onu_type_id}</td>
+              <td className="font-mono">{p.vlan ?? "—"}</td>
+              <td>{p.download_profile ?? "—"}</td>
+              <td>{p.upload_profile ?? "—"}</td>
+              <td>{p.onu_mode}/{p.wan_mode}</td>
+              <td>
                 {isManager ? (
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={() => setPresetDrawer({ edit: p })}>Edit</Button>
-                    <Button size="sm" variant="danger" onClick={() => setDelPreset(p)}>Hapus</Button>
+                    <Button size="sm" variant="quiet" onClick={() => setPresetDrawer({ edit: p })}>Edit</Button>
+                    <Button size="sm" variant="quiet" onClick={() => setDelPreset(p)}>Hapus</Button>
                   </div>
                 ) : "—"}
               </td>
@@ -484,33 +484,33 @@ export function Splitters() {
                 </p>
                 {isManager && (
                   <div className="mt-1 flex flex-wrap gap-2">
-                    <Button size="sm" onClick={() => setSplitterDrawer({ edit: s })}>Edit</Button>
-                    <Button size="sm" variant="danger" onClick={() => setDelSplitter(s)}>Hapus</Button>
+                    <Button size="sm" variant="quiet" onClick={() => setSplitterDrawer({ edit: s })}>Edit</Button>
+                    <Button size="sm" variant="quiet" onClick={() => setDelSplitter(s)}>Hapus</Button>
                   </div>
                 )}
               </MobileCard>
             )}
             row={(s: Splitter) => (
-              <tr key={s.id} className="border-b last:border-0">
-                <td className={cell}>{s.name}</td>
-                <td className={`${cell} font-mono`}>{s.code ?? "—"}</td>
-                <td className={cell}>{s.type.toUpperCase()}</td>
-                <td className={cell}>{s.parent_name ?? "—"}</td>
-                <td className={`${cell} font-mono`}>
+              <tr key={s.id}>
+                <td className="font-semibold">{s.name}</td>
+                <td className="font-mono">{s.code ?? "—"}</td>
+                <td>{s.type.toUpperCase()}</td>
+                <td>{s.parent_name ?? "—"}</td>
+                <td className="font-mono">
                   {s.latitude != null && s.longitude != null ? `${s.latitude}, ${s.longitude}` : "—"}
                 </td>
-                <td className={cell}>
+                <td>
                   <UsageBar used={s.onu_count} capacity={s.capacity} />
                   {s.capacity === null && (
                     <span className="ml-2 text-xs text-down">Kapasitas belum diisi</span>
                   )}
                 </td>
-                <td className={cell}>{s.zone_name ?? "—"}</td>
-                <td className={cell}>
+                <td>{s.zone_name ?? "—"}</td>
+                <td>
                   {isManager ? (
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={() => setSplitterDrawer({ edit: s })}>Edit</Button>
-                      <Button size="sm" variant="danger" onClick={() => setDelSplitter(s)}>Hapus</Button>
+                      <Button size="sm" variant="quiet" onClick={() => setSplitterDrawer({ edit: s })}>Edit</Button>
+                      <Button size="sm" variant="quiet" onClick={() => setDelSplitter(s)}>Hapus</Button>
                     </div>
                   ) : "—"}
                 </td>
@@ -523,7 +523,7 @@ export function Splitters() {
           query={zones}
           loadingText="Memuat zone ..."
           empty="Belum ada zone."
-          columns={["Nama", "External ID", "Splitter", "ONU", "Koordinat", "Aksi"]}
+          columns={["Nama", "External ID", { label: "Splitter", className: "text-right" }, { label: "ONU", className: "text-right" }, "Koordinat", "Aksi"]}
           card={(zn: Zone) => (
             <MobileCard key={zn.id}>
               <p className="truncate font-medium">{zn.name}</p>
@@ -532,26 +532,26 @@ export function Splitters() {
               </p>
               {isManager && (
                 <div className="mt-1 flex flex-wrap gap-2">
-                  <Button size="sm" onClick={() => setZoneDrawer({ edit: zn })}>Edit</Button>
-                  <Button size="sm" variant="danger" onClick={() => setDelZone(zn)}>Hapus</Button>
+                  <Button size="sm" variant="quiet" onClick={() => setZoneDrawer({ edit: zn })}>Edit</Button>
+                  <Button size="sm" variant="quiet" onClick={() => setDelZone(zn)}>Hapus</Button>
                 </div>
               )}
             </MobileCard>
           )}
           row={(zn: Zone) => (
-            <tr key={zn.id} className="border-b last:border-0">
-              <td className={cell}>{zn.name}</td>
-              <td className={`${cell} font-mono`}>{zn.external_id ?? "—"}</td>
-              <td className={`${cell} font-mono`}>{zn.splitter_count}</td>
-              <td className={`${cell} font-mono`}>{zn.onu_count}</td>
-              <td className={`${cell} font-mono`}>
+            <tr key={zn.id}>
+              <td className="font-semibold">{zn.name}</td>
+              <td className="font-mono">{zn.external_id ?? "—"}</td>
+              <td className="font-mono text-right">{zn.splitter_count}</td>
+              <td className="font-mono text-right">{zn.onu_count}</td>
+              <td className="font-mono">
                 {zn.latitude != null && zn.longitude != null ? `${zn.latitude}, ${zn.longitude}` : "—"}
               </td>
-              <td className={cell}>
+              <td>
                 {isManager ? (
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={() => setZoneDrawer({ edit: zn })}>Edit</Button>
-                    <Button size="sm" variant="danger" onClick={() => setDelZone(zn)}>Hapus</Button>
+                    <Button size="sm" variant="quiet" onClick={() => setZoneDrawer({ edit: zn })}>Edit</Button>
+                    <Button size="sm" variant="quiet" onClick={() => setDelZone(zn)}>Hapus</Button>
                   </div>
                 ) : "—"}
               </td>

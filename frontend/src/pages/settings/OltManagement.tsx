@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { Link, Navigate } from "react-router";
 import * as z from "zod";
 import { PageTitle, StatusBadge, fmtDateTime } from "../../components/data";
-import { Drawer, Field, MobileCard, TableCard, cell, filterInput, input } from "../../components/crud";
+import { Drawer, Field, MobileCard, TableCard, filterInput, input } from "../../components/crud";
 import { ConfirmShell, PasswordInput } from "../../components/onu/modals/ModalShell";
 import { OltSyncProgressRow } from "../../components/OltSyncProgress";
 import { Button, buttonClass } from "../../components/ui/button";
@@ -296,7 +296,7 @@ export function OltManagement() {
     recheckTarget === o.id && recheck.isPending ? "Mengecek …" : "Cek koneksi";
   const columns = ["Nama OLT", "Alamat IP", "Tipe",
     ...(isSuper ? ["Pemilik"] : []),
-    "Status koneksi", "ONU", "Sinkron terakhir", "Aksi"];
+    "Status koneksi", { label: "ONU", className: "text-right" }, "Sinkron terakhir", "Aksi"];
 
   // Peran User tidak punya halaman ini (PRD 3.7); backend juga menolak 403.
   if (!allowed) return <Navigate to="/" replace />;
@@ -328,9 +328,9 @@ export function OltManagement() {
             <p className="font-mono text-xs text-muted">ONU {o.onu_count} · {fmtDateTime(o.last_sync_at)}</p>
             {o.last_error && <p className="truncate text-xs text-muted">{o.last_error}</p>}
             <div className="mt-1 flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => setDrawer({ edit: o })}>Edit</Button>
-              <Button size="sm" onClick={() => { setRecheckTarget(o.id); recheck.mutate(o); }} disabled={recheck.isPending}>{recheckLabel(o)}</Button>
-              <Button size="sm" variant="danger" onClick={() => setRemove(o)}>Hapus</Button>
+              <Button size="sm" variant="quiet" onClick={() => setDrawer({ edit: o })}>Edit</Button>
+              <Button size="sm" variant="quiet" onClick={() => { setRecheckTarget(o.id); recheck.mutate(o); }} disabled={recheck.isPending}>{recheckLabel(o)}</Button>
+              <Button size="sm" variant="quiet" onClick={() => setRemove(o)}>Hapus</Button>
             </div>
           </MobileCard>
         )}
@@ -340,27 +340,27 @@ export function OltManagement() {
         loadingText="Memuat OLT ..."
         row={(o: OltRow) => (
           <Fragment key={o.id}>
-          <tr className="border-b last:border-0">
-            <td className={cell}>
+          <tr>
+            <td className="font-semibold">
               <Link to={`/olt/${o.id}`} className="text-fiber hover:underline">{o.name}</Link>
             </td>
-            <td className={`${cell} font-mono`}>{o.host}</td>
-            <td className={cell}>{o.model}</td>
-            {isSuper && <td className={cell}>{o.owner_name}</td>}
-            <td className={cell}>
+            <td className="font-mono">{o.host}</td>
+            <td>{o.model}</td>
+            {isSuper && <td>{o.owner_name}</td>}
+            <td>
               <StatusBadge status={o.status} withLabel />
               {o.last_error && <span className="ml-2 text-xs text-muted">{o.last_error}</span>}
             </td>
-            <td className={`${cell} font-mono`}>{o.onu_count}</td>
-            <td className={cell}>{fmtDateTime(o.last_sync_at)}</td>
-            <td className={cell}>
+            <td className="font-mono text-right">{o.onu_count}</td>
+            <td>{fmtDateTime(o.last_sync_at)}</td>
+            <td>
               <div className="flex gap-2">
                 <Link to={`/olt/${o.id}`} className={buttonClass("secondary", "sm")}>OLT Detail</Link>
-                <Button size="sm" onClick={() => setDrawer({ edit: o })}>Edit</Button>
-                <Button size="sm" onClick={() => { setRecheckTarget(o.id); recheck.mutate(o); }} disabled={recheck.isPending}>
+                <Button size="sm" variant="quiet" onClick={() => setDrawer({ edit: o })}>Edit</Button>
+                <Button size="sm" variant="quiet" onClick={() => { setRecheckTarget(o.id); recheck.mutate(o); }} disabled={recheck.isPending}>
                   {recheckLabel(o)}
                 </Button>
-                <Button size="sm" variant="danger" onClick={() => setRemove(o)}>Hapus</Button>
+                <Button size="sm" variant="quiet" onClick={() => setRemove(o)}>Hapus</Button>
               </div>
             </td>
           </tr>

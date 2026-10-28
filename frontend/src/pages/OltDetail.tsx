@@ -13,7 +13,7 @@ import { useForm } from "react-hook-form";
 import { Link, useParams, useSearchParams } from "react-router";
 import * as z from "zod";
 import {
-  Confirm, Drawer, Field, JobTrace, MobileCard, TableCard, UsageBar, cell, input,
+  Confirm, Drawer, Field, JobTrace, MobileCard, TableCard, UsageBar, input,
 } from "../components/crud";
 import {
   Bar, Empty, ErrorState, Panel, PageTitle, SignalBar, Skeleton, StatusBadge, fmtDateTime, nf,
@@ -95,19 +95,19 @@ function Monitoring({ d, oltId }: { d: Detail; oltId: number }) {
         />
         <Metric label="Uptime" value={fmtUptime(d.uptime_seconds)} />
       </div>
-      <Panel
-        title="Port PON"
-        className="mb-3"
-        action={
-          isManager && (
+      {/* Panel lama dihapus bingkainya: isinya HANYA tabel, dan kartu tabel
+          baru dari TableCard akan menjadi bingkai ganda bila Panel dipertahankan.
+          Judul + tombol Refresh dipertahankan apa adanya di kepala polos. */}
+      <section className="entrance mb-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="text-xs font-medium uppercase tracking-[0.02em] text-muted">Port PON</h2>
+          {isManager && (
             <Button size="sm" onClick={() => refresh.mutate()} disabled={refresh.isPending}>
               <ArrowClockwise size={14} /> Refresh
             </Button>
-          )
-        }
-      >
-        <div className="p-0">
-          <TableCard
+          )}
+        </div>
+        <TableCard
             query={pon}
             columns={["PON", "Status", "ONU", "Sinkron terakhir"]}
             card={(p) => (
@@ -123,16 +123,15 @@ function Monitoring({ d, oltId }: { d: Detail; oltId: number }) {
             empty="Belum ada port PON tersinkron. Jalankan Refresh untuk memindai OLT."
             loadingText="Memuat port PON ..."
             row={(p) => (
-              <tr key={p.id} className="border-b last:border-0">
-                <td className={`${cell} font-mono`}>{p.slot}/{p.port}</td>
-                <td className={cell}><StatusBadge status={p.oper_state === "up" ? "online" : "offline"} withLabel /></td>
-                <td className={cell}><UsageBar used={p.onu_count} capacity={p.capacity} /></td>
-                <td className={`${cell} text-muted`}>{fmtDateTime(p.last_sync_at)}</td>
+              <tr key={p.id}>
+                <td className="font-mono font-semibold">{p.slot}/{p.port}</td>
+                <td><StatusBadge status={p.oper_state === "up" ? "online" : "offline"} withLabel /></td>
+                <td><UsageBar used={p.onu_count} capacity={p.capacity} /></td>
+                <td className="text-muted">{fmtDateTime(p.last_sync_at)}</td>
               </tr>
             )}
-          />
-        </div>
-      </Panel>
+        />
+      </section>
       {refresh.isError && (
         <Panel title="Refresh gagal">
           <p className="text-down">{refresh.error.message}</p>
@@ -421,20 +420,20 @@ function Vlans({ oltId, uplinkPorts }: { oltId: number; uplinkPorts: string[] })
         empty="Belum ada VLAN untuk OLT ini."
         loadingText="Memuat VLAN ..."
         row={(v) => (
-          <tr key={v.id} className="border-b last:border-0">
-            <td className={`${cell} font-mono`}>{v.vlan_id}</td>
-            <td className={cell}>{v.name}</td>
-            <td className={cell}>{v.type}</td>
-            <td className={cell}>{v.tag_action}</td>
-            <td className={`${cell} font-mono text-xs`}>
+          <tr key={v.id}>
+            <td className="font-mono">{v.vlan_id}</td>
+            <td className="font-semibold">{v.name}</td>
+            <td>{v.type}</td>
+            <td>{v.tag_action}</td>
+            <td className="font-mono text-xs">
               {uplinkEntries(v).length === 0 ? "—" : uplinkEntries(v).map(([p, m]) => (
                 <span key={p} className="mr-2 whitespace-nowrap">
                   {p}: {m === "tagged" ? "Tagged" : "Untagged"}
                 </span>
               ))}
             </td>
-            <td className={cell}>{v.olt_id === null ? "Global" : "OLT"}</td>
-            <td className={`${cell} text-right whitespace-nowrap`}>
+            <td>{v.olt_id === null ? "Global" : "OLT"}</td>
+            <td className="text-right whitespace-nowrap">
               <Button size="sm" variant="quiet" disabled={v.olt_id === null}
                       title={v.olt_id === null ? "VLAN global tidak punya port uplink" : undefined}
                       onClick={() => setPorts(v)}>Port</Button>
@@ -574,7 +573,7 @@ function Interfaces({ oltId }: { oltId: number }) {
       </div>
       <TableCard
         query={q}
-        columns={["Port", { label: "Media", className: "hidden lg:table-cell" }, "PVID", "Auto nego", "Speed", { label: "Duplex", className: "hidden lg:table-cell" }, "Admin", "Link", ""]}
+        columns={["Port", { label: "Media", className: "hidden lg:table-cell" }, { label: "PVID", className: "text-right" }, "Auto nego", "Speed", { label: "Duplex", className: "hidden lg:table-cell" }, "Admin", "Link", ""]}
         card={(p) => (
           <MobileCard key={p.name}>
             <div className="flex items-center justify-between gap-2">
@@ -591,18 +590,18 @@ function Interfaces({ oltId }: { oltId: number }) {
         empty="Tidak ada port uplink terbaca di OLT ini."
         loadingText="Membaca port uplink dari OLT ..."
         row={(p) => (
-          <tr key={p.name} className="border-b last:border-0">
-            <td className={`${cell} font-mono`}>{p.name}</td>
-            <td className={`${cell} hidden lg:table-cell`}>{p.media ?? "—"}</td>
-            <td className={`${cell} font-mono`}>{p.pvid ?? "—"}</td>
-            <td className={cell}>{p.auto_nego ?? "—"}</td>
-            <td className={`${cell} font-mono`}>{p.speed ?? "—"}</td>
-            <td className={`${cell} hidden lg:table-cell`}>{p.duplex ?? "—"}</td>
-            <td className={cell}>{p.admin_status ?? "—"}</td>
-            <td className={cell}>
+          <tr key={p.name}>
+            <td className="font-mono font-semibold">{p.name}</td>
+            <td className="hidden lg:table-cell">{p.media ?? "—"}</td>
+            <td className="font-mono text-right">{p.pvid ?? "—"}</td>
+            <td>{p.auto_nego ?? "—"}</td>
+            <td className="font-mono">{p.speed ?? "—"}</td>
+            <td className="hidden lg:table-cell">{p.duplex ?? "—"}</td>
+            <td>{p.admin_status ?? "—"}</td>
+            <td>
               <StatusBadge status={p.link === "up" ? "online" : "offline"} withLabel />
             </td>
-            <td className={`${cell} text-right`}>
+            <td className="text-right">
               <Button size="sm" variant="quiet" onClick={() => setEdit(p)}>Edit</Button>
             </td>
           </tr>
@@ -644,11 +643,15 @@ function Konfigurasi({ d }: { d: Detail }) {
         <Row label="Lokasi" value={d.location ?? "—"} />
         <Row label="Sinkron terakhir" value={fmtDateTime(d.last_sync_at)} />
       </Panel>
-      <Panel title="Kartu" className="mb-3">
-        <div className="p-0">
-          <TableCard
-            query={cards}
-            columns={["Slot", "Tipe", "Port", { label: "HW", className: "hidden lg:table-cell" }, { label: "SW", className: "hidden lg:table-cell" }, "CPU", "RAM", "Status"]}
+      {/* Sama seperti Port PON: Panel hanya membungkus tabel, bingkainya dihapus
+          supaya tidak ganda dengan kartu TableCard; judul dipertahankan polos. */}
+      <section className="entrance mb-3">
+        <div className="mb-2">
+          <h2 className="text-xs font-medium uppercase tracking-[0.02em] text-muted">Kartu</h2>
+        </div>
+        <TableCard
+          query={cards}
+            columns={["Slot", "Tipe", { label: "Port", className: "text-right" }, { label: "HW", className: "hidden lg:table-cell" }, { label: "SW", className: "hidden lg:table-cell" }, { label: "CPU", className: "text-right" }, { label: "RAM", className: "text-right" }, "Status"]}
             card={(c) => (
               <MobileCard key={c.slot}>
                 <div className="flex items-center justify-between gap-2">
@@ -664,20 +667,19 @@ function Konfigurasi({ d }: { d: Detail }) {
             empty="Data kartu belum tersinkron."
             loadingText="Memuat kartu ..."
             row={(c) => (
-              <tr key={c.slot} className="border-b last:border-0">
-                <td className={`${cell} font-mono`}>{c.slot}</td>
-                <td className={cell}>{c.real_type ?? c.cfg_type ?? "—"}</td>
-                <td className={`${cell} font-mono`}>{c.port_count ?? "—"}</td>
-                <td className={`${cell} hidden lg:table-cell`}>{c.hardware_version ?? "—"}</td>
-                <td className={`${cell} hidden lg:table-cell`}>{c.software_version ?? "—"}</td>
-                <td className={`${cell} font-mono`}>{pct(c.cpu_pct)}</td>
-                <td className={`${cell} font-mono`}>{pct(c.ram_pct)}</td>
-                <td className={cell}>{c.status ?? "—"}</td>
+              <tr key={c.slot}>
+                <td className="font-mono font-semibold">{c.slot}</td>
+                <td>{c.real_type ?? c.cfg_type ?? "—"}</td>
+                <td className="font-mono text-right">{c.port_count ?? "—"}</td>
+                <td className="hidden lg:table-cell">{c.hardware_version ?? "—"}</td>
+                <td className="hidden lg:table-cell">{c.software_version ?? "—"}</td>
+                <td className="font-mono text-right">{pct(c.cpu_pct)}</td>
+                <td className="font-mono text-right">{pct(c.ram_pct)}</td>
+                <td>{c.status ?? "—"}</td>
               </tr>
             )}
-          />
-        </div>
-      </Panel>
+        />
+      </section>
       <Panel title="Port uplink">
         {d.uplink_ports.length === 0 ? (
           <Empty>Belum tersinkron.</Empty>
@@ -734,14 +736,14 @@ function DaftarOnu({ oltId }: { oltId: number }) {
         )}
         loadingText="Memuat ONU ..."
         row={(o) => (
-          <tr key={o.id} className="border-b last:border-0">
-            <td className={`${cell} font-mono`}>
+          <tr key={o.id}>
+            <td className="font-mono">
               <Link to={`/onu/${o.id}`} className="text-fiber hover:underline">{o.serial_number}</Link>
             </td>
-            <td className={cell}>{o.customer_name ?? o.name ?? "—"}</td>
-            <td className={`${cell} font-mono`}>{o.slot}/{o.port}:{o.onu_index ?? "—"}</td>
-            <td className={cell}><StatusBadge status={o.status} reason={o.last_down_reason} withLabel /></td>
-            <td className={cell}><SignalBar dbm={o.rx_power_dbm} /></td>
+            <td className="font-semibold">{o.customer_name ?? o.name ?? "—"}</td>
+            <td className="font-mono">{o.slot}/{o.port}:{o.onu_index ?? "—"}</td>
+            <td><StatusBadge status={o.status} reason={o.last_down_reason} withLabel /></td>
+            <td><SignalBar dbm={o.rx_power_dbm} /></td>
           </tr>
         )}
       />

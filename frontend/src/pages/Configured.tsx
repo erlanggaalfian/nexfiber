@@ -12,7 +12,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
-  Confirm, FilterChip, MobileCard, MultiFilter, TableCard, cell, filterInput, input,
+  Confirm, FilterChip, MobileCard, MultiFilter, TableCard, filterInput, input,
 } from "../components/crud";
 import { PageTitle, RX_BUCKETS, SignalBar, StatusBadge, fmtAgo, nf } from "../components/data";
 import { Button } from "../components/ui/button";
@@ -300,12 +300,12 @@ export function Configured() {
           { label: "Splitter", className: "hidden lg:table-cell" },
           { label: "Zone", className: "hidden lg:table-cell" },
           "Rx ONU",
-          { label: "Rx OLT", className: "hidden lg:table-cell" },
+          { label: "Rx OLT", className: "hidden text-right lg:table-cell" },
           "Terlihat"]}
         card={(o: OnuRow) => (
           <MobileCard key={o.id} onClick={() => navigate(`/onu/${o.id}`)}>
             <div className="flex items-center justify-between gap-2">
-              <span className="min-w-0 break-words font-medium">{o.customer_name ?? o.name ?? "—"}</span>
+              <span className="min-w-0 break-words font-semibold">{o.customer_name ?? o.name ?? "—"}</span>
               <span className="flex shrink-0 items-center gap-2" onClick={(e) => e.stopPropagation()}>
                 <input
                   className="size-5 shrink-0"
@@ -333,10 +333,10 @@ export function Configured() {
         row={(o: OnuRow) => (
           <tr
             key={o.id}
-            className="cursor-pointer border-b last:border-0 hover:bg-sunken"
+            className="cursor-pointer"
             onClick={() => navigate(`/onu/${o.id}`)}
           >
-            <td className={cell} onClick={(e) => e.stopPropagation()}>
+            <td onClick={(e) => e.stopPropagation()}>
               <input
                 className="size-5"
                 type="checkbox"
@@ -347,7 +347,7 @@ export function Configured() {
                   : picked.filter((s) => s !== o.serial_number))}
               />
             </td>
-            <td className={cell}>
+            <td>
               {/* Kolom Status tabel ini ikon-saja (permintaan user 2026-10-28):
                * keterangan lengkap tetap ada di title (hover mouse) dan di
                * sr-only untuk pembaca layar — withLabel={false} memakai keduanya
@@ -362,34 +362,34 @@ export function Configured() {
                 tabel auto, max-w menahan kolom melebar, dan break-words
                 memecah kata panjang (mis. nama ODP) bila perlu. title
                 dipertahankan sebagai info tambahan saat hover. */}
-            <td className={cell}>
-              <span className="block max-w-56 break-words" title={o.customer_name ?? o.name ?? undefined}>
+            <td>
+              <span className="block max-w-56 break-words font-semibold" title={o.customer_name ?? o.name ?? undefined}>
                 {o.customer_name ?? o.name ?? "—"}
               </span>
             </td>
-            <td className={`${cell} font-mono`}>{o.serial_number}</td>
-            <td className={`${cell} font-mono`}>
+            <td className="font-mono">{o.serial_number}</td>
+            <td className="font-mono">
               <span className="block max-w-44 break-words"
                     title={`${o.olt_name} · ${o.slot}/${o.port}${o.onu_index === null ? "" : `:${o.onu_index}`}`}>
                 {o.olt_name} · {o.slot}/{o.port}{o.onu_index === null ? "" : `:${o.onu_index}`}
               </span>
             </td>
-            <td className={`${cell} font-mono`}>{o.vlan_number ?? "—"}</td>
-            <td className={`${cell} hidden lg:table-cell`}>
+            <td className="font-mono">{o.vlan_number ?? "—"}</td>
+            <td className="hidden lg:table-cell">
               <span className="block max-w-40 break-words" title={o.splitter_name ?? undefined}>
                 {o.splitter_name ?? "—"}
               </span>
             </td>
-            <td className={`${cell} hidden lg:table-cell`}>
+            <td className="hidden lg:table-cell">
               <span className="block max-w-40 break-words" title={o.zone_name ?? undefined}>
                 {o.zone_name ?? "—"}
               </span>
             </td>
-            <td className={cell}><SignalBar dbm={o.rx_power_dbm} /></td>
-            <td className={`${cell} font-mono hidden lg:table-cell`}>
+            <td><SignalBar dbm={o.rx_power_dbm} /></td>
+            <td className="font-mono hidden text-right lg:table-cell">
               {o.olt_rx_power_dbm === null ? "—" : Number(o.olt_rx_power_dbm).toFixed(1)}
             </td>
-            <td className={`${cell} font-mono`}>{fmtAgo(o.last_seen_at)}</td>
+            <td className="font-mono">{fmtAgo(o.last_seen_at)}</td>
           </tr>
         )}
       />

@@ -162,12 +162,11 @@ function OltTable({ olts }: { olts: OltRow[] }) {
   });
   return (
     <>
-    <div className="grid gap-2 p-2 md:hidden">
+    <div className="grid divide-y divide-line/60 md:hidden">
       {sorted.map((o) => (
-        <Link key={o.id} to={`/olt/${o.id}`}
-              className="block min-h-[72px] rounded-lg border border-line/60 bg-surface px-3 py-2 shadow-xs transition-transform duration-150 ease-out motion-reduce:transition-none active:scale-[0.99]">
+        <Link key={o.id} to={`/olt/${o.id}`} className="block px-3 py-3">
           <div className="flex items-center justify-between gap-2">
-            <span className="min-w-0 truncate font-medium">{o.name}</span>
+            <span className="min-w-0 truncate font-semibold">{o.name}</span>
             <StatusBadge status={o.status} withLabel />
           </div>
           <p className="font-mono text-xs text-muted">
@@ -183,8 +182,13 @@ function OltTable({ olts }: { olts: OltRow[] }) {
       <table className="tbl">
         <thead>
           <tr>
-            {["OLT", "Status", "ONU", "CPU", "RAM", "Suhu"].map((c) => (
-              <th key={c}>{c}</th>
+            {[
+              { label: "OLT" }, { label: "Status" }, { label: "ONU" },
+              { label: "CPU", className: "text-right" },
+              { label: "RAM", className: "text-right" },
+              { label: "Suhu", className: "text-right" },
+            ].map((c) => (
+              <th key={c.label} className={c.className ?? ""}>{c.label}</th>
             ))}
           </tr>
         </thead>
@@ -192,12 +196,12 @@ function OltTable({ olts }: { olts: OltRow[] }) {
           {sorted.map((o) => (
             <tr key={o.id} onClick={() => navigate(`/olt/${o.id}`)}
                 className="cursor-pointer">
-              <td><Link to={`/olt/${o.id}`} className="block max-w-60 truncate hover:underline" title={o.name}>{o.name}</Link></td>
+              <td><Link to={`/olt/${o.id}`} className="block max-w-60 truncate font-semibold hover:underline" title={o.name}>{o.name}</Link></td>
               <td><StatusBadge status={o.status} withLabel /></td>
               <td><OnuRatioBar online={o.onu_online} count={o.onu_count} /></td>
-              <td className="font-mono">{o.cpu_pct == null ? "—" : `${o.cpu_pct.toFixed(0)}%`}</td>
-              <td className="font-mono">{o.ram_pct == null ? "—" : `${o.ram_pct.toFixed(0)}%`}</td>
-              <td className="font-mono">{o.temperature_c == null ? "—" : `${o.temperature_c.toFixed(0)}°C`}</td>
+              <td className="font-mono text-right">{o.cpu_pct == null ? "—" : `${o.cpu_pct.toFixed(0)}%`}</td>
+              <td className="font-mono text-right">{o.ram_pct == null ? "—" : `${o.ram_pct.toFixed(0)}%`}</td>
+              <td className="font-mono text-right">{o.temperature_c == null ? "—" : `${o.temperature_c.toFixed(0)}°C`}</td>
             </tr>
           ))}
         </tbody>
@@ -324,8 +328,8 @@ export function Dashboard() {
         <div className="flex flex-col gap-4">
           <Strip d={q.data} isManager={isManager} changed={changed} />
           <SignalRow onu_by_signal={q.data.onu_by_signal} changed={changed} />
-          <section className="entrance rounded-lg border border-line/60 bg-surface shadow-xs">
-            <h2 className="border-b px-3 py-2 text-sm font-medium">OLT</h2>
+          <section className="entrance overflow-hidden rounded-lg border border-line bg-surface shadow-xs">
+            <h2 className="border-b border-line-strong bg-sunken px-6 py-4 text-xs font-semibold uppercase tracking-wider text-muted">OLT</h2>
             <OltTable olts={q.data.olts} />
           </section>
           <section className="entrance rounded-lg border border-line/60 bg-surface">

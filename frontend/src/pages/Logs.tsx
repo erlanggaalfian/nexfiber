@@ -5,7 +5,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
-import { MobileCard, TableCard, cell, filterInput } from "../components/crud";
+import { MobileCard, TableCard, filterInput } from "../components/crud";
 import { ModalShell } from "../components/onu/modals/ModalShell";
 import { PageTitle, fmtAgo, fmtDateTime, nf } from "../components/data";
 import { Button } from "../components/ui/button";
@@ -151,7 +151,7 @@ export function Logs() {
         card={(l: LogRow) => (
           <MobileCard key={l.id} onClick={() => setDetail(l)}>
             <div className="flex items-center justify-between gap-2">
-              <span className="min-w-0 truncate font-medium">{l.action}</span>
+              <span className="min-w-0 truncate font-semibold">{l.action}</span>
               <span className="inline-flex shrink-0 items-center gap-1.5 text-xs">
                 <span className={`size-1.5 shrink-0 ${l.success ? "bg-up" : "bg-down"}`} aria-hidden />
                 {l.success ? "Sukses" : "Gagal"}
@@ -167,21 +167,21 @@ export function Logs() {
           </MobileCard>
         )}
         row={(l: LogRow) => (
-          <tr key={l.id} className="cursor-pointer border-b last:border-0 hover:bg-sunken"
+          <tr key={l.id} className="cursor-pointer"
               onClick={() => setDetail(l)}>
-            <td className={`${cell} font-mono whitespace-nowrap`}>{fmtDateTime(l.created_at)}</td>
-            <td className={cell}>{l.username ?? "sistem"}</td>
-            <td className={cell}>
+            <td className="font-mono whitespace-nowrap">{fmtDateTime(l.created_at)}</td>
+            <td>{l.username ?? "sistem"}</td>
+            <td>
               <span className="block max-w-40 truncate" title={l.olt_name ?? undefined}>
                 {l.olt_name ?? "—"}
               </span>
             </td>
-            <td className={`${cell} font-mono`}>{l.onu_serial ?? "—"}</td>
-            <td className={cell}>{CATEGORIES.find((c) => c.value === l.category)?.label ?? l.category}</td>
-            <td className={cell}>
-              <span className="block max-w-64 truncate" title={l.action}>{l.action}</span>
+            <td className="font-mono">{l.onu_serial ?? "—"}</td>
+            <td>{CATEGORIES.find((c) => c.value === l.category)?.label ?? l.category}</td>
+            <td>
+              <span className="block max-w-64 truncate font-semibold" title={l.action}>{l.action}</span>
             </td>
-            <td className={cell}>
+            <td>
               <span className="inline-flex items-center gap-1.5">
                 <span className={`size-1.5 shrink-0 ${l.success ? "bg-up" : "bg-down"}`} aria-hidden />
                 {l.success ? "Sukses" : "Gagal"}

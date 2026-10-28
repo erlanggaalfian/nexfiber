@@ -155,7 +155,7 @@ function Section(
   // isi padat di dalam bingkai permukaan. Dipakai blok Profil Kecepatan ke bawah.
   if (card) {
     return (
-      <section id={id} className={`entrance rounded-lg border border-line/60 bg-surface p-4 ${className}`}>
+      <section id={id} className={`entrance rounded-lg border border-line bg-surface p-4 shadow-xs ${className}`}>
         <div className="mb-3 flex items-center justify-between gap-2 border-b border-line pb-2.5">
           <h2 className="flex items-center gap-2 text-base font-bold text-fiber">
             <TitleIcon title={label} />{label}
@@ -188,7 +188,7 @@ function Block(
   { title: string; action?: React.ReactNode; children: React.ReactNode; className?: string },
 ) {
   return (
-    <section className={`entrance rounded-lg border border-line/60 bg-surface p-4 ${className}`}>
+    <section className={`entrance rounded-lg border border-line bg-surface p-4 shadow-xs ${className}`}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2.5">
         <h2 className="flex items-center gap-2 text-base font-bold text-fiber">
           <TitleIcon title={title} />{title}
@@ -1626,7 +1626,7 @@ export function OnuDetail() {
           140px kiri, tombol operasi hijau mengisi baris, TR-069 mati + LIVE! di ujung kanan.
           Logika/handler diagnostik TIDAK diubah — tetap lewat job CLI backend, dan
           running-config tetap manager-only. */}
-      <section className="entrance rounded-lg border border-line/60 bg-surface p-4">
+      <section className="entrance rounded-lg border border-line bg-surface p-4 shadow-xs">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="lg:w-[140px] lg:shrink-0">
             <h2 className="flex items-center gap-1.5 text-base font-bold text-fiber"><TitleIcon title="Diagnostik" />Diagnostik</h2>
@@ -1728,7 +1728,7 @@ export function OnuDetail() {
       {/* 3. `Trafik & Histori Sinyal` gaya mock: judul + "Rentang ..." di kanan, dua kartu
           grafik sejajar lg:grid-cols-2 (menumpuk di bawah lg). Sumber data tetap endpoint
           histori/sinyal yang ada; grafik hanya menggambar sampel yang benar-benar tersimpan. */}
-      <section className="entrance rounded-lg border border-line/60 bg-surface p-4">
+      <section className="entrance rounded-lg border border-line bg-surface p-4 shadow-xs">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
           <h2 className="flex items-center gap-2 text-base font-bold text-fiber"><TitleIcon title="Trafik & Histori Sinyal" />Trafik & Histori Sinyal</h2>
           <span className="font-mono text-xs text-muted">Trafik {RANGE_TITLE[range]} · Sinyal {RANGE_TITLE[srange]}</span>
@@ -1839,7 +1839,7 @@ export function OnuDetail() {
         {specs && specs.eth_ports > 0 ? (
           <>
             <div className="mb-2 hidden overflow-x-auto md:block">
-              <table className="tbl tbl--inset tbl--fixed tbl--roomy">
+              <table className="tbl tbl--fixed tbl--roomy">
                 <thead>
                   <tr>
                     <th className="w-[30%]">Port</th>
@@ -1854,8 +1854,8 @@ export function OnuDetail() {
                     return (
                     <tr key={i}>
                       <td>
-                        <span className="font-semibold text-ink">LAN {i + 1}</span>
-                        <span className="ml-1.5 font-mono text-xs text-faint">eth_0/{i + 1}</span>
+                        <span className="block font-semibold text-ink">LAN {i + 1}</span>
+                        <span className="block font-mono text-xs text-faint">eth_0/{i + 1}</span>
                       </td>
                       <td className="text-muted">{cfg ? (cfg.enabled ? "Aktif" : "Nonaktif") : "—"}</td>
                       <td className="text-muted">{cfg?.mode ? ({ lan: "LAN", access: "Access", hybrid: "Hybrid", trunk: "Trunk", transparent: "Transparent" } as Record<string, string>)[cfg.mode] ?? cfg.mode : "—"}</td>
@@ -1905,7 +1905,7 @@ export function OnuDetail() {
         {specs && specs.wifi_ssids > 0 ? (
           <>
             <div className="mb-2 hidden overflow-x-auto md:block">
-              <table className="tbl tbl--inset tbl--fixed tbl--roomy">
+              <table className="tbl tbl--fixed tbl--roomy">
                 <thead>
                   <tr>
                     <th className="w-[40%]">Radio</th>
@@ -1919,8 +1919,8 @@ export function OnuDetail() {
                     return (
                     <tr key={i}>
                       <td>
-                        <span className="font-semibold text-ink">SSID {i + 1}</span>
-                        <span className="ml-1.5 font-mono text-xs text-faint">wifi_0/{i + 1}</span>
+                        <span className="block font-semibold text-ink">SSID {i + 1}</span>
+                        <span className="block font-mono text-xs text-faint">wifi_0/{i + 1}</span>
                       </td>
                       <td className="text-muted">{cfg ? (cfg.enabled ? "Aktif" : "Nonaktif") + (cfg.ssid ? ` · ${cfg.ssid}` : "") : "—"}</td>
                       <td className="text-center">

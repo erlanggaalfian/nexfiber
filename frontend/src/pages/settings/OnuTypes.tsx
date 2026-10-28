@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
-import { Confirm, Drawer, Field, MobileCard, TableCard, cell, filterInput, input } from "../../components/crud";
+import { Confirm, Drawer, Field, MobileCard, TableCard, filterInput, input } from "../../components/crud";
 import { PageTitle } from "../../components/data";
 import { Button } from "../../components/ui/button";
 import { api, qs, type OnuType } from "../../lib/api";
@@ -130,7 +130,7 @@ export function OnuTypes() {
         query={{ ...types, data: rows }}
         loadingText="Memuat tipe ONU ..."
         empty="Belum ada tipe ONU."
-        columns={["PON type", "ONU type", "ONU", "Ethernet", "WiFi", "VoIP", "CATV", "Capability", "Status", "Aksi"]}
+        columns={["PON type", "ONU type", { label: "ONU", className: "text-right" }, { label: "Ethernet", className: "text-right" }, { label: "WiFi", className: "text-right" }, { label: "VoIP", className: "text-right" }, "CATV", "Capability", "Status", "Aksi"]}
         card={(t: OnuType) => (
           <MobileCard key={t.id}>
             <div className="flex items-center justify-between gap-2">
@@ -147,33 +147,33 @@ export function OnuTypes() {
             <p className="text-xs text-muted">{label(CAPABILITIES, t.capability)}</p>
             {canWrite && (
               <div className="mt-1 flex flex-wrap gap-2">
-                <Button size="sm" onClick={() => setDrawer({ edit: t })}>Edit</Button>
-                <Button size="sm" variant="danger" onClick={() => setDel(t)}>Hapus</Button>
+                <Button size="sm" variant="quiet" onClick={() => setDrawer({ edit: t })}>Edit</Button>
+                <Button size="sm" variant="quiet" onClick={() => setDel(t)}>Hapus</Button>
               </div>
             )}
           </MobileCard>
         )}
         row={(t: OnuType) => (
-          <tr key={t.id} className="border-b last:border-0">
-            <td className={cell}>{label(PON_TYPES, t.pon_type)}</td>
-            <td className={cell}>{t.name}</td>
-            <td className={`${cell} font-mono`}>{t.onu_count}</td>
-            <td className={`${cell} font-mono`}>{t.eth_ports}</td>
-            <td className={`${cell} font-mono`}>{t.wifi_ssids}</td>
-            <td className={`${cell} font-mono`}>{t.voip_ports}</td>
-            <td className={cell}>{t.catv ? "Ya" : "—"}</td>
-            <td className={cell}>{label(CAPABILITIES, t.capability)}</td>
-            <td className={cell}>
+          <tr key={t.id}>
+            <td>{label(PON_TYPES, t.pon_type)}</td>
+            <td className="font-semibold">{t.name}</td>
+            <td className="font-mono text-right">{t.onu_count}</td>
+            <td className="font-mono text-right">{t.eth_ports}</td>
+            <td className="font-mono text-right">{t.wifi_ssids}</td>
+            <td className="font-mono text-right">{t.voip_ports}</td>
+            <td>{t.catv ? "Ya" : "—"}</td>
+            <td>{label(CAPABILITIES, t.capability)}</td>
+            <td>
               <span className="inline-flex items-center gap-1.5">
                 <span className={`size-1.5 shrink-0 ${t.is_active ? "bg-up" : "bg-idle"}`} aria-hidden />
                 {t.is_active ? "Aktif" : "Nonaktif"}
               </span>
             </td>
-            <td className={cell}>
+            <td>
               {canWrite ? (
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={() => setDrawer({ edit: t })}>Edit</Button>
-                  <Button size="sm" variant="danger" onClick={() => setDel(t)}>Hapus</Button>
+                  <Button size="sm" variant="quiet" onClick={() => setDrawer({ edit: t })}>Edit</Button>
+                  <Button size="sm" variant="quiet" onClick={() => setDel(t)}>Hapus</Button>
                 </div>
               ) : "—"}
             </td>

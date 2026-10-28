@@ -131,20 +131,41 @@
    override variabel di .dark saja tidak mengubah shadow-overlay/shadow-modal.
    Spesifitas .dark .shadow-* (0,2,0) menang atas utility (0,1,0). */
 /* ============ TABEL TERPUSAT (sumber kebenaran tabel, DESIGN.md §8) ============
+   Bahasa kartu (2026-10-29, arahan user, dari contoh soft-card): tabel
+   daftar TableCard tampil sebagai SATU kartu lembut — section TableCard
+   (crud.tsx) memakai rounded-lg + border-line + bg-surface + shadow-xs +
+   overflow-hidden di atas latar halaman app, dan tabel di dalamnya berbasis
+   pembatas horizontal (bukan kotak per baris). Terjemahan token contoh ke
+   Nexfiber: rounded-xl contoh (12px) = rounded-lg Nexfiber (12px, token
+   --radius-lg; rounded-xl tidak ada di tema yang dibatasi token ini),
+   shadow-sm contoh = shadow-xs Nexfiber (satu-satunya shadow permanen
+   halus di token; shadow-sm tidak ada di tema ini), gray-50/50 contoh =
+   latar --bg-sunken, biru aksi contoh = teks --fiber (varian quiet).
    Satu-satunya tempat aturan tabel ditulis. Halaman/TableCard hanya memakai
-   class .tbl + modifier di bawah, tanpa mengulang border/padding/sticky per
-   halaman.
-   - Jangan kembali ke border-collapse: kombinasi collapse + sticky th
-     ditangani Chrome secara tidak andal (baris menumpuk/ghost di atas header,
-     laporan screenshot Configured 2026-10-28 23:20).
-   - Sticky dipasang di tiap <th> (bukan <thead>): browser tidak menempelkan
-     thead secara andal.
+   class .tbl + modifier di bawah, tanpa mengulang border/padding per halaman.
+   - Header: latar tint --bg-sunken, label uppercase + tracking-wider +
+     semibold, teks muted, satu garis bawah tegas --border-strong.
+   - Baris: hanya hairline antar-baris lewat sel, baris terakhir tanpa
+     garis, hover tint --bg-sunken + transisi 150ms (aturan global tbody tr
+     di @layer base).
+   - Sel: padding lega px-6 py-4 (1.5rem horizontal, 1rem vertikal);
+     .tbl--roomy menaikkan vertikal ke 1.25rem, horizontal tetap 1.5rem.
+   - Kolom utama semibold TIDAK ditambahkan di sini untuk semua kolom:
+     halaman yang sudah memberi semibold dibiarkan, sisanya tidak.
+   - Jangan kembali ke border-collapse: di model collapse, garis dan
+     perilaku header ditangani Chrome secara tidak andal (baris
+     menumpuk/ghost di atas header, laporan 2026-10-28/29).
+   - Header TIDAK PERNAH sticky (putusan terkunci DECISIONS.md 2026-10-29):
+     dilarang position: sticky di th/thead atau mekanisme apa pun yang
+     menutupi baris data. Tidak ada modifier sticky di sini, dan jangan
+     menambahkan satu lagi.
    - Di model separate, border di <tr> diabaikan browser, jadi garis header
      dan garis antar-baris digambar lewat sel (th/td), bukan lewat tr.
    - Kombinator anak (>) membatasi aturan ke tabel ini saja: tabel bersarang
      di dalam sebuah sel (bila ada) tidak ikut kena aturan ini.
    - Aturan basis ditulis dengan :where() supaya utility per-sel (text-center,
-     font-mono, hidden lg:table-cell, w-[...]) tetap bisa meng-override. */
+     font-mono, hidden lg:table-cell, w-[...]) tetap bisa meng-override.
+   - Modifier yang tersisa hanya .tbl, .tbl--fixed, dan .tbl--roomy. */
 
 
 .tbl {
@@ -160,16 +181,23 @@
 :where(.tbl) > thead > tr > th {
   font-size: var(--text-xs);
   line-height: var(--text-xs--line-height);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   color: var(--text-muted);
-  padding: 0.5rem 0.75rem;
+  background: var(--bg-sunken);
+  padding: 1rem 1.5rem;
   text-align: left;
   vertical-align: middle;
-  border-bottom: 1px solid var(--border);
+  /* Satu-satunya garis struktural tabel: pemisah header yang jelas,
+     lebih kuat dari hairline antar-baris. */
+  border-bottom: 1px solid var(--border-strong);
 }
 :where(.tbl) > tbody > tr > td {
-  padding: 0.5rem 0.75rem;
+  padding: 1rem 1.5rem;
   text-align: left;
   vertical-align: middle;
+  /* Hairline saja antar-baris; tanpa kotak per baris. */
   border-bottom: 1px solid var(--border);
 }
 :where(.tbl) > tbody > tr:last-child > td {
@@ -181,38 +209,24 @@
   background: var(--bg-sunken);
 }
 
-/* Modifier header: hanya latar header (biar konten sel di belakang tidak
-   tembus). Sengaja TIDAK sticky (putusan user 2026-10-29: konten tabel tidak
-   boleh pernah tertutup header). Jangan tambahkan position: sticky lagi:
-   kombinasi sticky + pembungkus overflow-x selalu salah di satu browser
-   (header menumpuk/menimpa baris) dan tidak pernah menempel di browser lain. */
-.tbl--sticky > thead > tr > th {
-  background: var(--bg-surface);
-}
-
-/* Modifier inset: tabel di dalam kartu/section yang sudah berbingkai.
-   Penanda eksplisit yang tidak menambah bingkai/border sendiri; bingkai
-   datang dari section pembungkus, bukan dari tabel. */
-.tbl--inset {
-  border: 0;
-}
-
 .tbl--fixed {
   table-layout: fixed;
 }
 
-/* Padding vertikal pengganti py-2.5; horizontal tetap 0.75rem. Selektor
-   biasa supaya menang atas basis :where(). */
+/* Varian napas lebih lega: padding vertikal 1.25rem; horizontal tetap 1.5rem.
+   Selektor biasa supaya menang atas basis :where(). */
 .tbl--roomy > thead > tr > th,
 .tbl--roomy > tbody > tr > td {
-  padding: 0.625rem 0.75rem;
+  padding: 1.25rem 1.5rem;
 }
 
 .dark .shadow-overlay { --tw-shadow: 0 4px 12px rgba(28, 27, 24, 0.35); }
 .dark .shadow-modal { --tw-shadow: 0 12px 32px rgba(28, 27, 24, 0.5); }
-/* shadow-xs dipakai permanen (hemat) di Panel/TableCard/MobileCard: tanpa
-   override ini nilainya tetap versi terang (hitam 0.06, nyaris tak terlihat
-   di atas permukaan gelap). Pola yang sama dengan overlay/modal di atas. */
+/* shadow-xs dipakai permanen (hemat) di Panel: tanpa override ini nilainya
+   tetap versi terang (hitam 0.06, nyaris tak terlihat di atas permukaan
+   gelap). Pola yang sama dengan overlay/modal di atas. Sejak bahasa kartu
+   2026-10-29, section TableCard juga memakai shadow-xs sebagai bayangan
+   kartu lembutnya; daftar mobile (MobileCard) tetap tanpa shadow sendiri. */
 .dark .shadow-xs { --tw-shadow: 0 1px 2px rgba(28, 27, 24, 0.35); }
 
 @layer base {

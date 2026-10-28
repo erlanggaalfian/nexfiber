@@ -257,7 +257,7 @@ export function UserManagement() {
         </select>
       </div>
 
-      <section className="entrance rounded-lg border border-line/60 bg-surface shadow-xs">
+      <section className="entrance">
         {users.isPending ? (
           <Skeleton text="Memuat user ..." rows={4} />
         ) : users.isError ? (
@@ -266,9 +266,9 @@ export function UserManagement() {
           <Empty>Belum ada user.</Empty>
         ) : (
           <>
-          <div className="grid gap-2 p-2 md:hidden">
+          <div className="divide-y divide-line/60 md:hidden">
             {rows.map((u) => (
-              <article key={u.id} className="min-h-[72px] rounded-lg border border-line/60 bg-surface px-3 py-2">
+              <article key={u.id} className="px-3 py-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="min-w-0 truncate font-medium">{u.full_name}</span>
                   <span className="inline-flex shrink-0 items-center gap-1.5 text-xs">
@@ -281,29 +281,29 @@ export function UserManagement() {
                   {u.admin_username ? ` · ${u.admin_username}` : ""}
                 </p>
                 <div className="mt-1 flex flex-wrap gap-2">
-                  <Button size="sm" onClick={() => setDrawer({ edit: u })}>Edit</Button>
-                  <Button size="sm" onClick={() => setReset(u)}>Reset password</Button>
+                  <Button size="sm" variant="quiet" onClick={() => setDrawer({ edit: u })}>Edit</Button>
+                  <Button size="sm" variant="quiet" onClick={() => setReset(u)}>Reset password</Button>
                   {u.id !== me.id && (u.is_active ? (
-                    <Button size="sm" variant="danger" onClick={() => setOff(u)}>Nonaktifkan</Button>
+                    <Button size="sm" variant="quiet" onClick={() => setOff(u)}>Nonaktifkan</Button>
                   ) : (
-                    <Button size="sm" disabled={setActive.isPending} onClick={() => setActive.mutate({ u, is_active: true })}>Aktifkan</Button>
+                    <Button size="sm" variant="quiet" disabled={setActive.isPending} onClick={() => setActive.mutate({ u, is_active: true })}>Aktifkan</Button>
                   ))}
                   {u.id !== me.id && (
-                    <Button size="sm" variant="danger" onClick={() => setDel(u)}>Hapus</Button>
+                    <Button size="sm" variant="quiet" onClick={() => setDel(u)}>Hapus</Button>
                   )}
                 </div>
               </article>
             ))}
           </div>
-          <div className="hidden overflow-x-auto md:block">
-            <table className="tbl tbl--sticky">
+          <div className="hidden overflow-x-auto rounded-lg border border-line bg-surface shadow-xs md:block">
+            <table className="tbl">
               <thead>
                 <tr>
                   <th scope="col">Username</th>
                   <th scope="col">Nama</th>
                   <th scope="col">Peran</th>
                   <th scope="col">Admin induk</th>
-                  <th scope="col">OLT</th>
+                  <th scope="col" className="text-right">OLT</th>
                   <th scope="col">Aktif</th>
                   <th scope="col">Login terakhir</th>
                   <th scope="col">Dibuat</th>
@@ -314,10 +314,10 @@ export function UserManagement() {
                 {rows.map((u) => (
                   <tr key={u.id}>
                     <td className="font-mono">{u.username}</td>
-                    <td>{u.full_name}</td>
+                    <td className="font-semibold">{u.full_name}</td>
                     <td>{ROLE_LABEL[u.role]}</td>
                     <td>{u.admin_username ?? "—"}</td>
-                    <td className="font-mono">{u.role === "user" ? "—" : u.olt_count}</td>
+                    <td className="font-mono text-right">{u.role === "user" ? "—" : u.olt_count}</td>
                     <td>
                       <span className="inline-flex items-center gap-1.5">
                         <span className={`size-1.5 shrink-0 ${u.is_active ? "bg-up" : "bg-idle"}`} aria-hidden />
@@ -328,14 +328,15 @@ export function UserManagement() {
                     <td>{fmtDateTime(u.created_at)}</td>
                     <td>
                       <div className="flex gap-2">
-                        <Button size="sm" onClick={() => setDrawer({ edit: u })}>Edit</Button>
-                        <Button size="sm" onClick={() => setReset(u)}>Reset password</Button>
+                        <Button size="sm" variant="quiet" onClick={() => setDrawer({ edit: u })}>Edit</Button>
+                        <Button size="sm" variant="quiet" onClick={() => setReset(u)}>Reset password</Button>
                         {u.id !== me.id && (
                           u.is_active ? (
-                            <Button size="sm" variant="danger" onClick={() => setOff(u)}>Nonaktifkan</Button>
+                            <Button size="sm" variant="quiet" onClick={() => setOff(u)}>Nonaktifkan</Button>
                           ) : (
                             <Button
                               size="sm"
+                              variant="quiet"
                               disabled={setActive.isPending}
                               onClick={() => setActive.mutate({ u, is_active: true })}
                             >
@@ -344,7 +345,7 @@ export function UserManagement() {
                           )
                         )}
                         {u.id !== me.id && (
-                          <Button size="sm" variant="danger" onClick={() => setDel(u)}>Hapus</Button>
+                          <Button size="sm" variant="quiet" onClick={() => setDel(u)}>Hapus</Button>
                         )}
                       </div>
                     </td>
