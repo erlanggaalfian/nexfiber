@@ -15,6 +15,9 @@ import { deltaMbps } from "../src/lib/traffic.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const page = readFileSync(join(here, "..", "src", "pages", "OnuDetail.tsx"), "utf8");
+// Slice render: isi halaman di luar `modalOnu` (objek data modal, bukan tampilan).
+const render = page.slice(0, page.indexOf("const modalOnu")) +
+  page.slice(page.indexOf("attached_vlans:", page.indexOf("const modalOnu")));
 
 let passed = 0;
 const check = (name, fn) => {
@@ -269,19 +272,38 @@ check("field yang dibuang pemilik tidak pernah dirender", () => {
   }
   // Slot/port hanya boleh dipakai untuk menyusun nama antarmuka, bukan sebagai baris sendiri.
   // Pemetaan `modalOnu` (data untuk modal aksi) bukan tampilan, jadi dikeluarkan dari hitungan.
-  const render = page.slice(0, page.indexOf("const modalOnu")) +
-    page.slice(page.indexOf("attached_vlans:", page.indexOf("const modalOnu")));
   assert.equal((render.match(/d\.slot/g) ?? []).length, 1, "slot dipakai di luar nama antarmuka");
   // IP hanya muncul sebagai TAUTAN (komponen IpLink) di baris Mgmt IP / WAN setup mode:
   // dua penjaga + dua props, tidak ada baris "IP" sendiri.
   assert.ok(page.includes("href={`http://${ip}`}"), "IP harus jadi tautan lewat IpLink");
-  // 6 kemunculan ipLive: definisi (sumber tunggal, fallback d.ip_address) + 3 penjaga
-  // (Mgmt IP pemisah/tautan + WAN) + 2 prop IpLink. Tanpa baris "IP" sendiri.
-  assert.equal((render.match(/ipLive/g) ?? []).length, 6, "ipLive dipakai di luar tautan");
+  // 4 kemunculan ipLive: definisi + 3 di baris Mgmt IP (penjaga, prop, judul tautan).
+  // Baris Setup WAN memakai `wanIpLive` (lihat tes khusus di bawah).
+  assert.equal((render.match(/ipLive/g) ?? []).length, 4, "ipLive dipakai di luar Mgmt IP");
   // d.ip_address muncul 1x: fallback definisi ipLive. Guard useEffect memakai
   // `onu.data?.ip_address` (bukan `d.ip_address`) supaya sumber tampilan tetap lewat ipLive.
   assert.equal((render.match(/d\.ip_address/g) ?? []).length, 1, "sumber IP harus lewat ipLive");
   assert.ok(!/<DRow label="(IP|IP address|Alamat IP)"/.test(page), "ada baris IP sendiri");
+});
+
+check("chip IP terpisah: Setup WAN pakai wanIpLive, Mgmt IP tetap ipLive", () => {
+  // BUG NYATA (produksi): kedua chip memakai `ipLive`, sehingga IP management tampil
+  // sebagai IP WAN di baris Setup WAN. Kolom `wan_ip_address` = IP host di VLAN
+  // NON-management, sumber chip Setup WAN.
+  assert.ok(page.includes("const wanIpLive = liveWanIp ?? d.wan_ip_address"),
+            "sumber tunggal wanIpLive");
+  const wanRow = page.slice(page.indexOf('label="Setup WAN"'), page.indexOf('label="Username PPPoE"'));
+  assert.ok(wanRow.includes("wanIpLive"), "chip Setup WAN tanpa wanIpLive");
+  assert.ok(!wanRow.includes("ipLive"), "chip Setup WAN masih memakai IP management");
+  const mgmtRow = page.slice(page.indexOf('label="Mgmt IP"'), page.indexOf('label="Profil TR069"'));
+  assert.ok(mgmtRow.includes("ipLive"), "chip Mgmt IP kehilangan ipLive");
+  assert.ok(!mgmtRow.includes("wanIpLive"), "chip Mgmt IP memakai IP WAN");
+  // Satu POST refresh mengisi dua kolom: guard memicu bila SALAH SATU masih kosong.
+  assert.ok(page.includes("!onu.data?.ip_address || !onu.data?.wan_ip_address"),
+            "guard refresh hanya salah satu kolom");
+  assert.equal((render.match(/wanIpLive/g) ?? []).length, 4,
+               "wanIpLive hanya definisi + komentar + baris Setup WAN");
+  assert.equal((render.match(/d\.wan_ip_address/g) ?? []).length, 1,
+               "sumber IP WAN harus lewat wanIpLive");
 });
 
 check("mode setup WAN: 4 mode acuan dipetakan, nilai tak dikenal apa adanya", () => {

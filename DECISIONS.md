@@ -224,3 +224,20 @@ pakai 1 baris = 1 pasang down+up).
 - Baris Setup WAN dan Mgmt IP menampilkannya sebagai tautan `http://<ip>` yang
   membuka tab baru (komponen `IpLink`). Frontend memakai satu sumber `ipLive`
   (fallback `d.ip_address`).
+
+## Kolom `onus.wan_ip_address` terpisah dari `onus.ip_address` (wt7, 2026-10-28)
+
+**Aturan keras tetap**: `onus.ip_address` HANYA IP dari master VLAN `type == "management"`, `onus.wan_ip_address` HANYA IP host di VLAN NON-management — dua kolom tidak pernah saling mewakili, tidak pernah saling mengisi, tidak pernah di-NULL-kan oleh satu sama lain.
+
+**Bug**: chip "Setup WAN" di Detail ONU memakai `ipLive` (IP management) sehingga IP management (contoh produksi `192.168.100.20`) tampil sebagai IP WAN.
+
+**Sumber IP WAN**: `Current IP address` blok `Host ID` dari `show gpon remote-onu ip-host` yang terpasang ke VLAN non-management (urutan Host ID, pertama ≠ `0.0.0.0`); pasangan host→VLAN utama `vlan-filter iphost N ... vlan V` (host bisa punya IP walau TANPA baris `ip-host N`, lihat laporan produksi job 13256), fallback `ip-host N` ↔ `gemport N flow F` ↔ `flow F ... vlan V`. Tanpa pasangan / laporan kosong / `management_vlans` kosong = `None` — tidak pernah menebak.
+
+**Kolom**: `onus.wan_ip_address` `String(45)` NULL (rev `d7e8f9a0b1c2`), bukan INET: sumber `Current IP address` termasuk nilai belum assign `0.0.0.0`/`255.255.255.255` yang memang tidak disimpan (hanya ≠ `0.0.0.0` yang masuk), netmask pg `INET` terlalu berisiko untuk nilai kasar.
+
+**Isi dua titik, dua aturan sama**:
+- `refresh_ip` (POST `refresh-ip`): respons kini `{ip_address, wan_ip_address}`; parser `parse_wan_ip` = kebalikan `parse_current_ip`.
+- sync inventaris (`_adopt_inventory`): `wan_ip_address` = kandidat pertama `management_ips` di luar set management yang membawa IP (pola pemilihan kandidat sama dengan sync management). Master tanpa VLAN management = tidak ada dasar memastikan "non-management" → tidak disentuh.
+- Keduanya: hasil `None`/kosong → nilai lama dibiarkan, tidak pernah di-NULL-kan.
+
+**Frontend**: `wanIpLive = liveWanIp ?? d.wan_ip_address` khusus baris `Setup WAN`; chip null = mode tampil tanpa chip. `Mgmt IP` tetap `ipLive`. Guard refresh kini `!ip_address || !wan_ip_address` (satu POST mengisi dua kolom).

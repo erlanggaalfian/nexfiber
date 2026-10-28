@@ -100,6 +100,67 @@ interface gpon-onu_1/6/1:7
 !
 """
 
+# Laporan produksi nyata (job 13256, format persis; IP/kredensial diganti sintetis):
+# Host 1 (ppp0, DHCP) membawa IP non-management, Host 2 (nas0_3) membawa IP management.
+IP_HOST_PRODUCTION = """\
+ONU WAN Interfaces
+Host ID:            1
+Host name:          ppp0
+Identify:
+IP addres:          0.0.0.0
+Mask:               0.0.0.0
+Gateway:            0.0.0.0
+Primary DNS:        0.0.0.0
+Second DNS:         0.0.0.0
+DHCP enable:        disable
+Ping response:      disable
+Traceroute response:disable
+MAC address:        0055.a1b2.c3d4
+Current IP address: 172.29.74.88
+Current mask:       255.255.255.255
+Current gateway:    172.29.28.60
+Current primary DNS:103.163.102.102
+Current second DNS: 0.0.0.0
+Domain name:
+
+Host ID:            2
+Host name:          nas0_3
+Identify:
+IP addres:          0.0.0.0
+Mask:               0.0.0.0
+Gateway:            0.0.0.0
+Primary DNS:        0.0.0.0
+Second DNS:         0.0.0.0
+DHCP enable:        enable
+Ping response:      enable
+Traceroute response:enable
+MAC address:        0055.a1b2.c3d5
+Current IP address: 192.168.100.20
+Current mask:       255.255.255.0
+Current gateway:    192.168.100.1
+Current primary DNS:192.168.100.1
+Current second DNS: 0.0.0.0
+Domain name:
+"""
+
+# Running-config produksi (job 11255): host 1 TIDAK punya baris `ip-host 1` —
+# pasangan host->VLAN hanya lewat `vlan-filter iphost N ... vlan V`.
+RUNNING_PRODUCTION = """\
+pon-onu-mng gpon-onu_1/2/5:11
+  flow mode 1 tag-filter vlan-filter untag-filter discard
+  flow mode 2 tag-filter vlan-filter untag-filter discard
+  flow 1 pri 0 vlan 15
+  flow 2 pri 2 vlan 100
+  gemport 1 flow 1
+  gemport 2 flow 2
+  switchport-bind switch_0/1 iphost 1
+  switchport-bind switch_0/1 iphost 2
+  ip-host 2 dhcp-enable enable ping-response enable traceroute-response enable
+  vlan-filter iphost 1 pri 0 vlan 15
+  vlan-filter iphost 2 pri 2 vlan 100
+!
+"""
+
 ETH = """\
 Port          Speed        Admin     Max-frame  Status changes
 eth_0/1       auto         unlock    1632       3
@@ -666,6 +727,24 @@ def test_parse_current_ip_only_from_management_vlan():
     assert parse_current_ip("Host ID: 1\nCurrent IP address: 0.0.0.0", RUNNING_ONE, {23}) is None
 
 
+def test_parse_wan_ip_first_non_management_host():
+    """Aturan keras kebalikan `parse_current_ip`: IP dari blok Host yang terpasang
+    ke VLAN NON-management, urutan Host ID, pertama yang bukan 0.0.0.0."""
+    from app.drivers.onu_report import parse_wan_ip
+    # Host 1 (192.0.2.7, vlan 77) dipakai; Host 2 management tidak pernah masuk.
+    assert parse_wan_ip(IP_HOST_MIXED, RUNNING_MIXED, {23, 2310}) == "192.0.2.7"
+    # Sebaliknya: bila justru vlan 77 yang ditandai management, IP-nya Host 2.
+    assert parse_wan_ip(IP_HOST_MIXED, RUNNING_MIXED, {77}) == "10.31.0.9"
+    # Laporan & running-config produksi: host 1 hanya punya pasangan `vlan-filter iphost`.
+    assert parse_wan_ip(IP_HOST_PRODUCTION, RUNNING_PRODUCTION, {100}) == "172.29.74.88"
+    # Tanpa pasangan / laporan kosong / semua 0.0.0.0 = None, tidak pernah menebak.
+    assert parse_wan_ip(IP_HOST_PRODUCTION, "", {100}) is None
+    assert parse_wan_ip("", RUNNING_PRODUCTION, {100}) is None
+    assert parse_wan_ip("Host ID: 1\nCurrent IP address: 0.0.0.0",
+                        RUNNING_PRODUCTION, {100}) is None
+    assert parse_wan_ip(IP_HOST, RUNNING_ONE, {23}) is None  # satu-satunya host = management
+
+
 class _RefreshDb:
     """Session minimal `refresh_ip`: OLT vendor zte + master VLAN management apa adanya."""
 
@@ -716,35 +795,56 @@ async def test_refresh_ip_never_saves_unverifiable_ip(monkeypatch):
     from types import SimpleNamespace
 
     from app.services import onu_action_service
-    onu = SimpleNamespace(id=5, olt_id=31, onu_index=7, ip_address="10.50.0.7")
+    onu = SimpleNamespace(id=5, olt_id=31, onu_index=7, ip_address="10.50.0.7",
+                          wan_ip_address="10.60.0.7")
     _stub_refresh(monkeypatch, onu, IP_HOST, "")  # 10.0.0.9 tanpa pasangan running-config
     out = await onu_action_service.refresh_ip(_RefreshDb({2310}), 5, SimpleNamespace(id=1))
     assert onu.ip_address == "10.50.0.7"  # 10.0.0.9 tidak pernah masuk
-    assert out == {"ip_address": "10.50.0.7"}
+    assert onu.wan_ip_address == "10.60.0.7"  # tanpa pasangan -> nilai lama dibiarkan
+    assert out == {"ip_address": "10.50.0.7", "wan_ip_address": "10.60.0.7"}
 
-    kosong = SimpleNamespace(id=6, olt_id=31, onu_index=8, ip_address=None)
+    kosong = SimpleNamespace(id=6, olt_id=31, onu_index=8, ip_address=None,
+                             wan_ip_address=None)
     _stub_refresh(monkeypatch, kosong, IP_HOST, "")
     out = await onu_action_service.refresh_ip(_RefreshDb({2310}), 6, SimpleNamespace(id=1))
     assert kosong.ip_address is None  # tidak menebak
-    assert out == {"ip_address": None}
+    assert kosong.wan_ip_address is None
+    assert out == {"ip_address": None, "wan_ip_address": None}
 
 
 async def test_refresh_ip_saves_only_management_vlan_ip(monkeypatch):
-    """Blok Host yang pasangannya VLAN non-management tidak pernah tersimpan walau
-    dilaporkan perangkat; yang tersimpan hanya Host di VLAN management."""
+    """Blok Host yang pasangannya VLAN non-management tidak pernah masuk `ip_address`
+    (begitu pula sebaliknya); yang tersimpan hanya Host di VLAN management."""
     from types import SimpleNamespace
 
     from app.services import onu_action_service
-    onu = SimpleNamespace(id=5, olt_id=31, onu_index=7, ip_address=None)
+    onu = SimpleNamespace(id=5, olt_id=31, onu_index=7, ip_address=None, wan_ip_address=None)
     _stub_refresh(monkeypatch, onu, IP_HOST_MIXED, RUNNING_MIXED)  # Host 1 vlan 77, Host 2 vlan 2310
     out = await onu_action_service.refresh_ip(_RefreshDb({23, 2310}), 5, SimpleNamespace(id=1))
     assert onu.ip_address == "10.31.0.9"  # Host 1 (192.0.2.7) tidak pernah masuk
-    assert out == {"ip_address": "10.31.0.9"}
+    assert onu.wan_ip_address == "192.0.2.7"  # ...tapi masuk ke kolom WAN
+    assert out == {"ip_address": "10.31.0.9", "wan_ip_address": "192.0.2.7"}
 
-    wan = SimpleNamespace(id=6, olt_id=31, onu_index=8, ip_address="10.50.0.7")
+    wan = SimpleNamespace(id=6, olt_id=31, onu_index=8, ip_address="10.50.0.7",
+                          wan_ip_address=None)
     _stub_refresh(monkeypatch, wan, IP_HOST_MIXED, RUNNING_MIXED)
     await onu_action_service.refresh_ip(_RefreshDb({23}), 6, SimpleNamespace(id=1))
     assert wan.ip_address == "10.50.0.7"  # tak ada host di VLAN management -> tak ditimpa
+
+
+async def test_refresh_ip_production_report_fills_both_columns_without_overlap(monkeypatch):
+    """Laporan produksi (host 1 tanpa baris `ip-host 1`, pasangan via `vlan-filter
+    iphost`): `ip_address` = IP VLAN management, `wan_ip_address` = IP VLAN non-
+    management, dua-duanya terisi satu kali refresh dan tidak pernah tumpang tindih."""
+    from types import SimpleNamespace
+
+    from app.services import onu_action_service
+    onu = SimpleNamespace(id=5, olt_id=31, onu_index=11, ip_address=None, wan_ip_address=None)
+    _stub_refresh(monkeypatch, onu, IP_HOST_PRODUCTION, RUNNING_PRODUCTION)
+    out = await onu_action_service.refresh_ip(_RefreshDb({100}), 5, SimpleNamespace(id=1))
+    assert onu.ip_address == "192.168.100.20"
+    assert onu.wan_ip_address == "172.29.74.88"
+    assert out == {"ip_address": "192.168.100.20", "wan_ip_address": "172.29.74.88"}
 
 
 def test_sync_wan_from_running_sets_pppoe_and_keeps_secret_encrypted():

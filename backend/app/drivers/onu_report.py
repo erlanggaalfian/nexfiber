@@ -112,17 +112,23 @@ def optical_block(attenuation: str, olt_rx_dbm: float | None) -> str:
 
 
 _HOST_BLOCK_RE = re.compile(r"host\s+id\s*:\s*(\d+)(.*?)(?=host\s+id\s*:|$)", re.I | re.S)
+_VLANFILTER_RE = re.compile(r"^\s*vlan-filter\s+iphost\s+(\d+)\s+.*?\s+vlan\s+(\d+)\s*$",
+                            re.I | re.M)
 
 
 def _host_vlan_map(running: str) -> dict[int, int]:
-    """VLAN tiap `ip-host N` dari pasangan running-config `ip-host N` ↔ `gemport N flow F`
-    ↔ `flow F ... vlan V` (aturan sama dengan `parse_management_ip`, DECISIONS.md).
-    Host tanpa pasangan lengkap dilewati."""
+    """VLAN tiap host `N` dari running-config: pasangan PERTAMA `vlan-filter iphost N
+    ... vlan V` (jalur nyata — host bisa punya IP walau tanpa baris `ip-host N`, lihat
+    laporan produksi), fallback pasangan lama `ip-host N` ↔ `gemport N flow F`
+    ↔ `flow F ... vlan V` (aturan DECISIONS.md). Host tanpa pasangan dilewati."""
     text = running or ""
+    out = {int(n): int(v) for n, v in _VLANFILTER_RE.findall(text)}
     flows = {int(f): int(v) for f, v in _FLOW_RE.findall(text)}
     gems = {int(g): int(f) for g, f in _GEM_FLOW_RE.findall(text)}
-    hosts = {int(n) for n, _ in _IPHOST_RE.findall(text)}
-    return {n: flows[gems[n]] for n in hosts if n in gems and gems[n] in flows}
+    for n, _ in _IPHOST_RE.findall(text):
+        if n not in out and int(n) in gems and gems[int(n)] in flows:
+            out[int(n)] = flows[gems[int(n)]]
+    return out
 
 
 def parse_current_ip(report: str, running: str, management_vlans: set[int]) -> str | None:
@@ -135,12 +141,30 @@ def parse_current_ip(report: str, running: str, management_vlans: set[int]) -> s
     tidak bisa dipasangkan dilewati (lebih baik tidak ada IP daripada IP non-management).
     Laporan kosong / tanpa IP valid = None — tidak pernah menebak.
     """
+    return _parse_host_ip(report, running, management_vlans, want_management=True)
+
+
+def parse_wan_ip(report: str, running: str, management_vlans: set[int]) -> str | None:
+    """Kebalikan `parse_current_ip`: IP blok Host yang terpasang ke VLAN NON-management
+    (urutan Host ID, pertama yang bukan 0.0.0.0) — sumber kolom `onus.wan_ip_address`
+    dan chip "Setup WAN". Tanpa pasangan running-config / semua host management /
+    laporan kosong = None. `management_vlans` kosong = tidak ada yang bisa diverifikasi
+    sebagai non-management -> None (tidak menebak)."""
+    if not management_vlans:
+        return None
+    return _parse_host_ip(report, running, management_vlans, want_management=False)
+
+
+def _parse_host_ip(report: str, running: str, management_vlans: set[int],
+                   *, want_management: bool) -> str | None:
     vlans = _host_vlan_map(running)
     for block in _HOST_BLOCK_RE.finditer(report or ""):
         ip = re.search(r"Current IP address:\s*(\d+\.\d+\.\d+\.\d+)", block.group(2), re.I)
-        if (ip and ip.group(1) != "0.0.0.0"
-                and vlans.get(int(block.group(1))) in management_vlans):
-            return ip.group(1)
+        vlan = vlans.get(int(block.group(1)))
+        if not (ip and ip.group(1) != "0.0.0.0" and vlan is not None
+                and (vlan in management_vlans) == want_management):
+            continue
+        return ip.group(1)
     return None
 
 

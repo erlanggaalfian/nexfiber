@@ -118,7 +118,13 @@ class Onu(TimestampMixin, Base):
     longitude: Mapped[float | None] = mapped_column(Numeric(9, 6), nullable=True)
 
     mac_address: Mapped[str | None] = mapped_column(String(17), nullable=True)
+    # IP management: HANYA `Current IP address` host di VLAN bertanda `type ==
+    # "management"` (aturan keras; sumber chip "Mgmt IP").
     ip_address: Mapped[str | None] = mapped_column(INET, nullable=True)
+    # IP WAN: `Current IP address` host di VLAN NON-management (sumber chip "Setup
+    # WAN"). Kolom terpisah — tidak pernah diturunkan dari `ip_address` atau
+    # sebaliknya; NULL = tidak ada host non-management yang bisa dipasangkan.
+    wan_ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
 
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_down_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

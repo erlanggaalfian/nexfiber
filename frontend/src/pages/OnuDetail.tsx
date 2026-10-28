@@ -971,19 +971,26 @@ export function OnuDetail() {
   /** Satu-satunya identitas untuk semua operasi: serial dari respons detail. */
   const serial = onu.data?.serial_number ?? "";
   /** IP terbaca perangkat (POST /api/onus/{id}/refresh-ip, sumber `show gpon remote-onu
-   *  ip-host`) untuk tautan buka tab baru di baris Setup WAN / Mgmt IP. null = belum terbaca. */
+   *  ip-host`) untuk tautan buka tab baru. `liveIp` = IP VLAN management (Mgmt IP),
+   *  `liveWanIp` = IP host di VLAN non-management (Setup WAN). null = belum terbaca. */
   const [liveIp, setLiveIp] = useState<string | null>(null);
+  const [liveWanIp, setLiveWanIp] = useState<string | null>(null);
   const fetchIp = () => {
     const id = onu.data?.id;
     if (!id) return;
-    api<{ ip_address: string | null }>(`/api/onus/${id}/refresh-ip`, { method: "POST" })
-      .then((r) => setLiveIp(r.ip_address ?? null))
+    api<{ ip_address: string | null; wan_ip_address: string | null }>(
+      `/api/onus/${id}/refresh-ip`, { method: "POST" })
+      .then((r) => {
+        setLiveIp(r.ip_address ?? null);
+        setLiveWanIp(r.wan_ip_address ?? null);
+      })
       .catch(() => {});
   };
-  // Refresh IP HANYA saat dibuka bila IP belum ada di cache DB (`ip_address` null) —
+  // Refresh IP HANYA saat dibuka bila salah satu kolom masih kosong di cache DB — satu
+  // POST mengisi dua-duanya (`ip_address` management + `wan_ip_address` non-management);
   // kalau sudah ada, tampilkan langsung dari cache, jangan tunggu SSH ke OLT.
   useEffect(() => {
-    if (onu.data?.id && !onu.data?.ip_address) fetchIp();
+    if (onu.data?.id && (!onu.data?.ip_address || !onu.data?.wan_ip_address)) fetchIp();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onu.data?.id]);
   const signal = useQuery({
@@ -1068,6 +1075,7 @@ export function OnuDetail() {
   }
   const d = onu.data;
   const ipLive = liveIp ?? d.ip_address;
+  const wanIpLive = liveWanIp ?? d.wan_ip_address;
   const stats = rxStats(signal.data ?? [], "rx_power_dbm");
   const oltStats = rxStats(signal.data ?? [], "olt_rx_power_dbm");
   const tStats = trafficStats(trafficHistory.data ?? []);
@@ -1322,13 +1330,15 @@ export function OnuDetail() {
             <DRow label="Mode ONU" value={onuMode === null ? DASH : onuMode}
                   onEdit={() => setModal({ kind: "onu-mode" })} />
             {/* Setup WAN: label mode dari WAN_MODE_LABEL (huruf kapital di teks, bukan
-                CSS uppercase) + chip IP tab baru. `webpage` tidak punya IP WAN. */}
+                CSS uppercase) + chip IP tab baru — IP dari host di VLAN NON-management
+                (`wanIpLive`), BUKAN IP management. `webpage` tidak punya IP WAN; IP WAN
+                belum terbaca = mode tetap tampil tanpa chip. */}
             <DRow label="Setup WAN" value={
               wanMode === null ? DASH : (
                 <>
                   <span>{wanMode}</span>
-                  {wanHasIp && ipLive && (
-                    <IpLink ip={ipLive} title="Buka IP WAN modem di tab baru" />
+                  {wanHasIp && wanIpLive && (
+                    <IpLink ip={wanIpLive} title="Buka IP WAN modem di tab baru" />
                   )}
                 </>
               )
