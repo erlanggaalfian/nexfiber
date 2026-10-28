@@ -82,6 +82,9 @@ class OnuDetail(OnuRow):
     distance_m: int | None
     mac_address: str | None
     ip_address: str | None
+    # IP WAN dari host laporan ip-host di VLAN NON-management (chip "Setup WAN");
+    # None = belum terbaca/tidak bisa dipasangkan — bukan IP management.
+    wan_ip_address: str | None = None
     vlan_id: int | None
     zone_id: int | None
     splitter_id: int | None

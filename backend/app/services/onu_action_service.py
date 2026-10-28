@@ -23,7 +23,7 @@ from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.exceptions import ValidationAppError as ValidationError
 from app.core.rbac import MANAGERS, scope_olt_ids
 from app.drivers import zte_onu_actions as za
-from app.drivers.onu_report import parse_current_ip
+from app.drivers.onu_report import parse_current_ip, parse_wan_ip
 from app.models.olt import Olt, PonPort
 from app.models.onu import Onu
 from app.models.onu_type import OnuType
@@ -138,10 +138,11 @@ async def refresh_ip(db: AsyncSession, onu_id: int, user: User) -> dict:
     """Ambil IP ONU terbaca dari perangkat (laporan ip-host + pasangan running-config),
     simpan ke DB.
 
-    Read-only ke perangkat. Aturan keras: `onus.ip_address` hanya boleh berisi IP dari
-    VLAN yang ditandai management di master VLAN — IP yang tidak bisa dipasangkan ke
-    VLAN management tidak pernah disimpan/dikembalikan (nilai lama dibiarkan apa adanya,
-    tidak pernah dikosongkan/ditebak).
+    Read-only ke perangkat. Aturan keras: `onus.ip_address` HANYA IP dari VLAN yang
+    ditandai management di master VLAN, `onus.wan_ip_address` HANYA IP dari VLAN
+    non-management — keduanya tidak pernah saling mewakili. Yang tidak bisa dipasangkan
+    tidak pernah disimpan (nilai lama dibiarkan apa adanya, tidak pernah
+    dikosongkan/ditebak).
     """
     from app.drivers.factory import build_driver
 
@@ -160,14 +161,18 @@ async def refresh_ip(db: AsyncSession, onu_id: int, user: User) -> dict:
     ip = parse_current_ip(report, mng_cfg, management_vlans)
     if ip:
         onu.ip_address = ip
-    saved = onu.ip_address  # dibaca sebelum commit: atribut expire setelah commit
+    wan_ip = parse_wan_ip(report, mng_cfg, management_vlans)
+    if wan_ip:
+        onu.wan_ip_address = wan_ip
+    # Dibaca sebelum commit: atribut expire setelah commit.
+    saved, saved_wan = onu.ip_address, onu.wan_ip_address
     await log_activity(
         db, action="onu.read_ip_host", entity_type="onu", entity_id=str(onu.id),
         success=True, user_id=user.id, olt_id=onu.olt_id, onu_id=onu.id,
         raw_command=f"show gpon remote-onu ip-host {iface} ; show onu running config {iface}",
     )
     await db.commit()
-    return {"ip_address": saved}
+    return {"ip_address": saved, "wan_ip_address": saved_wan}
 
 
 def _build_commands(kind: str, onu: Onu, pon: PonPort, body: dict,

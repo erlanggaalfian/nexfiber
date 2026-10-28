@@ -147,6 +147,9 @@ export type OnuDetail = OnuRow & {
   registered_by_name: string | null;
   tx_power_dbm: number | null; temperature_c: number | null; voltage_v: number | null;
   distance_m: number | null; mac_address: string | null; ip_address: string | null;
+  /** IP dari host laporan ip-host di VLAN NON-management (chip "Setup WAN");
+   *  null = belum terbaca / tidak ada host non-management yang bisa dipasangkan. */
+  wan_ip_address?: string | null;
   vlan_id: number | null; zone_id: number | null; splitter_id: number | null;
   splitter_port: number | null;
   download_speed_profile_id: number | null; upload_speed_profile_id: number | null;

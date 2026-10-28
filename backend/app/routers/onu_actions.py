@@ -4,7 +4,10 @@ Kontrak (frontend bergantung, nama field TIDAK boleh berubah):
   GET  /api/onus/{id}/actions        -> {actions:[{kind, supported, writes_device, note?}]}
   GET  /api/onus/{id}/config-options -> isi dropdown semua modal
   PUT  /api/onus/{id}/location       -> OnuDetail (hanya DB Nexfiber, tanpa perangkat)
-  POST /api/onus/{id}/refresh-ip     -> {ip_address: str|null} (read-only, satu perintah)
+  POST /api/onus/{id}/refresh-ip     -> {ip_address: str|null, wan_ip_address: str|null}
+                                        (read-only, satu perintah; kolom terpisah —
+                                        ip_address = IP VLAN management,
+                                        wan_ip_address = IP VLAN non-management)
   POST /api/onus/{id}/actions/{kind} -> {ok, executed, detail, commands:[str tanpa sandi]}
 
 Router terpisah dari `onus.py` (yang berkunci serial) karena kontrak ini berkunci id DB.

@@ -66,6 +66,7 @@ def _row(onu: Onu, olt_name: str, slot: int, port: int, download_profile_name: s
          preset_name: str | None = None, registered_by_name: str | None = None) -> dict:
     data = {c: getattr(onu, c) for c in OnuDetail.model_fields if hasattr(onu, c)}
     data["ip_address"] = str(onu.ip_address) if onu.ip_address else None
+    data["wan_ip_address"] = str(onu.wan_ip_address) if onu.wan_ip_address else None
     return {**data, "olt_name": olt_name, "slot": slot, "port": port,
             "download_profile_name": clean_profile_name(download_profile_name),
             "upload_profile_name": clean_profile_name(upload_profile_name),

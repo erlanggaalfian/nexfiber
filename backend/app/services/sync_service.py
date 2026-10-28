@@ -199,6 +199,12 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
         # mode kandidat pertama tetap dipakai dan kolom IP dibiarkan apa adanya.
         management = [row for row in snap.management_ips or [] if row[0] in management_vlans]
         mgmt = next((row for row in management if row[2]), management[0] if management else None)
+        # Kebalikannya: IP WAN = kandidat PERTAMA di luar VLAN management yang membawa IP
+        # (aturan keras: `ip_address` dan `wan_ip_address` tidak pernah saling mewakili).
+        # Master tanpa VLAN management = tidak ada dasar memastikan "non-management" -> None.
+        wan_ip = next((row[2] for row in snap.management_ips or []
+                       if row[0] not in management_vlans and row[2]), None) \
+            if management_vlans else None
         if mgmt:
             with_management += 1
         onu = existing.get(snap.serial_number)
@@ -211,6 +217,7 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
                 admin_state=snap.admin_state or "enabled",
                 mgmt_ip_mode=mgmt[1] if mgmt else None,
                 ip_address=mgmt[2] if mgmt else None,
+                wan_ip_address=wan_ip,
                 last_seen_at=now if snap.status == "online" else None,
                 last_sync_at=now, registered_at=now,
             )
@@ -248,6 +255,9 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
             onu.mgmt_ip_mode = mgmt[1]
             if mgmt[2]:  # tanpa IP dilaporkan -> dibiarkan apa adanya, tidak dikosongkan
                 onu.ip_address = mgmt[2]
+        if wan_ip:
+            # IP non-management hanya masuk kolom WAN; tanpa kandidat kolom tidak disentuh.
+            onu.wan_ip_address = wan_ip
         if snap.status == "online":
             onu.last_seen_at = now
         updated += 1

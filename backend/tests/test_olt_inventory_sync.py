@@ -473,6 +473,45 @@ async def test_adopt_inventory_only_management_vlan_ip_is_stored():
     assert existing.ip_address == "10.31.0.9"
 
 
+async def test_adopt_inventory_fills_wan_ip_from_non_management_candidate():
+    """Kolom `wan_ip_address` = kandidat IP VLAN NON-management pertama (urutan
+    `management_ips`); `ip_address` tetap hanya VLAN management — keduanya tidak boleh
+    pernah tumpang tindih."""
+    inv = OltInventory(
+        onus=[OnuSnapshot(slot=6, port=1, onu_id=1, serial_number="TESTSN00000031",
+                          status="online",
+                          management_ips=[(77, "static", "192.0.2.7"),
+                                          (2310, "static", "10.31.0.9")])],
+        vlan_ids=[])
+    db = _mgmt_db(None, [23, 2310])
+    await sync_service._adopt_inventory(db, _Olt(), _InventoryDriver(inv), datetime.now(UTC))
+    assert db.added[0].ip_address == "10.31.0.9"
+    assert db.added[0].wan_ip_address == "192.0.2.7"
+
+    existing = _ExistingOnu("TESTSN00000032", ip="10.50.0.7")
+    existing.wan_ip_address = "10.60.0.7"
+    inv2 = OltInventory(
+        onus=[OnuSnapshot(slot=6, port=1, onu_id=1, serial_number="TESTSN00000032",
+                          status="online",
+                          management_ips=[(77, "dhcp", None),
+                                          (2310, "static", "10.31.0.9")])],
+        vlan_ids=[])
+    await sync_service._adopt_inventory(_mgmt_db(existing, [23, 2310]), _Olt(),
+                                        _InventoryDriver(inv2), datetime.now(UTC))
+    assert existing.ip_address == "10.31.0.9"
+    # Tanpa kandidat non-management ber-IP: kolom tidak disentuh, tidak dikosongkan.
+    assert existing.wan_ip_address == "10.60.0.7"
+
+    kosong = _ExistingOnu("TESTSN00000033")
+    inv3 = OltInventory(
+        onus=[OnuSnapshot(slot=6, port=1, onu_id=1, serial_number="TESTSN00000033",
+                          status="online", management_ips=[(231, "dhcp", None)])],
+        vlan_ids=[])
+    await sync_service._adopt_inventory(_mgmt_db(kosong, [231]), _Olt(),
+                                        _InventoryDriver(inv3), datetime.now(UTC))
+    assert getattr(kosong, "wan_ip_address", None) is None  # tidak pernah menebak
+
+
 async def test_adopt_inventory_skips_unknown_pon_port():
     from datetime import UTC, datetime
 
