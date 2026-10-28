@@ -277,8 +277,12 @@ echo ""
 # [8] HEALTH CHECK & RINGKASAN
 # =========================================================
 log "[8/8] Verifikasi instalasi..."
-sleep 2
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "http://127.0.0.1:${APP_PORT}/healthz" 2>/dev/null || echo "000")
+HTTP_CODE="000"
+for _ in $(seq 1 30); do
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "http://127.0.0.1:${APP_PORT}/healthz" 2>/dev/null || echo "000")
+    [ "$HTTP_CODE" = "200" ] && break
+    sleep 2
+done
 if [ "$HTTP_CODE" = "200" ]; then
     success "Verifikasi API OK (HTTP ${HTTP_CODE} — http://127.0.0.1:${APP_PORT}/healthz)"
 else

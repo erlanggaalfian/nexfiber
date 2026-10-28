@@ -95,8 +95,12 @@ echo -e "${CYAN}[4/5]${NC} Build ulang frontend..."
 echo -e "${CYAN}[5/5]${NC} Start service..."
 systemctl start nexfiber-api nexfiber-worker
 
-sleep 2
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "http://127.0.0.1:${APP_PORT}/healthz" 2>/dev/null || echo "000")
+HTTP_CODE="000"
+for _ in $(seq 1 30); do
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "http://127.0.0.1:${APP_PORT}/healthz" 2>/dev/null || echo "000")
+    [ "$HTTP_CODE" = "200" ] && break
+    sleep 2
+done
 if [ "$HTTP_CODE" = "200" ]; then
     echo -e "${GREEN}✔ Update selesai, API OK (HTTP ${HTTP_CODE})${NC}"
 else
