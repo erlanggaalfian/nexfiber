@@ -69,12 +69,12 @@ export function SpeedProfileModal(
                   upload_profile: up === "" ? null : up,
                 })}>
       <Row label="Download speed">
-        <Select value={dn} onChange={setDn} placeholder="Jangan ubah" label="Download speed">
+        <Select value={dn} onChange={setDn} placeholder="Pilih profil ..." label="Download speed">
           {byDir("download").map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
         </Select>
       </Row>
       <Row label="Upload speed">
-        <Select value={up} onChange={setUp} placeholder="Jangan ubah" label="Upload speed">
+        <Select value={up} onChange={setUp} placeholder="Pilih profil ..." label="Upload speed">
           {byDir("upload").map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
         </Select>
       </Row>
