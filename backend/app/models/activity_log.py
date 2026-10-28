@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Identity, String
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Identity, Index, String
 from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,7 +16,15 @@ class ActivityLog(Base):
     """
 
     __tablename__ = "activity_logs"
-    __table_args__ = {"postgresql_partition_by": "RANGE (created_at)"}
+    __table_args__ = (
+        # Halaman Logs memfilter olt_id/user_id/action + created_at; tanpa index ini
+        # query memburuk seiring tabel tumbuh (retensi 1 tahun). Index non-unique di
+        # tabel terpartisi diizinkan Postgres dan menyebar ke tiap partisi.
+        Index("ix_activity_logs_olt_created", "olt_id", "created_at"),
+        Index("ix_activity_logs_user_created", "user_id", "created_at"),
+        Index("ix_activity_logs_action_created", "action", "created_at"),
+        {"postgresql_partition_by": "RANGE (created_at)"},
+    )
 
     # Composite PK disables SQLAlchemy's implicit autoincrement, so declare it explicitly.
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)

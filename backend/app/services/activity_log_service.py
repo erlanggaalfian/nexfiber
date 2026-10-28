@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.rbac import scope_olt_ids
 from app.models.user import User
 from app.repositories import activity_log_repo
-from app.schemas.activity_log import LogCategory, LogPage, LogRow, actions_for_category, category_of
+from app.schemas.activity_log import LogCategory, LogPage, LogRow, category_of
 
 
 def _row(log, username, olt_name, onu_serial) -> LogRow:
@@ -25,7 +25,7 @@ async def search_logs(db: AsyncSession, user: User, *, q: str | None, olt_id: in
                       page: int, size: int) -> LogPage:
     rows, total = await activity_log_repo.search(
         db, scope_olt_ids(user), q=q, olt_id=olt_id, user_id=user_id,
-        actions=actions_for_category(category) if category else None,
-        since=since, until=until, page=page, size=size,
+        category=category, since=since, until=until, page=page, size=size,
+        viewer_id=user.id,
     )
     return LogPage(items=[_row(*r) for r in rows], total=total, page=page, size=size)

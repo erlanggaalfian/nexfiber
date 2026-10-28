@@ -16,8 +16,11 @@ Aturan:
   berikutnya; tidak ada baris ditulis, tidak ada lock yang dipegang.
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -115,6 +118,17 @@ async def sample_olt(db: AsyncSession, olt: Olt) -> dict:
     }
     previous = await _previous(db, [onu.id for onu in onus.values()])
 
+    # ONU yang hanya muncul di satu tabel (RX saja atau TX saja) sebelumnya dibuang
+    # diam-diam: tidak ada baris, tidak ada jejak. Baris null sengaja TIDAK ditulis
+    # (akan jadi "sampel sebelumnya" dan merusak delta berikutnya); sebagai gantinya
+    # kasusnya dicatat di log worker supaya bisa dibedakan dari sampler yang berhenti.
+    partial = sorted(
+        (set(upload) | set(download)) & set(onus) - (set(upload) & set(download)))
+    if partial:
+        logger.warning(
+            "sample_onu_traffic OLT %s: %d ONU hanya di satu tabel trafik: %s",
+            olt.id, len(partial), [onus[k].serial_number for k in partial[:10]])
+
     written = with_rate = 0
     # Urut posisi: dua proses menulis dalam urutan sama -> tidak ada deadlock.
     for key in sorted(set(upload) & set(download) & set(onus)):
@@ -135,9 +149,12 @@ async def sample_olt(db: AsyncSession, olt: Olt) -> dict:
         if in_bps is not None or out_bps is not None:
             with_rate += 1
 
-    olt.status, olt.last_sync_at, olt.last_error = "online", now, None
+    # Sampler trafik TIDAK menulis olt.status/last_error: itu kolom kesehatan
+    # OLT (sync/test_connection), bukan bukti dari bulkwalk trafik. Sebelumnya
+    # baris ini menandai OLT "online" dan menghapus last_error hanya karena
+    # trafik terbaca, menutupi kegagalan CLI/kesehatan.
     return {"onus_on_device": len(upload), "samples_written": written,
-            "samples_with_rate": with_rate}
+            "samples_with_rate": with_rate, "samples_partial_table": len(partial)}
 
 
 async def history(db: AsyncSession, serial: str, range_: Literal["24h", "7d", "30d"],

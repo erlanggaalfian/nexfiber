@@ -41,6 +41,18 @@ class Onu(TimestampMixin, Base):
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),
+        # Satu port splitter hanya boleh dipakai satu ONU aktif: cek aplikasi
+        # sudah ada di authorize/update_info, tetapi balapan persis dua request
+        # bersamaan tetap bisa lolos tanpa constraint DB ini. NULL diabaikan
+        # Postgres pada unique index (baris tanpa splitter/port tidak saling
+        # memblokir), dan baris ter-soft-delete tidak memblokir pemakaian ulang.
+        Index(
+            "uq_onu_splitter_port",
+            "splitter_id",
+            "splitter_port",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
     )
 
     olt_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("olts.id"), nullable=False)
@@ -164,6 +176,9 @@ class OnuSignalHistory(Base):
     """Separate from onus so the main row isn't UPDATEd thousands of times/day (PRD 4.6)."""
 
     __tablename__ = "onu_signal_history"
+    __table_args__ = (
+        Index("ix_onu_signal_onu_sampled", "onu_id", "sampled_at"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     onu_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("onus.id"), nullable=False)
@@ -172,3 +187,6 @@ class OnuSignalHistory(Base):
     olt_rx_power_dbm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     status: Mapped[str] = mapped_column(OnuStatus, nullable=False)
     sampled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Asal baris: "status_change" (poll status 1 menit / absent) atau "optical"
+    # (poll optik 15 menit). None = baris lama, sumber tidak diketahui (tidak ditebak).
+    source: Mapped[str | None] = mapped_column(String(32), nullable=True)

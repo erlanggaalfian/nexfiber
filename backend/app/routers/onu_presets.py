@@ -24,6 +24,15 @@ async def create_preset(body: OnuPresetCreate, db: AsyncSession = Depends(get_db
     return await svc.create_preset(db, body, user)
 
 
+@router.patch("/{preset_id}", response_model=OnuPresetOut)
+async def update_preset(preset_id: int, body: OnuPresetCreate,
+                        db: AsyncSession = Depends(get_db),
+                        user: User = Depends(manager)):
+    # Tidak ada skema parsial di repo: edit mengirim OnuPresetCreate penuh,
+    # sama seperti create (UI edit mengisi semua field dari baris lama).
+    return await svc.update_preset(db, preset_id, body, user)
+
+
 @router.delete("/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_preset(preset_id: int, db: AsyncSession = Depends(get_db),
                         user: User = Depends(manager)) -> None:

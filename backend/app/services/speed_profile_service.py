@@ -9,7 +9,8 @@ Job type yang dipakai: `push_speed_profile` ("Simpan ke OLT") dan `sync_speed_pr
 ada (tabel jobs + SKIP LOCKED), bukan antrean baru.
 """
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import CommandRejectedError, ConflictError, NotFoundError
@@ -63,25 +64,53 @@ def _row(profile: SpeedProfile, olt_name: str | None, vlan: Vlan | None,
     )
 
 
-async def list_profiles(db: AsyncSession, olt_id: int | None, user: User) -> list[SpeedProfileRow]:
+async def list_profiles(db: AsyncSession, olt_id: int | None, user: User,
+                        include_inactive: bool = False) -> list[SpeedProfileRow]:
     # DRY: filter global-or-scoped sudah ada di onu_repo.list_speed_profiles; di sini butuh
     # kolom tambahan (olt_name, vlan, onu_count) jadi query-nya join sendiri, tapi daftar id
-    # yang boleh dilihat tetap diambil dari helper yang sama.
-    allowed = {p.id for p in await onu_repo.list_speed_profiles(db, olt_id, scope_olt_ids(user))}
+    # yang boleh dilihat tetap diambil dari helper yang sama. Helper itu memfilter
+    # is_active=True, jadi halaman Settings yang harus bisa MENGAKTIFKAN KEMBALI
+    # profile nonaktif memakai jalur include_inactive (daftar tanpa filter aktif,
+    # dengan badge di UI) — dropdown otorisasi tetap memanggil tanpa flag ini.
+    if include_inactive:
+        scope = scope_olt_ids(user)
+        stmt_ids = select(SpeedProfile.id)
+        if olt_id:
+            stmt_ids = stmt_ids.where(or_(SpeedProfile.olt_id == olt_id,
+                                          SpeedProfile.olt_id.is_(None)))
+        if scope is not None:
+            stmt_ids = stmt_ids.where(or_(SpeedProfile.olt_id.is_(None),
+                                          SpeedProfile.olt_id.in_(scope)))
+        allowed = set(await db.scalars(stmt_ids))
+    else:
+        allowed = {p.id for p in await onu_repo.list_speed_profiles(db, olt_id, scope_olt_ids(user))}
+    # Dulu: satu query count per baris (N+1). Sekarang: satu query saja, dengan
+    # scalar_subquery per arah yang dipilih lewat CASE berdasarkan direction
+    # baris itu (pola yang sama dengan _onu_count di master_data_repo, hanya
+    # saja kolom FK-nya bergantung arah). _row_for (satu baris) tetap memakai
+    # count langsung — itu bukan N+1.
+    dl_count = (
+        select(func.count(Onu.id))
+        .where(Onu.download_speed_profile_id == SpeedProfile.id,
+               Onu.deleted_at.is_(None))
+        .scalar_subquery()
+    )
+    ul_count = (
+        select(func.count(Onu.id))
+        .where(Onu.upload_speed_profile_id == SpeedProfile.id,
+               Onu.deleted_at.is_(None))
+        .scalar_subquery()
+    )
     stmt = (
-        select(SpeedProfile, Olt.name, Vlan)
+        select(SpeedProfile, Olt.name, Vlan,
+               case((SpeedProfile.direction == "download", dl_count), else_=ul_count))
         .outerjoin(Olt, Olt.id == SpeedProfile.olt_id)
         .outerjoin(Vlan, Vlan.id == SpeedProfile.vlan_db_id)
         .where(SpeedProfile.id.in_(allowed))
         .order_by(SpeedProfile.name, SpeedProfile.direction)
     )
     rows = []
-    for profile, olt_name, vlan in await db.execute(stmt):
-        count_col = Onu.download_speed_profile_id if profile.direction == "download" \
-            else Onu.upload_speed_profile_id
-        onu_count = await db.scalar(
-            select(func.count(Onu.id)).where(count_col == profile.id, Onu.deleted_at.is_(None))
-        )
+    for profile, olt_name, vlan, onu_count in await db.execute(stmt):
         rows.append(_row(profile, olt_name, vlan, onu_count or 0))
     return rows
 
@@ -91,8 +120,34 @@ async def _check_refs(db: AsyncSession, olt_id: int | None, vlan_db_id: int | No
     if olt_id is not None:
         if await olt_repo.get_active(db, olt_id, scope_olt_ids(user)) is None:
             raise NotFoundError(f"OLT {olt_id} not found")
-    if vlan_db_id is not None and await db.get(Vlan, vlan_db_id) is None:
-        raise NotFoundError(f"VLAN {vlan_db_id} not found")
+    if vlan_db_id is not None:
+        vlan = await db.get(Vlan, vlan_db_id)
+        if vlan is None:
+            raise NotFoundError(f"VLAN {vlan_db_id} not found")
+        # VLAN harus global (olt_id NULL) atau milik OLT yang sama dengan profile,
+        # DAN OLT itu harus dalam scope pengguna. Dulu hanya dicek keberadaannya,
+        # jadi profile OLT A bisa menunjuk VLAN OLT B milik tenant lain.
+        if vlan.olt_id is not None and vlan.olt_id != olt_id:
+            raise NotFoundError(f"VLAN {vlan_db_id} not found for this OLT")
+        if vlan.olt_id is not None and \
+                await olt_repo.get_active(db, vlan.olt_id, scope_olt_ids(user)) is None:
+            raise NotFoundError(f"VLAN {vlan_db_id} not found for this OLT")
+
+
+async def _duplicate_exists(db: AsyncSession, name: str, direction: str,
+                            olt_id: int | None, skip_id: int | None) -> bool:
+    """Duplikat (nama bersih, arah, OLT) — nama dibandingkan setelah dibersihkan,
+    karena tampilan juga dibersihkan (`SMARTOLT-10M` dan `10M` tampil identik)."""
+    cleaned = (clean_profile_name(name) or name).lower()
+    stmt = select(SpeedProfile).where(SpeedProfile.direction == direction)
+    stmt = stmt.where(SpeedProfile.olt_id == olt_id) if olt_id is not None \
+        else stmt.where(SpeedProfile.olt_id.is_(None))
+    if skip_id is not None:
+        stmt = stmt.where(SpeedProfile.id != skip_id)
+    for p in (await db.execute(stmt)).scalars().all():
+        if (clean_profile_name(p.name) or p.name).lower() == cleaned:
+            return True
+    return False
 
 
 async def _get(db: AsyncSession, profile_id: int, user: User) -> SpeedProfile:
@@ -107,9 +162,19 @@ async def _get(db: AsyncSession, profile_id: int, user: User) -> SpeedProfile:
 async def create_profile(db: AsyncSession, body: SpeedProfileCreate,
                          user: User) -> SpeedProfileRow:
     await _check_refs(db, body.olt_id, body.vlan_db_id, user)
-    profile = SpeedProfile(**body.model_dump())
+    # Nama dibersihkan SAAT SIMPAN (bukan hanya saat tampil), supaya cek duplikat
+    # dan pencocokan preset/otorisasi memakai nilai yang sama dengan yang tampil.
+    name = clean_profile_name(body.name) or body.name
+    if await _duplicate_exists(db, name, body.direction, body.olt_id, None):
+        raise ConflictError(
+            f"Speed profile '{name}' ({body.direction}) sudah ada untuk OLT ini")
+    profile = SpeedProfile(**body.model_dump(), name=name)
     db.add(profile)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise ConflictError(f"Speed profile '{name}' sudah ada") from exc
     await log_activity(db, action="speed_profile.create", entity_type="speed_profile",
                        entity_id=str(profile.id), success=True, user_id=user.id,
                        olt_id=profile.olt_id)
@@ -121,7 +186,37 @@ async def update_profile(db: AsyncSession, profile_id: int, body: SpeedProfileUp
                          user: User) -> SpeedProfileRow:
     profile = await _get(db, profile_id, user)
     values = body.model_dump(exclude_unset=True)
-    await _check_refs(db, values.get("olt_id"), values.get("vlan_db_id"), user)
+    if "name" in values and values["name"] is not None:
+        values["name"] = clean_profile_name(values["name"]) or values["name"]
+    # Validasi terhadap keadaan AKHIR (nilai lama + patch), bukan hanya field yang
+    # ikut di-patch: patch `vlan_db_id` saja pada profile OLT A yang tadinya
+    # menunjuk VLAN OLT A harus tetap dicek terhadap OLT A, dan sebaliknya.
+    merged_olt = values.get("olt_id", profile.olt_id)
+    merged_vlan = values.get("vlan_db_id", profile.vlan_db_id)
+    await _check_refs(db, merged_olt, merged_vlan, user)
+    if "name" in values or "olt_id" in values:
+        if await _duplicate_exists(db, values.get("name", profile.name),
+                                   profile.direction, merged_olt, profile.id):
+            raise ConflictError("Speed profile dengan nama itu sudah ada untuk OLT ini")
+    # PENDEKATAN TERAMAN untuk profile yang dipakai ONU: tolak perubahan yang
+    # memengaruhi perangkat (nama/kecepatan/OLT/VLAN) selama masih dipakai. Alasan:
+    # push ulang membuat device profile BARU dan membuat yang lama yatim, sementara
+    # ONU yang sudah ter-apply tetap memakai profile lama sampai di-apply ulang
+    # satu per satu — jadi "edit lalu push" diam-diam tetap menyimpang. Perubahan
+    # deskripsi dan is_active (termasuk mengaktifkan kembali) tetap diizinkan.
+    col = Onu.download_speed_profile_id if profile.direction == "download" \
+        else Onu.upload_speed_profile_id
+    in_use = await db.scalar(
+        select(func.count(Onu.id)).where(col == profile.id, Onu.deleted_at.is_(None))) or 0
+    device_fields = {"name": profile.name, "speed_kbps": profile.speed_kbps,
+                     "olt_id": profile.olt_id, "vlan_db_id": profile.vlan_db_id}
+    changed = [f for f, old in device_fields.items()
+               if f in values and values[f] != old]
+    if in_use and changed:
+        raise ConflictError(
+            f"Speed profile masih dipakai {in_use} ONU; ubah {', '.join(changed)} ditolak "
+            "agar DB dan perangkat tidak menyimpang. Buat profile baru lalu terapkan "
+            "ke ONU, atau lepaskan dulu profile ini dari ONU.")
     for field, value in values.items():
         setattr(profile, field, value)
     await log_activity(db, action="speed_profile.update", entity_type="speed_profile",
@@ -169,11 +264,24 @@ async def get_or_create_from_device(db: AsyncSession, olt_id: int, device_name: 
     return profile
 
 
+async def _row_for(db: AsyncSession, profile: SpeedProfile) -> SpeedProfileRow:
+    olt_name = None
+    if profile.olt_id is not None:
+        olt_name = await db.scalar(select(Olt.name).where(Olt.id == profile.olt_id))
+    vlan = await db.get(Vlan, profile.vlan_db_id) if profile.vlan_db_id else None
+    col = Onu.download_speed_profile_id if profile.direction == "download" \
+        else Onu.upload_speed_profile_id
+    onu_count = await db.scalar(
+        select(func.count(Onu.id)).where(col == profile.id, Onu.deleted_at.is_(None))) or 0
+    return _row(profile, olt_name, vlan, onu_count)
+
+
 async def list_one(db: AsyncSession, profile_id: int, user: User) -> SpeedProfileRow:
-    rows = [r for r in await list_profiles(db, None, user) if r.id == profile_id]
-    if not rows:
-        raise NotFoundError(f"Speed profile {profile_id} not found")
-    return rows[0]
+    # JANGAN lewat list_profiles: daftar itu memfilter is_active=True, sehingga
+    # update ke is_active=False yang sukses justru dibalas 404. Ambil barisnya
+    # langsung (dengan cek scope yang sama seperti _get).
+    profile = await _get(db, profile_id, user)
+    return await _row_for(db, profile)
 
 
 async def delete_profile(db: AsyncSession, profile_id: int, user: User) -> None:
@@ -185,11 +293,15 @@ async def delete_profile(db: AsyncSession, profile_id: int, user: User) -> None:
     )
     if in_use is not None:
         raise ConflictError("Speed profile masih dipakai ONU")
-    await db.delete(profile)
-    await log_activity(db, action="speed_profile.delete", entity_type="speed_profile",
-                       entity_id=str(profile_id), success=True, user_id=user.id,
-                       olt_id=profile.olt_id)
-    await db.commit()
+    try:
+        await db.delete(profile)
+        await log_activity(db, action="speed_profile.delete", entity_type="speed_profile",
+                           entity_id=str(profile_id), success=True, user_id=user.id,
+                           olt_id=profile.olt_id)
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise ConflictError("Speed profile masih dipakai, tidak bisa dihapus") from exc
 
 
 async def enqueue_push(db: AsyncSession, profile_id: int, user: User) -> int:
@@ -201,6 +313,11 @@ async def enqueue_push(db: AsyncSession, profile_id: int, user: User) -> int:
     job = await job_service.enqueue(db, "push_speed_profile", olt_id=profile.olt_id,
                                     payload={"speed_profile_id": profile.id},
                                     created_by=user.id)
+    # Jejak permintaan di sisi API (sebelumnya hanya jejak worker `speed_profile.push`,
+    # jadi push yang job-nya tidak pernah dieksekusi tidak punya jejak audit).
+    await log_activity(db, action="speed_profile.push_requested", entity_type="speed_profile",
+                       entity_id=str(profile.id), success=True, user_id=user.id,
+                       olt_id=profile.olt_id, job_id=job.id)
     await db.commit()
     return job.id
 
@@ -211,6 +328,8 @@ async def enqueue_sync(db: AsyncSession, olt_id: int, user: User) -> int:
         raise NotFoundError(f"OLT {olt_id} not found")
     job = await job_service.enqueue(db, "sync_speed_profiles", olt_id=olt_id,
                                     created_by=user.id)
+    await log_activity(db, action="speed_profile.sync_requested", entity_type="speed_profile",
+                       success=True, user_id=user.id, olt_id=olt_id, job_id=job.id)
     await db.commit()
     return job.id
 
@@ -269,4 +388,10 @@ async def sync_from_olt(db: AsyncSession, job: Job, driver: OltDriver) -> dict:
         db.add(SpeedProfile(name=clean_profile_name(name), direction=direction,
                             speed_kbps=kbps, olt_id=job.olt_id,
                             device_profile_id=f"{name}{DEVICE_SUFFIX[direction]}"))
+    # Sebelumnya sync tidak mencatat apa pun (padahal menambahkan baris baru):
+    # jejak "siapa menarik profile dari OLT ini dan apa yang ditambahkan" hilang.
+    await log_activity(db, action="speed_profile.sync", entity_type="speed_profile",
+                       success=True, user_id=job.created_by, job_id=job.id,
+                       olt_id=job.olt_id,
+                       after={"found": len(device), "added": len(added)})
     return {"found": len(device), "added": len(added)}

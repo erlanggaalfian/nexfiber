@@ -2,8 +2,10 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    # Batas panjang supaya string raksasa tidak sampai ke argon2/DB:
+    # username di DB String(64), password login dibatasi 128 seperti skema lain.
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=128)
 
 class SetupRequest(BaseModel):
     username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")

@@ -34,6 +34,9 @@ class OnuTrafficSample(BaseModel):
     in_octets: str = Field(description="Desimal string; octet MASUK ke ONU = download")
     out_octets: str = Field(description="Desimal string; octet KELUAR dari ONU = upload")
     counter_bits: Literal[32, 64] = Field(description="Lebar counter: modulus wrap = 2**bits")
+    # Per arah (frontend sudah memakainya bila ada, fallback ke counter_bits).
+    in_counter_bits: Literal[32, 64] | None = None
+    out_counter_bits: Literal[32, 64] | None = None
 
 
 class OnuTrafficPoint(BaseModel):

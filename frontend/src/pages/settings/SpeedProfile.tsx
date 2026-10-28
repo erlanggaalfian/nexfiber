@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
-import { Confirm, Drawer, Field, TableCard, cell, filterInput, input } from "../../components/crud";
+import { Confirm, Drawer, Field, JobTrace, TableCard, cell, filterInput, input } from "../../components/crud";
 import { PageTitle } from "../../components/data";
 import { Button } from "../../components/ui/button";
 import { api, qs, type Olt, type SpeedProfileRow, type Vlan } from "../../lib/api";
@@ -24,11 +24,13 @@ const schema = z.object({
   olt_id: z.string(),
   vlan_db_id: z.string(),
   description: z.string().max(255),
+  is_active: z.string().default("true"),
 });
 type Form = z.input<typeof schema>;
 
-/** Select kosong = NULL di API (olt_id NULL = semua OLT, vlan_db_id NULL = tanpa VLAN). */
-const toPayload = (f: Form, direction: "download" | "upload") => {
+/** Select kosong = NULL di API (olt_id NULL = semua OLT, vlan_db_id NULL = tanpa VLAN).
+ *  is_active hanya dikirim saat edit (create tidak punya field itu di backend). */
+const toPayload = (f: Form, direction: "download" | "upload", edit: boolean) => {
   const v = schema.parse(f);
   return {
     name: v.name,
@@ -37,15 +39,16 @@ const toPayload = (f: Form, direction: "download" | "upload") => {
     olt_id: nullable(v.olt_id) && Number(v.olt_id),
     vlan_db_id: nullable(v.vlan_db_id) && Number(v.vlan_db_id),
     description: nullable(v.description),
+    ...(edit ? { is_active: v.is_active === "true" } : {}),
   };
 };
 
-function ProfileDrawer({ edit, direction, olts, vlans, onClose }: {
+function ProfileDrawer({ edit, direction, olts, onClose }: {
   edit: SpeedProfileRow | null; direction: "download" | "upload";
-  olts: Olt[]; vlans: Vlan[]; onClose: () => void;
+  olts: Olt[]; onClose: () => void;
 }) {
   const qc = useQueryClient();
-  const { register, handleSubmit, formState } = useForm<Form>({
+  const { register, handleSubmit, watch, formState } = useForm<Form>({
     resolver: zodResolver(schema),
     defaultValues: {
       name: edit?.name ?? "",
@@ -53,13 +56,26 @@ function ProfileDrawer({ edit, direction, olts, vlans, onClose }: {
       olt_id: edit?.olt_id ? String(edit.olt_id) : ALL,
       vlan_db_id: edit?.vlan_db_id ? String(edit.vlan_db_id) : ALL,
       description: edit?.description ?? "",
+      is_active: edit ? String(edit.is_active) : "true",
     },
   });
+  // VLAN difilter OLT yang dipilih DI DRAWER ini, bukan filter halaman — kalau
+  // tidak, ganti OLT di drawer tidak mengubah opsi VLAN.
+  const watchedOlt = watch("olt_id");
+  const vlans = useQuery({
+    queryKey: ["vlans", watchedOlt],
+    queryFn: () => api<Vlan[]>(`/api/vlans${qs({ olt_id: watchedOlt })}`),
+  });
+  const vlanRows = vlans.data ?? [];
+  // Opsi fallback: nilai lama yang tidak ada di daftar (mis. OLT/VLAN dihapus
+  // dari scope) tetap ditampilkan, supaya simpan tidak diam-diam men-null-kan.
+  const oltFallback = edit?.olt_id != null && !olts.some((o) => o.id === edit.olt_id);
+  const vlanFallback = edit?.vlan_db_id != null && !vlanRows.some((v) => v.id === edit.vlan_db_id);
   const save = useMutation({
     mutationFn: (f: Form) =>
       edit
-        ? api<SpeedProfileRow>(`/api/speed-profiles/${edit.id}`, { method: "PATCH", json: toPayload(f, direction) })
-        : api<SpeedProfileRow>("/api/speed-profiles", { method: "POST", json: toPayload(f, direction) }),
+        ? api<SpeedProfileRow>(`/api/speed-profiles/${edit.id}`, { method: "PATCH", json: toPayload(f, direction, true) })
+        : api<SpeedProfileRow>("/api/speed-profiles", { method: "POST", json: toPayload(f, direction, false) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["speed-profiles"] }); onClose(); },
   });
 
@@ -80,18 +96,28 @@ function ProfileDrawer({ edit, direction, olts, vlans, onClose }: {
       <Field label="OLT">
         <select className={input} {...register("olt_id")}>
           <option value={ALL}>Semua OLT</option>
+          {oltFallback && <option value={String(edit!.olt_id)}>OLT tidak tersedia (id {edit!.olt_id})</option>}
           {olts.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
       </Field>
       <Field label="VLAN">
         <select className={input} {...register("vlan_db_id")}>
           <option value={ALL}>Tanpa VLAN</option>
-          {vlans.map((v) => <option key={v.id} value={v.id}>{v.vlan_id} · {v.name}</option>)}
+          {vlanFallback && <option value={String(edit!.vlan_db_id)}>VLAN tidak tersedia (id {edit!.vlan_db_id})</option>}
+          {vlanRows.map((v) => <option key={v.id} value={v.id}>{v.vlan_id} · {v.name}</option>)}
         </select>
       </Field>
       <Field label="Keterangan">
         <input className={input} autoComplete="off" {...register("description")} />
       </Field>
+      {edit && (
+        <Field label="Status">
+          <select className={input} {...register("is_active")}>
+            <option value="true">Aktif</option>
+            <option value="false">Nonaktif</option>
+          </select>
+        </Field>
+      )}
     </Drawer>
   );
 }
@@ -106,15 +132,14 @@ export function SpeedProfile() {
   const [drawer, setDrawer] = useState<{ edit: SpeedProfileRow | null } | null>(null);
   const [del, setDel] = useState<SpeedProfileRow | null>(null);
   const [note, setNote] = useState("");
+  const [pushJob, setPushJob] = useState<number | null>(null);
 
   const olts = useQuery({ queryKey: ["olts"], queryFn: () => api<Olt[]>("/api/olts") });
-  const vlans = useQuery({
-    queryKey: ["vlans", oltId],
-    queryFn: () => api<Vlan[]>(`/api/vlans${qs({ olt_id: oltId })}`),
-  });
   const profiles = useQuery({
+    // include_inactive: profile nonaktif tetap tampil dengan badge Nonaktif dan
+    // bisa diaktifkan lagi lewat drawer; kalau tidak, reaktivasi lewat UI mustahil.
     queryKey: ["speed-profiles", oltId],
-    queryFn: () => api<SpeedProfileRow[]>(`/api/speed-profiles${qs({ olt_id: oltId })}`),
+    queryFn: () => api<SpeedProfileRow[]>(`/api/speed-profiles${qs({ olt_id: oltId, include_inactive: "true" })}`),
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["speed-profiles"] });
@@ -125,7 +150,7 @@ export function SpeedProfile() {
   const push = useMutation({
     mutationFn: (p: SpeedProfileRow) =>
       api<{ job_id: number }>(`/api/speed-profiles/${p.id}/push`, { method: "POST" }),
-    onSuccess: (r) => setNote(`Job simpan ke OLT #${r.job_id} dibuat.`),
+    onSuccess: (r) => { setPushJob(r.job_id); setNote(`Job simpan ke OLT #${r.job_id} dibuat.`); },
     onError: (e: Error) => setNote(e.message),
   });
   const sync = useMutation({
@@ -176,6 +201,7 @@ export function SpeedProfile() {
         )}
         {note && <span className="text-muted" role="status">{note}</span>}
       </div>
+      <JobTrace jobId={pushJob} />
 
       <TableCard
         query={{ ...profiles, data: rows }}
@@ -210,7 +236,7 @@ export function SpeedProfile() {
       />
 
       {drawer && (
-        <ProfileDrawer edit={drawer.edit} direction={direction} olts={olts.data ?? []} vlans={vlans.data ?? []}
+        <ProfileDrawer edit={drawer.edit} direction={direction} olts={olts.data ?? []}
                        onClose={() => setDrawer(null)} />
       )}
       {del && (

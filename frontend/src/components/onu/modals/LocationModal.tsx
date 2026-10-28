@@ -9,8 +9,8 @@ import { ModalShell, Row, Select, field } from "./ModalShell";
 import { Button } from "../../ui/button";
 
 type Form = {
-  zone_id: string; splitter_id: string; splitter_port: string; sector_id: string;
-  name: string; address: string; contact: string; latitude: string; longitude: string;
+  zone_id: string; splitter_id: string; splitter_port: string;
+  customer_name: string; address: string; contact: string; latitude: string; longitude: string;
 };
 
 const str = (v: unknown) => (v === null || v === undefined ? "" : String(v));
@@ -28,8 +28,9 @@ export function LocationModal(
 ) {
   const [f, setF] = useState<Form>({
     zone_id: str(current.zone_id), splitter_id: str(current.splitter_id),
-    splitter_port: str(current.splitter_port), sector_id: str(current.sector_id),
-    name: str(current.name), address: str(current.address), contact: str(current.contact),
+    splitter_port: str(current.splitter_port),
+    customer_name: str(current.customer_name), address: str(current.address),
+    contact: str(current.contact),
     latitude: str(current.latitude), longitude: str(current.longitude),
   });
   const [geoMsg, setGeoMsg] = useState("");
@@ -44,6 +45,15 @@ export function LocationModal(
   const num = (v: string) => (v.trim() === "" ? null : Number(v));
   const text = (v: string) => (v.trim() === "" ? null : v.trim());
   const hasCoords = f.latitude.trim() !== "" && f.longitude.trim() !== "";
+  // Koordinat tidak valid tidak boleh diam-diam jadi null saat submit: matikan Save
+  // sampai diperbaiki. Sama untuk splitter port di bawah 1.
+  const coordOk = (v: string, min: number, max: number) =>
+    v.trim() === "" || (!Number.isNaN(Number(v)) && Number(v) >= min && Number(v) <= max);
+  // Pasangan wajib lengkap: latitude tanpa longitude (atau sebaliknya) bisa tersimpan
+  // dan tautan peta tidak bisa dipakai — keduanya terisi atau keduanya kosong.
+  const coordsValid = coordOk(f.latitude, -90, 90) && coordOk(f.longitude, -180, 180)
+    && (f.latitude.trim() === "") === (f.longitude.trim() === "");
+  const portValid = f.splitter_port.trim() === "" || Number(f.splitter_port) >= 1;
 
   const locate = () => {
     if (!navigator.geolocation) {
@@ -67,11 +77,12 @@ export function LocationModal(
 
   return (
     <ModalShell title="Update location details" action="Update" busy={busy} error={error}
-                onClose={onClose}
+                onClose={onClose} disabled={!coordsValid || !portValid}
                 onSubmit={() => onSubmit({
                   zone_id: num(f.zone_id), splitter_id: num(f.splitter_id),
-                  splitter_port: num(f.splitter_port), sector_id: num(f.sector_id),
-                  name: text(f.name), address: text(f.address), contact: text(f.contact),
+                  splitter_port: num(f.splitter_port),
+                  customer_name: text(f.customer_name), address: text(f.address),
+                  contact: text(f.contact),
                   latitude: num(f.latitude), longitude: num(f.longitude),
                 })}>
       <Row label="Zone">
@@ -99,15 +110,9 @@ export function LocationModal(
                  aria-label="Splitter port" onChange={(e) => set("splitter_port", e.target.value)} />
         )}
       </Row>
-      <Row label="Sector">
-        <Select value={f.sector_id} placeholder="None" label="Sector"
-                onChange={(v) => set("sector_id", v)}>
-          {(options?.sectors ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </Select>
-      </Row>
       <Row label="Name">
-        <input className={field} value={f.name} aria-label="Name"
-               onChange={(e) => set("name", e.target.value)} />
+        <input className={field} value={f.customer_name} aria-label="Name"
+               onChange={(e) => set("customer_name", e.target.value)} />
       </Row>
       <Row label="Address or comment">
         <input className={field} value={f.address} aria-label="Address or comment"

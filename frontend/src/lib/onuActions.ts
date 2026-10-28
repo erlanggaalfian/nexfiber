@@ -30,6 +30,9 @@ export type ActionResult = {
   executed: boolean;
   detail?: string | null;
   commands?: string[] | null;
+  /** Diisi backend untuk kind job (reboot/resync/speed/state/delete/restore);
+   *  null/undefined untuk aksi langsung yang dieksekusi sinkron. */
+  job_id?: number | null;
 };
 
 export type OptionVlan = { number: number; name: string; is_management: boolean };
@@ -45,7 +48,7 @@ export type OnuConfigOptions = {
 
 export type LocationBody = {
   zone_id: number | null; splitter_id: number | null; splitter_port: number | null;
-  sector_id: number | null; name: string | null; address: string | null; contact: string | null;
+  customer_name: string | null; address: string | null; contact: string | null;
   latitude: number | null; longitude: number | null;
 };
 

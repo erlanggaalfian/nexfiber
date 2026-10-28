@@ -157,8 +157,10 @@ check("VLAN terpasang = daftar; VLAN management disembunyikan tanpa nomor hardco
   // Tidak boleh ada nomor VLAN yang jadi aturan penyaringan (mis. 100).
   assert.ok(!/vlan_id\s*[!=]==?\s*\d/.test(page), "nomor VLAN di-hardcode sebagai aturan");
   assert.ok(!/=== 100|!== 100/.test(page), "VLAN 100 di-hardcode");
-  // Tampilan tidak boleh bergantung pada satu vlan_number saja di luar fallback.
-  assert.equal((page.match(/d\.vlan_number/g) ?? []).length, 1, "masih bergantung vlan_number");
+  // Tampilan tidak boleh bergantung pada satu vlan_number saja di luar fallback
+  // dan baris VLAN primer (yang memang menampilkan nomor VLAN primer itu sendiri).
+  assert.equal((page.match(/d\.vlan_number/g) ?? []).length, 2, "masih bergantung vlan_number");
+  assert.ok(page.includes('label="VLAN primer"'), "baris VLAN primer");
   assert.ok(page.includes("in_master === false"), "VLAN luar master ditandai, bukan disembunyikan");
 });
 
@@ -450,12 +452,14 @@ check("6 aksi yang dibuang pemilik tidak ada lagi (tombol, handler, maupun state
                      "/info`", "setEditing"]) {
     assert.ok(!page.includes(sym), `sisa handler: ${sym}`);
   }
-  // Move ONU jadi modal yatim -> dibuang; modal lain yang masih dipakai tetap ada.
+  // Move ONU sengaja DIHIDUPKAN kembali pada audit menyeluruh 2026-10-28
+  // (backend sudah mendukung move lengkap dengan pre-check); modal lain yang
+  // masih dipakai tetap ada.
   const modals = readFileSync(
     join(here, "..", "src", "components", "onu", "modals", "OnuActionModals.tsx"), "utf8",
   );
   assert.ok(!modals.includes("MoveOnuModal"), "modal Move ONU masih dirender");
-  assert.ok(!/kind: "move"/.test(modals), 'state modal.kind "move" masih ada');
+  assert.ok(/kind: "move"/.test(modals), 'state modal.kind "move" harus ada');
   const basic = readFileSync(
     join(here, "..", "src", "components", "onu", "modals", "BasicModals.tsx"), "utf8",
   );

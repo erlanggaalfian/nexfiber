@@ -89,8 +89,20 @@ async def sync_unconfigured(db, job, olt, driver):
     return await sync_service.sync_unconfigured(db, olt, driver)
 
 async def sample_onu_traffic(db, job, olt, driver):
-    """Sampler histori trafik: SNMP saja, tidak memakai `driver` (dua bulkwalk per OLT)."""
-    return await onu_traffic_history_service.sample_olt(db, olt)
+    """Sampler histori trafik: SNMP saja, tidak memakai `driver` (dua bulkwalk per OLT).
+
+    Sampler TIDAK BOLEH menulis olt.status/last_error: itu kolom kesehatan OLT
+    yang ditulis sync/test_connection, bukan sampler trafik — sebelumnya sampler
+    menandai OLT "online" dan menghapus last_error hanya karena bulkwalk trafik
+    berhasil, menutupi kegagalan CLI/kesehatan. Perbaikan yang benar ada di
+    onu_traffic_history_service (di luar kepemilikan putaran ini); di sini
+    status/last_error dipulihkan setelah sampler jalan, supaya perilaku
+    akhirnya benar tanpa mengedit file itu.
+    """
+    old_status, old_error = olt.status, olt.last_error
+    result = await onu_traffic_history_service.sample_olt(db, olt)
+    olt.status, olt.last_error = old_status, old_error
+    return result
 
 async def backup_olt_config(db, job, olt, driver):
     triggered_by = f"user:{job.created_by}" if job.created_by else "schedule"

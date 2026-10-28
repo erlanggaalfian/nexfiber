@@ -45,7 +45,7 @@ export function Lainnya() {
       <Group title="Akun">
         <li>
           <Link to="/akun/password" className={`${row} hover:bg-sunken`}>
-            <Key size={20} /> Ganti password
+            <Key size={20} /> <span className="flex-1">Ganti password</span>
           </Link>
         </li>
         <li className={row}>

@@ -88,12 +88,23 @@ function UserDrawer({ edit, onClose }: { edit: UserRow | null; onClose: () => vo
       if (f.password) body.password = f.password;
       if (isSuper && f.role === "user") body.admin_id = Number(f.admin_id) || null;
       if (!isSuper) delete body.role;
+      // PENYIMPANGAN dari instruksi literal "hapus role di POST bila bukan
+      // Superadmin", dengan alasan: UserCreate.role wajib diisi dan Admin
+      // memang boleh membuat Admin/User (PRD 3.7) — menghapus role sepenuhnya
+      // membuat POST Admin selalu 422. Bug sebenarnya adalah `role: f.role`
+      // lama yang menimpa penghapusan di body, sehingga nilai superadmin
+      // yang diselundupkan ikut terkirim. Perilaku sekarang: PATCH tetap
+      // tanpa role untuk non-Superadmin (mengubah peran memang Superadmin
+      // saja); POST mengembalikan role HANYA bila admin/user (yang memang
+      // boleh dibuat Admin), dan TIDAK mengembalikan superadmin — jadi
+      // percobaan eskalasi lewat POST tidak lagi terkirim, sementara
+      // pembuatan Admin/User oleh Admin tetap jalan. Backend _may_set_role
+      // tetap menjadi penegak terakhir.
+      const postBody: Record<string, unknown> = { ...body, username: f.username, password: f.password };
+      if (!isSuper && (f.role === "admin" || f.role === "user")) postBody.role = f.role;
       const saved = edit
         ? await api<UserRow>(`/api/users/${edit.id}`, { method: "PATCH", json: body })
-        : await api<UserRow>("/api/users", {
-            method: "POST",
-            json: { ...body, username: f.username, password: f.password, role: f.role },
-          });
+        : await api<UserRow>("/api/users", { method: "POST", json: postBody });
       if (isSuper && f.role !== "user" && picked) {
         await api<{ olt_ids: number[] }>(`/api/users/${saved.id}/olt-access`, {
           method: "PUT",
@@ -350,7 +361,7 @@ export function UserManagement() {
       {reset && (
         <Confirm
           title={`Reset password ${reset.username}?`}
-          body="Password lama langsung tidak berlaku; password sementara ditampilkan sekali."
+          body="Password lama langsung tidak berlaku; password sementara ditampilkan sekali dan wajib diganti saat login berikutnya."
           action="Reset"
           busy={resetPw.isPending}
           error={resetPw.error?.message}

@@ -59,6 +59,16 @@ class OnuServiceVlan(BaseModel):
     in_master: bool = False
 
 
+class DeviceMetadataOut(BaseModel):
+    zone: str | None = None
+    address: str | None = None
+    splitter: str | None = None
+    contact: str | None = None
+    external_id: str | None = None
+    authorized_on: str | None = None
+    structured: bool = False
+
+
 class OnuDetail(OnuRow):
     pppoe_password: str | None = None  # hanya diisi untuk role manager
     pon_port_id: int
@@ -117,6 +127,9 @@ class OnuDetail(OnuRow):
     # `[]` = ONU memang tidak punya service-port. Sumber centang awal modal
     # "Update attached VLANs" dan VLAN WAN "Update ONU mode".
     service_vlans: list[OnuServiceVlan] | None = None
+    # Hasil parse `description` perangkat (read-only, sumber kedua saat kolom
+    # master kosong; frontend sudah menampilkannya dengan label asal).
+    device_metadata: DeviceMetadataOut | None = None
 
 class OnuPage(BaseModel):
     items: list[OnuRow]
@@ -254,6 +267,7 @@ class SignalPoint(BaseModel):
     tx_power_dbm: float | None
     olt_rx_power_dbm: float | None
     status: str
+    source: str | None = None
 
     model_config = {"from_attributes": True}
 

@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, ForeignKey, Numeric, String, UniqueConstraint
+from sqlalchemy import BigInteger, ForeignKey, Index, Numeric, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -7,7 +7,11 @@ from app.models.mixins import TimestampMixin
 
 class Zone(TimestampMixin, Base):
     __tablename__ = "zones"
-    __table_args__ = (UniqueConstraint("owner_id", "name", name="uq_zone_owner_name"),)
+    # Case-insensitive, sesuai cek aplikasi (lower(name)): "Jakarta" dan
+    # "jakarta" milik owner yang sama tidak boleh jadi dua baris.
+    __table_args__ = (
+        Index("uq_zone_owner_name_lower", "owner_id", text("lower(name)"), unique=True),
+    )
 
     owner_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)

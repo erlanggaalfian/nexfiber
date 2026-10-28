@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Enum, Integer, String
+from sqlalchemy import Boolean, Enum, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -12,6 +12,9 @@ class OnuType(TimestampMixin, Base):
     """Global catalog (managed by Superadmin), not owner-scoped — PRD 4.6."""
 
     __tablename__ = "onu_types"
+    __table_args__ = (
+        Index("uq_onu_type_name", "name", unique=True),
+    )
 
     pon_type: Mapped[str] = mapped_column(OnuPonType, nullable=False, default="gpon")
     name: Mapped[str] = mapped_column(String(100), nullable=False)

@@ -106,6 +106,44 @@ async def release_stale_locks(db: AsyncSession, older_than: timedelta) -> int:
     await db.commit()
     return result + dead
 
+async def cancel_pending_for_olt(db: AsyncSession, olt_id: int) -> int:
+    """Batalkan SEMUA job pending untuk satu OLT (dipakai delete/nonaktifkan OLT).
+
+    Job running sengaja TIDAK disentuh di sini: membatalkan di tengah perintah CLI
+    tidak mungkin tanpa cancellation token, dan worker menolak job running milik
+    OLT deleted/nonaktif lewat recheck di run_job. Caller yang commit.
+    """
+    result = await db.execute(
+        update(Job)
+        .where(Job.olt_id == olt_id, Job.status == "pending")
+        .values(status="cancelled", finished_at=datetime.now(UTC),
+                locked_at=None, locked_by=None,
+                error_message="Dibatalkan: OLT dihapus/dinonaktifkan")
+    )
+    return result.rowcount or 0
+
+async def exists_active_for_olt(db: AsyncSession, olt_id: int, job_type: str) -> bool:
+    """Anti-pileup job level OLT: ada job tipe sama untuk OLT ini yang masih
+    pending/running? Dipakai enqueue job level OLT (set_port_config, test,
+    backup, push/set_vlan_ports, push/sync_speed_profiles) supaya klik berulang
+    tidak menumpuk job dan payload basi tidak menang atas yang baru."""
+    stmt = select(Job.id).where(
+        Job.olt_id == olt_id,
+        Job.job_type == job_type,
+        Job.status.in_(("pending", "running")),
+    ).limit(1)
+    return await db.scalar(stmt) is not None
+
+async def refresh_lock(db: AsyncSession, job_id: int) -> None:
+    """Heartbeat: perbarui locked_at job yang sedang berjalan, supaya stale-release
+    tidak me-requeue job yang masih hidup. Dipakai worker selama eksekusi panjang
+    (CLI berdurasi menit). Tanpa commit perantara dari pemanggil, heartbeat ini
+    tidak terlihat proses lain — pemanggil harus commit setelah memanggilnya."""
+    await db.execute(
+        update(Job).where(Job.id == job_id, Job.status == "running")
+        .values(locked_at=datetime.now(UTC))
+    )
+
 async def exists_active_for_onu(db: AsyncSession, onu_id: int, job_type: str) -> bool:
     """Debounce tombol mahal: ada job tipe sama untuk ONU ini yang masih jalan?
 

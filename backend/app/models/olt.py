@@ -6,10 +6,12 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -24,7 +26,14 @@ OltStatus = Enum("online", "offline", "unreachable", name="olt_status")
 
 class Olt(TimestampMixin, Base):
     __tablename__ = "olts"
-    __table_args__ = (UniqueConstraint("host", "cli_port", name="uq_olt_host_cliport"),)
+    # Partial unique: OLT ter-soft-delete tidak lagi memblokir OLT pengganti
+    # dengan host/port yang sama (baris terhapus dikecualikan dari index).
+    __table_args__ = (
+        Index(
+            "uq_olt_host_cliport", "host", "cli_port", unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+    )
 
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     host: Mapped[str] = mapped_column(INET, nullable=False)
@@ -98,7 +107,9 @@ class PonPort(TimestampMixin, Base):
     tx_power_dbm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     rx_power_dbm: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     temperature_c: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
-    onu_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # onu_count DIHAPUS pada migrasi area4-2026-10-28: tidak pernah dibaca/
+    # ditulis kode mana pun — PonPortOut.onu_count diisi dari hitungan query
+    # di olt_repo/olt_service, bukan dari kolom ini.
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 

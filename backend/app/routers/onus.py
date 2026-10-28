@@ -33,20 +33,24 @@ from app.services import olt_service, onu_service
 router = APIRouter(prefix="/api/onus", tags=["onus"])
 ACCEPTED = {"response_model": JobAccepted, "status_code": status.HTTP_202_ACCEPTED}
 
+
 @router.get("", response_model=OnuPage)
 async def list_onus(
     q: str | None = None,
-    olt_id: int | None = None,
+    # Filter ini memang multi-nilai di UI Configured (dikirim berulang):
+    # FastAPI list menerima satu nilai maupun berulang, jadi kontrak lama
+    # (satu nilai) tetap jalan.
+    olt_id: list[int] | None = Query(None),
     pon_port_id: int | None = None,
     state: Literal["online", "down", "rx_warn", "not_configured"] | None = None,
-    download_speed_profile_id: int | None = None,
-    upload_speed_profile_id: int | None = None,
+    download_speed_profile_id: list[int] | None = Query(None),
+    upload_speed_profile_id: list[int] | None = Query(None),
     signal: list[SignalBucket] | None = Query(None, description="Filter bucket RX, bisa banyak"),
     onu_status: list[OnuStatus] | None = Query(None, alias="status"),
-    vlan_id: int | None = None,
-    zone_id: int | None = None,
-    splitter_id: int | None = None,
-    onu_type: str | None = None,
+    vlan_id: list[int] | None = Query(None),
+    zone_id: list[int] | None = Query(None),
+    splitter_id: list[int] | None = Query(None),
+    onu_type: list[str] | None = Query(None),
     sort: str = "serial",
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=200),
@@ -54,28 +58,30 @@ async def list_onus(
     user: User = Depends(get_current_user),
 ):
     items, total = await onu_service.search_onus(
-        db, user, q=q, olt_id=olt_id, pon_port_id=pon_port_id, state=state,
-        download_speed_profile_id=download_speed_profile_id,
-        upload_speed_profile_id=upload_speed_profile_id, sort=sort, page=page, size=size,
-        signal=signal, status=onu_status, vlan_id=vlan_id, zone_id=zone_id,
-        splitter_id=splitter_id, onu_type=onu_type,
+        db, user, q=q, pon_port_id=pon_port_id, state=state,
+        sort=sort, page=page, size=size,
+        signal=signal, status=onu_status,
+        olt_ids=olt_id, vlan_ids=vlan_id, zone_ids=zone_id,
+        splitter_ids=splitter_id,
+        download_speed_profile_ids=download_speed_profile_id,
+        upload_speed_profile_ids=upload_speed_profile_id, onu_types=onu_type,
     )
     return OnuPage(items=items, total=total, page=page, size=size)
 
 @router.get("/export.csv", response_class=Response)
 async def export_csv(
     q: str | None = None,
-    olt_id: int | None = None,
+    olt_id: list[int] | None = Query(None),
     pon_port_id: int | None = None,
     state: Literal["online", "down", "rx_warn", "not_configured"] | None = None,
-    download_speed_profile_id: int | None = None,
-    upload_speed_profile_id: int | None = None,
+    download_speed_profile_id: list[int] | None = Query(None),
+    upload_speed_profile_id: list[int] | None = Query(None),
     signal: list[SignalBucket] | None = Query(None),
     onu_status: list[OnuStatus] | None = Query(None, alias="status"),
-    vlan_id: int | None = None,
-    zone_id: int | None = None,
-    splitter_id: int | None = None,
-    onu_type: str | None = None,
+    vlan_id: list[int] | None = Query(None),
+    zone_id: list[int] | None = Query(None),
+    splitter_id: list[int] | None = Query(None),
+    onu_type: list[str] | None = Query(None),
     sort: str = "serial",
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -84,12 +90,13 @@ async def export_csv(
     GET /api/onus kecuali paginasi — seluruh hasil filter diexport, dibatasi CSV_MAX.
     """
     items, _ = await onu_service.search_onus(
-        db, user, q=q, olt_id=olt_id, pon_port_id=pon_port_id, state=state,
-        download_speed_profile_id=download_speed_profile_id,
-        upload_speed_profile_id=upload_speed_profile_id, sort=sort, page=1,
-        size=onu_service.CSV_MAX,
-        signal=signal, status=onu_status, vlan_id=vlan_id, zone_id=zone_id,
-        splitter_id=splitter_id, onu_type=onu_type,
+        db, user, q=q, pon_port_id=pon_port_id, state=state,
+        sort=sort, page=1, size=onu_service.CSV_MAX,
+        signal=signal, status=onu_status,
+        olt_ids=olt_id, vlan_ids=vlan_id, zone_ids=zone_id,
+        splitter_ids=splitter_id,
+        download_speed_profile_ids=download_speed_profile_id,
+        upload_speed_profile_ids=upload_speed_profile_id, onu_types=onu_type,
     )
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
     return Response(
@@ -122,8 +129,10 @@ async def sync_onus(olt_id: int, db: AsyncSession = Depends(get_db),
 
 @router.get("/customer-id-taken")
 async def customer_id_taken(customer_id: str, db: AsyncSession = Depends(get_db),
-                            _: User = Depends(get_current_user)) -> dict:
-    return {"taken": await onu_service.customer_id_taken(db, customer_id)}
+                            user: User = Depends(get_current_user)) -> dict:
+    # Ber-scope: tanpa user, endpoint ini menjadi oracle global customer_id
+    # milik tenant lain (lihat exists_customer_id_scoped).
+    return {"taken": await onu_service.customer_id_taken(db, customer_id, user)}
 
 @router.post("/authorize", **ACCEPTED)
 async def authorize(body: AuthorizeBody, db: AsyncSession = Depends(get_db),

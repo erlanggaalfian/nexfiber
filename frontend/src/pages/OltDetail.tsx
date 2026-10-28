@@ -8,7 +8,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowClockwise, ArrowLeft } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useParams } from "react-router";
 import * as z from "zod";
@@ -24,6 +24,7 @@ import {
 } from "../lib/api";
 import { OltSyncProgress } from "../components/OltSyncProgress";
 import { useAuth } from "../lib/auth";
+import { DONE, useJob } from "../lib/jobs";
 
 const TABS = ["Monitoring", "VLANs", "Interfaces", "Konfigurasi", "Daftar ONU"] as const;
 type Tab = (typeof TABS)[number];
@@ -65,10 +66,21 @@ function Metric({ label, value, fill }: { label: string; value: string; fill?: n
 function Monitoring({ d, oltId }: { d: Detail; oltId: number }) {
   const { isManager } = useAuth();
   const qc = useQueryClient();
+  // Pola sama dengan PortsDrawer: simpan job_id, tampilkan JobTrace, dan
+  // refresh detail HANYA saat job SELESAI — sebelumnya job_id dibuang di
+  // onSuccess dan refresh.error tidak pernah dirender, jadi gagal refresh
+  // tidak terlihat di tab ini.
+  const [jobId, setJobId] = useState<number | null>(null);
   const refresh = useMutation({
     mutationFn: () => api<{ job_id: number }>(`/api/olts/${oltId}/refresh-metrics`, { method: "POST" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["olts", oltId] }),
+    onSuccess: (r) => setJobId(r.job_id),
   });
+  const job = useJob(jobId);
+  useEffect(() => {
+    if (jobId !== null && job.data && DONE.has(job.data.status)) {
+      qc.invalidateQueries({ queryKey: ["olts", oltId, "detail"] });
+    }
+  }, [job.data?.status]); // eslint-disable-line react-hooks/exhaustive-deps
   const pon = {
     isPending: false, isError: false, error: null, data: d.pon_ports, refetch: () => {},
   };
@@ -112,6 +124,12 @@ function Monitoring({ d, oltId }: { d: Detail; oltId: number }) {
           />
         </div>
       </Panel>
+      {refresh.isError && (
+        <Panel title="Refresh gagal">
+          <p className="p-4 text-down">{refresh.error.message}</p>
+        </Panel>
+      )}
+      <JobTrace jobId={jobId} />
       {d.last_error && (
         <Panel title="Kesalahan terakhir">
           <p className="p-4 text-down">{d.last_error}</p>
@@ -122,14 +140,21 @@ function Monitoring({ d, oltId }: { d: Detail; oltId: number }) {
 }
 
 type VlanForm = z.infer<typeof vlanSchema>;
+const vlanNum = (min: number, max: number, label: string) =>
+  z.string().refine(
+    (v) => v === "" || (/^\d+$/.test(v) && Number(v) >= min && Number(v) <= max),
+    `${label} harus ${min}-${max}`,
+  );
 const vlanSchema = z.object({
-  vlan_id: z.string().regex(/^\d+$/, "Angka 1-4094"),
+  vlan_id: z.string().refine(
+    (v) => /^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 4094, "Angka 1-4094"),
   name: z.string().min(1).max(100),
   type: z.enum(VLAN_TYPES),
   description: z.string().max(255),
-  gemport: z.string().regex(/^\d*$/, "Angka"),
+  gemport: z.string().refine(
+    (v) => v === "" || (/^\d+$/.test(v) && Number(v) >= 1), "GEM port harus >= 1"),
   tag_action: z.enum(TAG_ACTIONS),
-  user_vlan: z.string().regex(/^\d*$/, "Angka"),
+  user_vlan: vlanNum(1, 4094, "User VLAN"),
 });
 
 function VlanDrawer({ oltId, edit, onClose }: { oltId: number; edit: Vlan | null; onClose: () => void }) {
@@ -147,6 +172,13 @@ function VlanDrawer({ oltId, edit, onClose }: { oltId: number; edit: Vlan | null
     },
   });
 
+  // Buat VLAN OLT mengembalikan job_id (VlanCreated) — sebelumnya dibuang
+  // karena respons diketik sebagai Vlan, jadi drawer menutup dan tabel
+  // di-refresh padahal perangkat belum tentu membuat VLAN. Sekarang drawer
+  // tetap terbuka dengan JobTrace sampai job selesai; hanya job sukses yang
+  // menutup drawer. Edit (PATCH, tanpa job) dan VLAN global (job_id null)
+  // tetap menutup langsung seperti dulu.
+  const [jobId, setJobId] = useState<number | null>(null);
   const save = useMutation({
     mutationFn: (f: VlanForm) => {
       const common = {
@@ -157,23 +189,37 @@ function VlanDrawer({ oltId, edit, onClose }: { oltId: number; edit: Vlan | null
       // vlan_id tidak bisa diubah: itu identitas objek di perangkat (backend menolaknya).
       return edit
         ? api<Vlan>(`/api/vlans/${edit.id}`, { method: "PATCH", json: common })
-        : api<Vlan>("/api/vlans", {
+        : api<Vlan & { job_id: number | null }>("/api/vlans", {
             method: "POST",
             json: { ...common, olt_id: oltId, vlan_id: Number(f.vlan_id) },
           });
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["olts", oltId, "vlans"] });
-      onClose();
+    onSuccess: (r) => {
+      // Cabang edit mengembalikan Vlan tanpa job_id; TS tidak bisa menyempitkan
+      // union lewat `in` di sini, jadi baca lewat cast eksplisit.
+      const jid = (r as Vlan & { job_id?: number | null }).job_id;
+      if (!edit && jid !== undefined && jid !== null) {
+        setJobId(jid);
+      } else {
+        qc.invalidateQueries({ queryKey: ["olts", oltId, "vlans"] });
+        onClose();
+      }
     },
   });
+  const job = useJob(jobId);
+  useEffect(() => {
+    if (jobId !== null && job.data && DONE.has(job.data.status)) {
+      qc.invalidateQueries({ queryKey: ["olts", oltId, "vlans"] });
+      if (job.data.status === "success") onClose();
+    }
+  }, [job.data?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Drawer
       title={edit ? `Edit VLAN ${edit.vlan_id}` : "Tambah VLAN"}
       onClose={onClose}
       onSubmit={handleSubmit((f) => save.mutate(f))}
-      busy={save.isPending}
+      busy={save.isPending || jobId !== null}
       error={save.error?.message}
     >
       <Field label="Nomor VLAN (1-4094)" error={formState.errors.vlan_id?.message}>
@@ -201,11 +247,25 @@ function VlanDrawer({ oltId, edit, onClose }: { oltId: number; edit: Vlan | null
       <Field label="Deskripsi" error={formState.errors.description?.message}>
         <input className={input} {...register("description")} />
       </Field>
+      {edit && (
+        <>
+          <p className="text-xs text-muted">
+            Deskripsi, GEM port, tag action, dan user VLAN hanya tersimpan di database
+            untuk VLAN yang sudah ada; tidak dikirim ulang ke perangkat.
+          </p>
+          <p className="text-xs text-muted">
+            Mengubah tipe VLAN yang masih dirujuk ONU, speed profile, atau preset
+            ditolak backend — lepas dulu rujukannya, atau hapus dan buat ulang VLAN.
+          </p>
+        </>
+      )}
       {!edit && (
         <p className="text-xs text-muted">
-          Menyimpan akan mengantre job pembuatan VLAN di OLT; status bisa dilihat di Logs.
+          Menyimpan akan mengantre job pembuatan VLAN di OLT. VLAN baru tampil
+          tidak aktif sampai job pembuatan sukses di perangkat.
         </p>
       )}
+      <JobTrace jobId={jobId} />
     </Drawer>
   );
 }
@@ -217,6 +277,11 @@ function PortsDrawer({ oltId, vlan, ports, onClose }: {
   const qc = useQueryClient();
   const [value, setValue] = useState<Record<string, string>>(() => ({ ...vlan.uplink_ports }));
   const [jobId, setJobId] = useState<number | null>(null);
+  // Port yang tersimpan di DB tapi tidak ada di daftar sinkron tetap dirender:
+  // kalau tidak, penugasan lama tidak terlihat dan tidak bisa diubah.
+  const allPorts = [...new Set([...ports, ...Object.keys(vlan.uplink_ports ?? {})])];
+  const removed = Object.keys(vlan.uplink_ports ?? {})
+    .filter((p) => (value[p] ?? "") === "");
   const save = useMutation({
     mutationFn: () => {
       const picked = Object.fromEntries(Object.entries(value).filter(([, v]) => v !== ""));
@@ -225,11 +290,16 @@ function PortsDrawer({ oltId, vlan, ports, onClose }: {
       });
     },
     // Drawer dibiarkan terbuka supaya jejak CLI job-nya terbaca di tempat.
-    onSuccess: (r) => {
-      setJobId(r.job_id);
-      qc.invalidateQueries({ queryKey: ["olts", oltId, "vlans"] });
-    },
+    // Tabel baru di-refresh saat job SELESAI, bukan saat antrean dibuat — kalau
+    // tidak, tabel menampilkan konfigurasi yang belum tentu sampai ke perangkat.
+    onSuccess: (r) => setJobId(r.job_id),
   });
+  const job = useJob(jobId);
+  useEffect(() => {
+    if (jobId !== null && job.data && DONE.has(job.data.status)) {
+      qc.invalidateQueries({ queryKey: ["olts", oltId, "vlans"] });
+    }
+  }, [job.data?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Drawer
@@ -239,13 +309,13 @@ function PortsDrawer({ oltId, vlan, ports, onClose }: {
       busy={save.isPending}
       error={save.error?.message}
     >
-      {ports.length === 0 ? (
+      {allPorts.length === 0 ? (
         <p className="text-muted">
           Daftar port uplink belum tersinkron. Jalankan Refresh di tab Monitoring dulu.
         </p>
       ) : (
-        ports.map((port) => (
-          <Field key={port} label={port}>
+        allPorts.map((port) => (
+          <Field key={port} label={ports.includes(port) ? port : `${port} (tersimpan)`}>
             <select
               className={input}
               value={value[port] ?? ""}
@@ -257,6 +327,13 @@ function PortsDrawer({ oltId, vlan, ports, onClose }: {
             </select>
           </Field>
         ))
+      )}
+      {removed.length > 0 && (
+        <p className="text-xs text-down">
+          Port {removed.join(", ")} yang diubah ke "Tidak dikonfigurasi" tidak akan
+          dihapus dari perangkat pada versi ini (driver belum mendukung perintah
+          hapus); nilai tersimpannya dipertahankan.
+        </p>
       )}
       <p className="text-xs text-muted">
         Menyimpan mengantre job push ke OLT. Untagged otomatis mengubah port ke mode hybrid.
@@ -280,13 +357,27 @@ function Vlans({ oltId, uplinkPorts }: { oltId: number; uplinkPorts: string[] })
   });
 
   const del = useMutation({
-    mutationFn: (v: Vlan) => api<{ job_id: number }>(`/api/vlans/${v.id}`, { method: "DELETE" }),
-    // Dialog dibiarkan terbuka sampai job selesai supaya jejak CLI-nya terlihat.
+    mutationFn: (v: Vlan) => api<{ job_id: number | null }>(`/api/vlans/${v.id}`, { method: "DELETE" }),
     onSuccess: (r) => {
-      setDelJob(r.job_id);
-      qc.invalidateQueries({ queryKey: ["olts", oltId, "vlans"] });
+      // VLAN global dihapus langsung tanpa job: tutup dialog dan refresh.
+      // VLAN OLT: dialog dibiarkan terbuka sampai job selesai (lihat effect di
+      // bawah); tabel TIDAK di-refresh saat antrean dibuat, supaya baris tidak
+      // hilang seolah perangkat sudah menghapus VLAN.
+      if (r.job_id === null) {
+        setRemove(null);
+        qc.invalidateQueries({ queryKey: ["olts", oltId, "vlans"] });
+      } else {
+        setDelJob(r.job_id);
+      }
     },
   });
+  const delJobData = useJob(delJob);
+  useEffect(() => {
+    if (delJob !== null && delJobData.data && DONE.has(delJobData.data.status)) {
+      qc.invalidateQueries({ queryKey: ["olts", oltId, "vlans"] });
+      if (delJobData.data.status === "success") setRemove(null);
+    }
+  }, [delJobData.data?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const portLabel = (v: Vlan) => {
     const entries = Object.entries(v.uplink_ports ?? {});
@@ -300,7 +391,7 @@ function Vlans({ oltId, uplinkPorts }: { oltId: number; uplinkPorts: string[] })
       </div>
       <TableCard
         query={q}
-        columns={["VLAN", "Nama", "Tipe", "Tag", "Port uplink", ""]}
+        columns={["VLAN", "Nama", "Tipe", "Tag", "Port uplink", "Cakupan", ""]}
         empty="Belum ada VLAN untuk OLT ini."
         loadingText="Memuat VLAN ..."
         row={(v) => (
@@ -310,8 +401,11 @@ function Vlans({ oltId, uplinkPorts }: { oltId: number; uplinkPorts: string[] })
             <td className={cell}>{v.type}</td>
             <td className={cell}>{v.tag_action}</td>
             <td className={`${cell} font-mono text-xs`}>{portLabel(v)}</td>
+            <td className={cell}>{v.olt_id === null ? "Global" : "OLT"}</td>
             <td className={`${cell} text-right whitespace-nowrap`}>
-              <Button size="sm" variant="quiet" onClick={() => setPorts(v)}>Port</Button>
+              <Button size="sm" variant="quiet" disabled={v.olt_id === null}
+                      title={v.olt_id === null ? "VLAN global tidak punya port uplink" : undefined}
+                      onClick={() => setPorts(v)}>Port</Button>
               <Button size="sm" variant="quiet" onClick={() => setEdit(v)}>Edit</Button>
               <Button size="sm" variant="quiet" onClick={() => setRemove(v)}>Hapus</Button>
             </td>
@@ -327,7 +421,9 @@ function Vlans({ oltId, uplinkPorts }: { oltId: number; uplinkPorts: string[] })
       {remove && (
         <Confirm
           title={`Hapus VLAN ${remove.vlan_id}?`}
-          body="VLAN akan dihapus dari OLT lewat job. ONU yang masih memakainya akan kehilangan layanan."
+          body={remove.olt_id === null
+            ? "VLAN global akan dihapus langsung (tanpa job) dan berdampak ke semua OLT. ONU yang masih memakainya akan kehilangan layanan."
+            : "VLAN akan dihapus dari OLT lewat job. ONU yang masih memakainya akan kehilangan layanan."}
           action="Hapus"
           busy={del.isPending}
           error={del.error?.message}
@@ -347,12 +443,21 @@ function PortConfigDrawer({ oltId, port, onClose }: {
   oltId: number; port: OltInterface; onClose: () => void;
 }) {
   const qc = useQueryClient();
-  const [autoNego, setAutoNego] = useState(port.auto_nego === "enable" ? "enable" : "disable");
-  const [speed, setSpeed] = useState(
-    PORT_SPEEDS.includes(port.speed as (typeof PORT_SPEEDS)[number]) ? port.speed! : "1000",
+  // Nilai live null/tidak dikenal TIDAK dipaksa jadi disable/1000/full: itu akan
+  // mengirim perubahan yang tidak pernah dipilih operator saat Simpan ditekan.
+  // "unknown" memblokir Simpan sampai operator memilih nilai yang sebenarnya.
+  const [autoNego, setAutoNego] = useState(
+    port.auto_nego === "enable" ? "enable" : port.auto_nego === "disable" ? "disable" : "unknown",
   );
-  const [duplex, setDuplex] = useState(port.duplex === "half" ? "half" : "full");
+  const [speed, setSpeed] = useState(
+    PORT_SPEEDS.includes(port.speed as (typeof PORT_SPEEDS)[number]) ? port.speed! : "",
+  );
+  const [duplex, setDuplex] = useState(
+    port.duplex === "half" ? "half" : port.duplex === "full" ? "full" : "",
+  );
   const [jobId, setJobId] = useState<number | null>(null);
+  const canSave = autoNego !== "unknown"
+    && (autoNego === "enable" || (speed !== "" && duplex !== ""));
 
   const save = useMutation({
     mutationFn: () =>
@@ -363,23 +468,28 @@ function PortConfigDrawer({ oltId, port, onClose }: {
             : { auto_nego: "disable", speed, duplex } },
       ),
     // Drawer tetap terbuka: jejak CLI job baru berguna setelah job jalan.
-    onSuccess: (r) => {
-      setJobId(r.job_id);
-      qc.invalidateQueries({ queryKey: ["olts", oltId, "interfaces"] });
-    },
+    // Interfaces baru di-refresh saat job SELESAI, bukan saat antrean dibuat.
+    onSuccess: (r) => setJobId(r.job_id),
   });
+  const job = useJob(jobId);
+  useEffect(() => {
+    if (jobId !== null && job.data && DONE.has(job.data.status)) {
+      qc.invalidateQueries({ queryKey: ["olts", oltId, "interfaces"] });
+    }
+  }, [job.data?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const speeds = PORT_SPEEDS.filter((s) => s !== "10000" || isTenGig(port.name));
   return (
     <Drawer
       title={`Konfigurasi ${port.name}`}
       onClose={onClose}
-      onSubmit={() => save.mutate()}
+      onSubmit={() => { if (canSave) save.mutate(); }}
       busy={save.isPending}
-      error={save.error?.message}
+      error={!canSave ? "Status live port ini tidak diketahui; pilih nilai auto nego/kecepatan/duplex yang sebenarnya sebelum menyimpan." : save.error?.message}
     >
       <Field label="Auto negotiation">
         <select className={input} value={autoNego} onChange={(e) => setAutoNego(e.target.value)}>
+          <option value="unknown" disabled>Tidak diketahui</option>
           <option value="enable">Enable</option>
           <option value="disable">Disable</option>
         </select>
@@ -388,11 +498,13 @@ function PortConfigDrawer({ oltId, port, onClose }: {
         <>
           <Field label="Speed (Mbps)">
             <select className={input} value={speed} onChange={(e) => setSpeed(e.target.value)}>
+              <option value="" disabled>Tidak diketahui</option>
               {speeds.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </Field>
           <Field label="Duplex">
             <select className={input} value={duplex} onChange={(e) => setDuplex(e.target.value)}>
+              <option value="" disabled>Tidak diketahui</option>
               {DUPLEXES.map((dx) => <option key={dx} value={dx}>{dx}</option>)}
             </select>
           </Field>
@@ -518,29 +630,55 @@ function Konfigurasi({ d }: { d: Detail }) {
 }
 
 function DaftarOnu({ oltId }: { oltId: number }) {
+  // Sebelumnya size=200 tanpa page dan tanpa label total: OLT dengan >200 ONU
+  // diam-diam terpotong. Sekarang paginasi penuh (page/total dari endpoint)
+  // dengan ukuran 50 per halaman — halaman lain tetap bisa dibuka.
+  const [page, setPage] = useState(1);
   const q = useQuery({
-    queryKey: ["onus", { olt_id: oltId }],
-    queryFn: () => api<Page<OnuRow>>(`/api/onus${qs({ olt_id: oltId, size: 200 })}`),
+    queryKey: ["onus", { olt_id: oltId, page }],
+    queryFn: () => api<Page<OnuRow>>(`/api/onus${qs({ olt_id: oltId, page, size: 50 })}`),
   });
   const rows = { ...q, data: q.data?.items };
+  const total = q.data?.total ?? 0;
+  const size = q.data?.size ?? 50;
+  const pages = total === 0 ? 1 : Math.ceil(total / size);
+  const from = total === 0 ? 0 : (page - 1) * size + 1;
+  const to = Math.min(page * size, total);
   return (
-    <TableCard
-      query={rows}
-      columns={["Serial", "Pelanggan", "PON", "Status", "Rx"]}
-      empty="Belum ada ONU terdaftar di OLT ini."
-      loadingText="Memuat ONU ..."
-      row={(o) => (
-        <tr key={o.id} className="border-b last:border-0">
-          <td className={`${cell} font-mono`}>
-            <Link to={`/onu/${o.id}`} className="text-fiber hover:underline">{o.serial_number}</Link>
-          </td>
-          <td className={cell}>{o.customer_name ?? o.name ?? "—"}</td>
-          <td className={`${cell} font-mono`}>{o.slot}/{o.port}:{o.onu_index ?? "—"}</td>
-          <td className={cell}><StatusBadge status={o.status} reason={o.last_down_reason} /></td>
-          <td className={`${cell} font-mono`}>{o.rx_power_dbm === null ? "LOS" : o.rx_power_dbm.toFixed(1)}</td>
-        </tr>
-      )}
-    />
+    <>
+      <TableCard
+        query={rows}
+        columns={["Serial", "Pelanggan", "PON", "Status", "Rx"]}
+        empty="Belum ada ONU terdaftar di OLT ini."
+        loadingText="Memuat ONU ..."
+        row={(o) => (
+          <tr key={o.id} className="border-b last:border-0">
+            <td className={`${cell} font-mono`}>
+              <Link to={`/onu/${o.id}`} className="text-fiber hover:underline">{o.serial_number}</Link>
+            </td>
+            <td className={cell}>{o.customer_name ?? o.name ?? "—"}</td>
+            <td className={`${cell} font-mono`}>{o.slot}/{o.port}:{o.onu_index ?? "—"}</td>
+            <td className={cell}><StatusBadge status={o.status} reason={o.last_down_reason} /></td>
+            <td className={`${cell} font-mono`}>{o.rx_power_dbm === null ? "LOS" : o.rx_power_dbm.toFixed(1)}</td>
+          </tr>
+        )}
+      />
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <p className="text-xs text-muted">
+          Menampilkan {from}–{to} dari {total} ONU
+          {total > 200 ? " — daftar ini dipaginasi, halaman lain bisa dibuka." : ""}
+        </p>
+        <div className="flex gap-2">
+          <Button size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            Sebelumnya
+          </Button>
+          <span className="text-xs text-muted self-center">{page} / {pages}</span>
+          <Button size="sm" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
+            Selanjutnya
+          </Button>
+        </div>
+      </div>
+    </>
   );
 }
 

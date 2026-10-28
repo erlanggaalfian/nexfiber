@@ -18,7 +18,7 @@ import re
 
 from app.drivers import onu_report
 from app.drivers.base import OltDriver
-from app.drivers.errors import ZTE_ERROR_PATTERNS, is_error_output
+from app.drivers.errors import ZTE_ERROR_PATTERNS, has_confirmation_prompt, is_error_output
 from app.drivers.transport.snmp import SnmpTransport
 from app.drivers.transport.ssh import SshTransport
 from app.drivers.transport.telnet import TelnetTransport
@@ -56,7 +56,17 @@ OID_SYS_LOCATION = "1.3.6.1.2.1.1.6"  # sysLocation
 # Nama interface uplink ZTE di ifDescr: gei_1/5/1 (GE), xgei_1/5/1 (10GE).
 UPLINK_PREFIXES = ("gei_", "xgei_", "gei-", "xgei-")
 # Nama port uplink yang sah: gei_<rack>/<slot>/<port> atau xgei_... (dipakai validasi push).
-UPLINK_PORT_RE = re.compile(r"^(x?gei)_(\d+)/(\d+)/(\d+)$", re.I)
+# Pemisah boleh "_" maupun "-" (firmware tertentu melaporkan ifDescr "gei-1/5/1");
+# nama selalu dinormalisasi ke bentuk "_" sebelum dipakai di perintah / DB.
+UPLINK_PORT_RE = re.compile(r"^(x?gei)[_-](\d+)/(\d+)/(\d+)$", re.I)
+
+
+def normalize_uplink_name(port: str) -> str:
+    """gei-1/5/1 -> gei_1/5/1 (dan xgei-... -> xgei_...); bentuk lain dibiarkan."""
+    m = UPLINK_PORT_RE.match((port or "").strip())
+    if m is None:
+        return (port or "").strip().lower()
+    return f"{m.group(1).lower()}_{m.group(2)}/{m.group(3)}/{m.group(4)}"
 PORT_SPEEDS = ("10", "100", "1000", "10000")
 DUPLEXES = ("full", "half")
 
@@ -274,6 +284,74 @@ class ZteC320Driver(OltDriver):
                                  message="OLT rejected command")
         return DriverResult(success=True, raw_command=command, raw_output=output)
 
+    async def _send_config(self, cli, commands: list[str]) -> DriverResult:
+        """Kirim perintah config SATU PER SATU, berhenti pada error pertama.
+
+        Alasan: `send_config_set` netmiko mengirim seluruh daftar lalu mengembalikan
+        satu output gabungan — perintah yang ditolak di tengah tetap diikuti perintah
+        berikutnya, dan `_result` hanya tahu "ada error di suatu tempat", bukan
+        perintah mana yang gagal dan mana yang sudah teraplikasi. Dengan pengiriman
+        per perintah, kegagalan menghentikan sisa daftar, dan `raw_command` hanya
+        memuat perintah yang benar-benar dikirim (termasuk yang gagal), sehingga
+        pemanggil tidak pernah mengira perintah yang belum dikirim sudah jalan.
+        Batasan yang didokumentasikan, bukan disembunyikan: `send_command` di sini
+        adalah `send_command_timing` netmiko (menunggu jeda, bukan prompt) — sama
+        seperti perintah baca yang sudah dipakai driver ini — jadi deteksi error
+        per perintah bergantung pada output yang kembali dalam jeda itu, bukan
+        pada parsing prompt per perintah. Perintah yang sudah terkirim sebelum
+        error tetap teraplikasi di perangkat (tidak ada rollback CLI); yang
+        dicegah adalah eksekusi perintah-perintah SESUDAH error.
+        "configure terminal"/"exit" di sini bukan sintaks baru: itu persis yang
+        dilakukan `send_config_set` netmiko, hanya saja sekarang terlihat eksplisit.
+        Prompt konfirmasi (y/n): TIDAK dijawab "y" diam-diam — perintah dijawab "n"
+        untuk membatalkan, lalu dilaporkan gagal, supaya perintah yang menunggu
+        konfirmasi tidak pernah dilaporkan sukses palsu.
+        """
+        if not commands:
+            return DriverResult(success=True, raw_command="", raw_output="")
+        outputs: list[str] = []
+        sent: list[str] = []
+
+        async def _leave_config() -> None:
+            try:
+                outputs.append(await cli.send_command("exit"))
+            except Exception:
+                pass
+
+        first = await cli.send_command("configure terminal")
+        outputs.append(first)
+        if is_error_output(first, ZTE_ERROR_PATTERNS):
+            return DriverResult(success=False, raw_command="configure terminal",
+                                raw_output="\n".join(outputs),
+                                message="OLT menolak masuk mode konfigurasi")
+        for cmd in commands:
+            out = await cli.send_command(cmd)
+            outputs.append(out)
+            sent.append(cmd)
+            if has_confirmation_prompt(out):
+                # Batalkan, jangan auto-"y": konfirmasi destruktif tidak boleh
+                # dijawab oleh kode tanpa operator yang sedang menunggu.
+                try:
+                    outputs.append(await cli.send_command("n"))
+                except Exception:
+                    pass
+                await _leave_config()
+                return DriverResult(
+                    success=False, raw_command=" ; ".join(sent),
+                    raw_output="\n".join(outputs),
+                    message=f"Perintah '{cmd}' menunggu konfirmasi; dibatalkan, "
+                            "tidak dilaporkan sukses")
+            if is_error_output(out, ZTE_ERROR_PATTERNS):
+                await _leave_config()
+                return DriverResult(
+                    success=False, raw_command=" ; ".join(sent),
+                    raw_output="\n".join(outputs),
+                    message=f"OLT menolak perintah '{cmd}'; perintah setelahnya "
+                            "tidak dikirim")
+        await _leave_config()
+        return DriverResult(success=True, raw_command=" ; ".join(sent),
+                            raw_output="\n".join(outputs))
+
     async def test_connection(self) -> ConnectionCheck:
         """CLI dan SNMP diuji sendiri-sendiri, dua boolean dari dua percobaan nyata.
 
@@ -321,6 +399,11 @@ class ZteC320Driver(OltDriver):
             processor_out = await cli.send_command("show processor")
             version_out = await cli.send_command("show version-running")
         cards = _merge_card_load(_parse_cards(cards_out), _parse_processor(processor_out))
+        # CPU kartu kontrol: SENGAJA tidak diubah ke "kartu kontrol" berdasarkan tebakan
+        # nama tipe (SCXN/dll) — tidak ada transkrip `show card` terverifikasi yang
+        # membedakan kartu kontrol dari kartu layanan di repo ini, jadi menebak tipe
+        # bisa menampilkan CPU kartu yang salah. "Kartu pertama ber-CPU" tetap dipakai
+        # sampai ada transkrip yang membuktikan penandanya.
         main = next((c for c in cards if c.cpu_pct is not None), None)
         return OltHealth(
             cpu_pct=main.cpu_pct if main else None,
@@ -342,7 +425,11 @@ class ZteC320Driver(OltDriver):
             rows = await self._snmp.bulkwalk(OID_IF_DESCR)
         except Exception:
             return []
-        return sorted({str(v) for _oid, v in rows if str(v).startswith(UPLINK_PREFIXES)})
+        # Normalisasi "-" -> "_" supaya daftar uplink yang tersimpan selalu cocok
+        # dengan bentuk yang dikirim UI / dipakai perintah (validasi set_port_config
+        # membandingkan bentuk ternormalisasi).
+        return sorted({normalize_uplink_name(str(v)) for _oid, v in rows
+                       if str(v).startswith(UPLINK_PREFIXES)})
 
     async def _snmp_first_str(self, oid: str) -> str | None:
         """Nilai pertama satu OID skalar sebagai teks (sysName/sysLocation).
@@ -387,8 +474,7 @@ class ZteC320Driver(OltDriver):
             return DriverResult(success=True, raw_command="", raw_output="",
                                 message="Tidak ada port uplink yang dipilih")
         async with self._open_cli() as cli:
-            output = await cli.send_config_set(commands)
-        return self._result(" ; ".join(commands), output)
+            return await self._send_config(cli, commands)
 
     async def fetch_interfaces(self) -> list[InterfaceStatus]:
         """Status live port uplink lewat `show interface port-status <nama>`.
@@ -449,44 +535,56 @@ class ZteC320Driver(OltDriver):
         """
         commands = build_port_config_commands(port, auto_nego, speed, duplex)
         async with self._open_cli() as cli:
-            output = await cli.send_config_set(commands)
-        return self._result(" ; ".join(commands), output)
+            return await self._send_config(cli, commands)
 
     async def list_unconfigured(self) -> list[UnconfiguredOnu]:
         command = "show gpon onu uncfg"
         async with self._open_cli() as cli:
             output = await cli.send_command(command)
+        # Bedakan scan gagal vs scan kosong yang valid SEBELUM pemanggil me-wipe
+        # pending: output error (mis. %Error/%Code lain) yang diparse menjadi []
+        # sebelumnya tidak bisa dibedakan dari "memang tidak ada ONU unconfigured",
+        # sehingga wipe bisa menghapus pending lama karena scan gagal. Pengecualian
+        # yang sah: "%Code 62310 ... No related information to show" adalah
+        # jawaban perangkat untuk daftar kosong, bukan error.
+        lowered = output.lower()
+        if "no related information" in lowered:
+            return []
+        if is_error_output(output, ZTE_ERROR_PATTERNS):
+            from app.core.exceptions import DriverError
+            raise DriverError(f"show gpon onu uncfg ditolak perangkat: {output.strip()[:200]}")
         return _parse_unconfigured(output)
 
     async def authorize(self, req: AuthorizeRequest) -> DriverResult:
         commands = build_authorize_commands(req)
         async with self._open_cli() as cli:
-            output = await cli.send_config_set(commands)
-        return self._result(" ; ".join(commands), output)
+            return await self._send_config(cli, commands)
 
     async def modify(self, req: ModifyRequest) -> DriverResult:
         # PRD 4.2: ZTE needs delete-then-recreate for active VLAN changes; plain attribute
         # edits (name/profile) can apply in-place via the onu interface block.
+        # Pemetaan arah sama persis dengan authorize: upload -> tcont 1, download ->
+        # gemport traffic-limit. Tcont adalah arah upload saja; download tidak pernah
+        # dikirim sebagai tcont.
         onu_iface = f"gpon-onu_1/{req.slot}/{req.port}:{req.onu_id}"
         commands = [f"interface {onu_iface}"]
         if req.name:
             commands.append(f"name {req.name}")
-        if req.line_profile_id:
-            commands.append(f"tcont 1 profile {req.line_profile_id}")
-        if req.srv_profile_id:
-            commands.append(f"tcont 2 profile {req.srv_profile_id}")
+        if req.upload_profile:
+            commands.append(f"tcont 1 profile {req.upload_profile}")
+            commands.append("gemport 1 tcont 1")
+        if req.download_profile:
+            commands.append(f"gemport 1 traffic-limit downstream {req.download_profile}")
         commands.append("exit")
         async with self._open_cli() as cli:
-            output = await cli.send_config_set(commands)
-        return self._result(" ; ".join(commands), output)
+            return await self._send_config(cli, commands)
 
     async def delete(self, slot: int, port: int, onu_id: int) -> DriverResult:
         # UNVERIFIED: public syntax.
         iface = f"gpon-olt_1/{slot}/{port}"
         commands = [f"interface {iface}", f"no onu {onu_id}", "exit"]
         async with self._open_cli() as cli:
-            output = await cli.send_config_set(commands)
-        return self._result(" ; ".join(commands), output)
+            return await self._send_config(cli, commands)
 
     async def set_state(self, slot: int, port: int, onu_id: int, enabled: bool) -> DriverResult:
         # UNVERIFIED: public syntax.
@@ -494,8 +592,7 @@ class ZteC320Driver(OltDriver):
         state_cmd = "no shutdown" if enabled else "shutdown"
         commands = [f"interface {onu_iface}", state_cmd, "exit"]
         async with self._open_cli() as cli:
-            output = await cli.send_config_set(commands)
-        return self._result(" ; ".join(commands), output)
+            return await self._send_config(cli, commands)
 
     async def reboot(self, slot: int, port: int, onu_id: int) -> DriverResult:
         # UNVERIFIED: public syntax.
@@ -684,14 +781,12 @@ class ZteC320Driver(OltDriver):
             commands.append(f"description {description}")
         commands.append("exit")
         async with self._open_cli() as cli:
-            output = await cli.send_config_set(commands)
-        return self._result(" ; ".join(commands), output)
+            return await self._send_config(cli, commands)
 
     async def delete_vlan(self, vlan_id: int) -> DriverResult:
         commands = [f"no vlan {vlan_id}"]
         async with self._open_cli() as cli:
-            output = await cli.send_config_set(commands)
-        return self._result(" ; ".join(commands), output)
+            return await self._send_config(cli, commands)
 
     async def create_traffic_profile(
         self, name: str, direction: str, kbps: int
@@ -702,8 +797,7 @@ class ZteC320Driver(OltDriver):
         else:
             commands = ["gpon", f"profile traffic {name}_DN sir {kbps} pir {kbps}", "exit"]
         async with self._open_cli() as cli:
-            output = await cli.send_config_set(commands)
-        return self._result(" ; ".join(commands), output)
+            return await self._send_config(cli, commands)
 
     async def list_traffic_profiles(self) -> list[TrafficProfile]:
         command = "show running-config | include profile tcont"
@@ -732,6 +826,41 @@ class ZteC320Driver(OltDriver):
             PonPortInfo(slot=slot, port=port, ifindex=encode_pon_ifindex(slot, port))
             for slot, port in sorted({(s.slot, s.port) for s in _parse_onu_state(state_out)})
         ]
+
+    async def fetch_pon_oper_states(self) -> dict[tuple[int, int], str]:
+        """ifOperStatus (OID_IF_OPER_STATUS, sudah ada tapi tidak pernah dipakai) per
+        PON: ifDescr memetakan ifindex -> gpon-olt_<rack>/<slot>/<port>, lalu
+        ifOperStatus memberi 1=up / selain itu down. Best-effort: SNMP gagal ->
+        {} (pemanggil membiarkan oper_state lama, bukan menimpa dengan None).
+        Bukan bagian interface OltDriver (types.py di luar kepemilikan Area 2);
+        sync_service memanggilnya lewat getattr dan melewatinya bila tidak ada."""
+        try:
+            descr_rows = await self._snmp.bulkwalk(OID_IF_DESCR)
+            oper_rows = await self._snmp.bulkwalk(OID_IF_OPER_STATUS)
+        except Exception:
+            return {}
+        pon_by_ifindex: dict[int, tuple[int, int]] = {}
+        for oid, value in descr_rows:
+            descr = str(value)
+            if not descr.startswith("gpon-olt_"):
+                continue
+            try:
+                slot, port = _parse_slot_port(descr)
+            except (ValueError, IndexError):
+                continue
+            try:
+                pon_by_ifindex[int(oid.rsplit(".", 1)[1])] = (slot, port)
+            except ValueError:
+                continue
+        out: dict[tuple[int, int], str] = {}
+        for oid, value in oper_rows:
+            try:
+                key = pon_by_ifindex.get(int(oid.rsplit(".", 1)[1]))
+            except ValueError:
+                continue
+            if key is not None:
+                out[key] = "up" if str(value).strip() == "1" else "down"
+        return out
 
     async def list_onu_ids(self, slot: int, port: int) -> list[int]:
         # "onu <id> type <t> sn <sn>" lines match the real running-config transcripts;
@@ -886,8 +1015,7 @@ class ZteC320Driver(OltDriver):
         commands += [f"flow 1 pri 0 vlan {new_vlan}",
                      f"vlan-filter iphost 1 pri 0 vlan {new_vlan}", "exit"]
         async with self._open_cli() as cli:
-            output = await cli.send_config_set(commands)
-        return self._result(" ; ".join(commands), output)
+            return await self._send_config(cli, commands)
 
     async def run_onu_commands(self, commands: list[str]) -> DriverResult:
         """Blok perintah aksi ONU dari `zte_onu_actions` — satu sesi CLI, satu result.
@@ -899,8 +1027,7 @@ class ZteC320Driver(OltDriver):
         if not commands:
             raise ValueError("commands kosong")
         async with self._open_cli() as cli:
-            output = await cli.send_config_set(commands)
-        return self._result(" ; ".join(commands), output)
+            return await self._send_config(cli, commands)
 
     async def restore_factory(self, slot: int, port: int, onu_id: int) -> DriverResult:
         """# UNVERIFIED: uji di ONU test.
@@ -913,15 +1040,14 @@ class ZteC320Driver(OltDriver):
         onu_iface = f"gpon-onu_1/{slot}/{port}:{onu_id}"
         commands = [f"pon-onu-mng {onu_iface}", "restore factory", "exit"]
         async with self._open_cli() as cli:
-            output = await cli.send_config_set(commands)
-        return self._result(" ; ".join(commands), output)
+            return await self._send_config(cli, commands)
 
 # Baris `show interface port-status <nama>` (format nyata ZXROS):
 #      Port      hybrid  Native Negotiation  Speed  Duplex Flow-   Admin      Link
 #                Status  VLAN     auto       (Mbps)        Ctrl    Status
 #     gei_1/3/1      optical  1       enable     auto    full  disable activate   down
 PORT_STATUS_RE = re.compile(
-    r"^[ \t]*(x?gei_\d+/\d+/\d+)[ \t]+(\S+)[ \t]+(\d+)[ \t]+(\S+)[ \t]+(\S+)"
+    r"^[ \t]*(x?gei[_-]\d+/\d+/\d+)[ \t]+(\S+)[ \t]+(\d+)[ \t]+(\S+)[ \t]+(\S+)"
     r"[ \t]+(\S+)[ \t]+(\S+)[ \t]+(\S+)[ \t]+(\S+)[ \t\r]*$",
     re.M | re.I,
 )
@@ -931,7 +1057,7 @@ def _parse_port_status(output: str) -> list[InterfaceStatus]:
     """Satu baris per port uplink; baris header dan error per-port diabaikan."""
     return [
         InterfaceStatus(
-            name=m.group(1).lower(), media=m.group(2).lower(), pvid=int(m.group(3)),
+            name=normalize_uplink_name(m.group(1)), media=m.group(2).lower(), pvid=int(m.group(3)),
             auto_nego=m.group(4).lower(), speed=m.group(5).lower(), duplex=m.group(6).lower(),
             flow_ctrl=m.group(7).lower(), admin_status=m.group(8).lower(), link=m.group(9).lower(),
         )
@@ -949,7 +1075,7 @@ def build_port_config_commands(port: str, auto_nego: str, speed: str | None,
     match = UPLINK_PORT_RE.match((port or "").strip())
     if match is None:
         raise ValueError("Format port tidak valid; gunakan gei_R/S/P atau xgei_R/S/P")
-    name = port.strip().lower()
+    name = normalize_uplink_name(port)
     if auto_nego not in ("enable", "disable"):
         raise ValueError("Auto negotiation harus enable atau disable")
     if auto_nego == "enable":

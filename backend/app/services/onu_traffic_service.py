@@ -114,15 +114,27 @@ async def read_sample(db: AsyncSession, serial: str, user: User) -> OnuTrafficSa
     snmp = SnmpTransport(str(olt.host), decrypt_secret(olt.snmp_community_enc), olt.snmp_port)
     ifindex = encode_perf_ifindex(slot, port)
 
-    upload, up_bits = await _walk_octets(snmp, OID_OLT_RX_OCTETS, ifindex, onu.onu_index)
-    download, down_bits = await _walk_octets(snmp, OID_OLT_TX_OCTETS, ifindex, onu.onu_index)
+    try:
+        upload, up_bits = await _walk_octets(snmp, OID_OLT_RX_OCTETS, ifindex, onu.onu_index)
+        download, down_bits = await _walk_octets(snmp, OID_OLT_TX_OCTETS, ifindex, onu.onu_index)
+    except Exception:
+        # Kegagalan SNMP tidak boleh menghabiskan slot rate limit: kalau tidak,
+        # percobaan ulang dalam 3 detik dijawab 429 padahal penyebab aslinya bukan
+        # rate limit. Entri yang dihapus di sini pasti dari panggilan ini (cek di
+        # atas sudah memastikan entri lama, bila ada, sudah lebih tua dari interval).
+        _last_read.pop(onu.id, None)
+        raise
 
     return OnuTrafficSample(
         serial_number=onu.serial_number,
         sampled_at=datetime.now(UTC),
         in_octets=str(download),   # masuk ke ONU = download pelanggan
         out_octets=str(upload),    # keluar dari ONU = upload pelanggan
+        # counter_bits dipertahankan untuk klien lama (wrap terjadi pada
+        # counter tersempit); per arah kini juga dikirim apa adanya.
         counter_bits=min(up_bits, down_bits),
+        in_counter_bits=down_bits,  # masuk ke ONU = download
+        out_counter_bits=up_bits,  # keluar dari ONU = upload
     )
 
 

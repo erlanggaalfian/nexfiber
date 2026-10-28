@@ -31,13 +31,17 @@ router = APIRouter(prefix="/api/onus", tags=["onu-actions"])
 
 
 class LocationBody(BaseModel):
-    """Update location details — tidak ada perintah ke OLT, jadi tanpa `confirm`."""
+    """Update location details — tidak ada perintah ke OLT, jadi tanpa `confirm`.
+
+    PUT penuh: semua field selalu dikirim frontend, termasuk null untuk mengosongkan.
+    Tidak ada `sector_id`: sector bukan tabel sendiri (zone dipakai sebagai sektor),
+    dan field itu sebelumnya diterima lalu dibuang diam-diam oleh service.
+    """
 
     zone_id: int | None = None
     splitter_id: int | None = None
     splitter_port: int | None = Field(None, ge=1)
-    sector_id: int | None = None
-    name: str | None = Field(None, max_length=100)
+    customer_name: str | None = Field(None, max_length=255)
     address: str | None = Field(None, max_length=500)
     contact: str | None = Field(None, max_length=100)
     latitude: float | None = Field(None, ge=-90, le=90)
@@ -65,10 +69,19 @@ async def config_options(onu_id: int, db: AsyncSession = Depends(get_db),
 
 
 @router.post("/{onu_id}/refresh-ip")
-async def refresh_ip(onu_id: int, db: AsyncSession = Depends(get_db),
+async def refresh_ip(onu_id: int, response: Response, db: AsyncSession = Depends(get_db),
                      user: User = Depends(get_current_user)) -> dict:
-    """IP ONU terbaca perangkat untuk tautan Detail ONU; read-only, tanpa `confirm`."""
-    return await onu_action_service.refresh_ip(db, onu_id, user)
+    """IP ONU terbaca perangkat untuk tautan Detail ONU; read-only, tanpa `confirm`.
+
+    Vendor non-ZTE dijawab 501 yang jelas (bukan 500): NotImplementedError bukan
+    AppError sehingga tanpa tangkapan ini FastAPI mengembalikannya sebagai 500.
+    Frontend sudah menampilkan kegagalan ini sebagai catatan, bukan diam-diam.
+    """
+    try:
+        return await onu_action_service.refresh_ip(db, onu_id, user)
+    except NotImplementedError as exc:
+        response.status_code = status.HTTP_501_NOT_IMPLEMENTED
+        return {"detail": str(exc)}
 
 
 @router.put("/{onu_id}/location", response_model=OnuDetail)
@@ -76,7 +89,7 @@ async def update_location(onu_id: int, body: LocationBody,
                           db: AsyncSession = Depends(get_db),
                           user: User = Depends(get_current_user)) -> OnuDetail:
     return await onu_action_service.update_location(
-        db, onu_id, body.model_dump(exclude_none=True), user)
+        db, onu_id, body.model_dump(), user)
 
 
 ActionKind = Literal[

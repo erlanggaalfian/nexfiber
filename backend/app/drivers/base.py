@@ -91,6 +91,15 @@ class OltDriver(ABC):
     @abstractmethod
     async def list_pon_ports(self) -> list[PonPortInfo]: ...
 
+    async def fetch_pon_oper_states(self) -> dict[tuple[int, int], str]:
+        """ifOperStatus per PON {(slot, port): "up"|"down"}.
+
+        Non-abstrak (default {}) supaya FakeDriver di tes lama tidak wajib mengisi;
+        implementasi ZTE ada di zte_c320. sync_service tetap memanggil lewat getattr
+        sebagai jaring pengaman untuk driver/fake yang lebih lama lagi.
+        """
+        return {}
+
     @abstractmethod
     async def list_onu_ids(self, slot: int, port: int) -> list[int]:
         """ONU IDs currently configured on one PON, read live (authorize picks a free one)."""

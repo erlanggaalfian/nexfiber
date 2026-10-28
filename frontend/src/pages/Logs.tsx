@@ -3,13 +3,13 @@
  *  command/response mentah (password sudah dimask backend sebelum disimpan).
  */
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { filterInput } from "../components/crud";
 import { ModalShell } from "../components/onu/modals/ModalShell";
 import { PageTitle, fmtAgo, nf } from "../components/data";
 import { Button } from "../components/ui/button";
-import { api, qs, type LogPage, type LogRow, type Olt } from "../lib/api";
+import { api, qs, type LogPage, type LogRow, type Olt, type User } from "../lib/api";
 
 export const LOG_CATEGORIES: { value: string; label: string }[] = [
   { value: "", label: "Semua kategori" },
@@ -22,7 +22,8 @@ export const LOG_CATEGORIES: { value: string; label: string }[] = [
   { value: "login", label: "Login" },
 ];
 const CATEGORIES = LOG_CATEGORIES;
-const SIZE = 50;
+const SIZES = [25, 50, 100, 200];
+const DEFAULT_SIZE = 50;
 
 function Detail({ log, onClose }: { log: LogRow; onClose: () => void }) {
   return (
@@ -57,7 +58,19 @@ export function Logs() {
   const q = params.get("q") ?? "";
   const oltId = params.get("olt_id") ?? "";
   const category = params.get("category") ?? "";
-  const page = Number(params.get("page") ?? 1);
+  // Filter yang sudah didukung backend tapi belum diekspos UI: user_id, since,
+  // until, size. Param URL lama (tanpa keempatnya) tetap jalan: nilainya kosong
+  // dan tidak dikirim. Tanggal di URL memakai format YYYY-MM-DD; ke backend
+  // dikirim sebagai rentang hari penuh WIB-agnostik (00:00:00 s.d. 23:59:59).
+  const userId = params.get("user_id") ?? "";
+  const since = params.get("since") ?? "";
+  const until = params.get("until") ?? "";
+  const rawSize = Number(params.get("size") ?? DEFAULT_SIZE);
+  const size = SIZES.includes(rawSize) ? rawSize : DEFAULT_SIZE;
+  // Validasi page di frontend: ?page=abc dulu jadi NaN dan dikirim ke backend
+  // (422), ?page=0/-1 juga tidak masuk akal. NaN/negatif/nol -> 1.
+  const rawPage = Number(params.get("page") ?? 1);
+  const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.floor(rawPage) : 1;
 
   function patch(next: Record<string, string | number | undefined>) {
     const p = new URLSearchParams(params);
@@ -67,13 +80,26 @@ export function Logs() {
   }
 
   const olts = useQuery({ queryKey: ["olts"], queryFn: () => api<Olt[]>("/api/olts") });
+  const users = useQuery({ queryKey: ["users"], queryFn: () => api<User[]>("/api/users") });
   const logs = useQuery({
-    queryKey: ["logs", q, oltId, category, page],
-    queryFn: () => api<LogPage>(`/api/logs${qs({ q, olt_id: oltId, category, page, size: SIZE })}`),
+    queryKey: ["logs", q, oltId, category, page, userId, since, until, size],
+    queryFn: () => api<LogPage>(`/api/logs${qs({
+      q, olt_id: oltId, category, page, size,
+      user_id: userId,
+      since: since ? `${since}T00:00:00` : "",
+      until: until ? `${until}T23:59:59` : "",
+    })}`),
   });
 
   const total = logs.data?.total ?? 0;
-  const pages = Math.max(1, Math.ceil(total / SIZE));
+  const pages = Math.max(1, Math.ceil(total / size));
+  // Bila page di URL melebihi total (mis. total menyusut setelah URL disimpan),
+  // kembalikan ke halaman terakhir, bukan menampilkan footer "451–20 dari 20"
+  // dengan tabel kosong.
+  useEffect(() => {
+    if (logs.data && page > pages) patch({ page: pages });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logs.data, page, pages]);
 
   return (
     <>
@@ -91,6 +117,25 @@ export function Logs() {
         </select>
         <input type="search" value={q} onChange={(e) => patch({ q: e.target.value })}
                placeholder="Cari aksi, user, serial ONU" className={`${filterInput} w-64`} />
+        <select value={userId} onChange={(e) => patch({ user_id: e.target.value })}
+                aria-label="User" className={filterInput}>
+          <option value="">Semua user</option>
+          {(users.data ?? []).map((u) => <option key={u.id} value={u.id}>{u.username}</option>)}
+        </select>
+        <label className="flex items-center gap-1 text-xs text-muted">
+          Dari
+          <input type="date" value={since} onChange={(e) => patch({ since: e.target.value })}
+                 aria-label="Dari tanggal" className={filterInput} />
+        </label>
+        <label className="flex items-center gap-1 text-xs text-muted">
+          Sampai
+          <input type="date" value={until} onChange={(e) => patch({ until: e.target.value })}
+                 aria-label="Sampai tanggal" className={filterInput} />
+        </label>
+        <select value={size} onChange={(e) => patch({ size: e.target.value })}
+                aria-label="Jumlah per halaman" className={filterInput}>
+          {SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
       </div>
 
       <section className="entrance rounded-md border bg-surface">
@@ -137,7 +182,7 @@ export function Logs() {
       </section>
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-muted">
-        <span>{total === 0 ? "0" : `${(page - 1) * SIZE + 1}–${Math.min(page * SIZE, total)}`} dari {nf.format(total)}</span>
+        <span>{total === 0 ? "0" : `${(page - 1) * size + 1}–${Math.min(page * size, total)}`} dari {nf.format(total)}</span>
         <div className="flex items-center gap-2">
           <Button size="sm" disabled={page <= 1} onClick={() => patch({ page: 1 })}>«</Button>
           <Button size="sm" disabled={page <= 1} onClick={() => patch({ page: page - 1 })}>‹</Button>

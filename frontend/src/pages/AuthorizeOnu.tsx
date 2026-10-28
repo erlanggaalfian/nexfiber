@@ -21,7 +21,20 @@ import { DONE, useJob } from "../lib/jobs";
 
 const ALL = "";
 const nullable = (v: string) => (v === "" ? null : v);
-const numOrNull = (v: string) => (v === "" ? null : Number(v));
+// numOrNull lama: input non-numerik ("abc") jadi NaN lalu JSON null diam-diam —
+// koordinat/port splitter yang salah ketik hilang tanpa pesan. Sekarang NaN tetap
+// null di sini sebagai jaring pengaman, tapi schema di bawah MENOLAK input
+// non-numerik sebelum submit, jadi pengguna melihat pesannya.
+const numOrNull = (v: string) => {
+  if (v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+const isNumIn = (v: string, min: number, max: number) => {
+  if (v === "") return true;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= min && n <= max;
+};
 
 const schema = z.object({
   onu_type_id: z.string().min(1, "Pilih tipe ONU"),
@@ -39,9 +52,15 @@ const schema = z.object({
   external_id: z.string().max(50),
   zone_id: z.string(),
   splitter_id: z.string(),
-  splitter_port: z.string(),
-  latitude: z.string(),
-  longitude: z.string(),
+  splitter_port: z.string().refine((v) => v === "" || (/^\d+$/.test(v) && Number(v) >= 1), {
+    message: "Port splitter harus angka ≥ 1",
+  }),
+  latitude: z.string().refine((v) => isNumIn(v, -90, 90), {
+    message: "Latitude harus angka -90 s.d. 90",
+  }),
+  longitude: z.string().refine((v) => isNumIn(v, -180, 180), {
+    message: "Longitude harus angka -180 s.d. 180",
+  }),
 }).refine((f) => f.onu_mode !== "routing" || f.wan_mode !== "pppoe" || f.pppoe_username.length > 0, {
   // Mode WAN hanya dirender saat Routing; tanpa cek onu_mode, Bridging gagal validasi di
   // field yang tidak tampak dan tombol Otorisasi diam saja.
@@ -91,6 +110,7 @@ export function AuthorizeOnu() {
   const wanMode = watch("wan_mode");
   const onuMode = watch("onu_mode");
   const splitterId = watch("splitter_id");
+  const zoneId = watch("zone_id");
   // Port splitter yang sudah terpakai tidak boleh dipilih (PRD 3.4.4) — ambil dari detail splitter.
   const splitterDetail = useQuery({
     queryKey: ["splitter", splitterId],
@@ -176,6 +196,16 @@ export function AuthorizeOnu() {
     onError: (e: Error) => setNote(e.message),
   });
 
+  // Resync untuk baris gagal: authorize ulang dari form yang sama PASTI ditolak
+  // duplikat serial di backend (baris gagal dari percobaan pertama masih ada),
+  // jadi tombol "Coba lagi" lama menyesatkan. Jalur pemulihan yang benar adalah
+  // resync job atas baris gagal itu (diizinkan untuk config_state=failed).
+  const resync = useMutation({
+    mutationFn: () => api<{ job_id: number }>(`/api/onus/${serial}/resync`, { method: "POST" }),
+    onSuccess: (r) => setJobId(r.job_id),
+    onError: (e: Error) => setNote(e.message),
+  });
+
   const job = useJob(jobId);
   useEffect(() => {
     // URL Detail ONU memakai id internal (bukan serial): id-nya sudah ada di job hasil
@@ -196,6 +226,18 @@ export function AuthorizeOnu() {
 
   const jobBusy = authorize.isPending || (job.data != null && !DONE.has(job.data.status));
   const jobFailed = job.data?.status === "failed";
+  // Dropdown splitter difilter menurut OLT + zone yang dipilih (backend juga
+  // menolak splitter OLT/PON/zone lain, jadi dropdown yang menampilkan semuanya
+  // hanya menghasilkan submit yang pasti ditolak). Splitter yang sedang
+  // terpilih dipertahankan sebagai opsi fallback supaya nilai dari preset
+  // tidak hilang diam-diam saat filter berubah.
+  const filteredSplitters = (splitters.data ?? []).filter((s) =>
+    (s.olt_id == null || s.olt_id === Number(oltId)) &&
+    (zoneId === "" || s.zone_id == null || s.zone_id === Number(zoneId)));
+  const selectedSplitter = (splitters.data ?? []).find((s) => String(s.id) === splitterId);
+  const splitterOptions = selectedSplitter &&
+    !filteredSplitters.some((s) => s.id === selectedSplitter.id)
+    ? [...filteredSplitters, selectedSplitter] : filteredSplitters;
   const splitter = (splitters.data ?? []).find((s) => String(s.id) === splitterId);
   const usedPorts = new Set(
     (splitterDetail.data?.onus ?? []).map((o) => o.splitter_port).filter((p): p is number => p != null),
@@ -304,7 +346,7 @@ export function AuthorizeOnu() {
               <Field label="Splitter (ODB)">
                 <select className={input} {...register("splitter_id")}>
                   <option value="">Tanpa splitter</option>
-                  {(splitters.data ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {splitterOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </Field>
               <Field label="Port splitter">
@@ -333,11 +375,25 @@ export function AuthorizeOnu() {
             {authorize.error?.message ?? job.data?.error_message ?? "OLT menolak perintah"}
           </p>
         )}
+        {jobFailed && (
+          <p className="mt-3 text-muted" role="status">
+            Baris ONU gagal ini sudah ada di database, jadi mengirim authorize yang sama
+            akan ditolak duplikat serial. Pakai Resync untuk meng-authorize ulang
+            baris gagal tersebut, atau hapus barisnya dulu bila ingin mulai dari awal.
+          </p>
+        )}
         <div className="mt-3 flex justify-end gap-2">
           <Button onClick={() => navigate("/unconfigured")}>Batal</Button>
-          <Button type="submit" variant="primary" disabled={jobBusy}>
-            {jobBusy ? "Mengirim ke OLT ..." : jobFailed ? "Coba lagi" : "Otorisasi"}
-          </Button>
+          {jobFailed ? (
+            <Button type="button" variant="primary" disabled={resync.isPending || jobBusy}
+                    onClick={() => resync.mutate()}>
+              {resync.isPending ? "Mengirim resync ..." : "Resync (perbaiki baris gagal)"}
+            </Button>
+          ) : (
+            <Button type="submit" variant="primary" disabled={jobBusy}>
+              {jobBusy ? "Mengirim ke OLT ..." : "Otorisasi"}
+            </Button>
+          )}
         </div>
       </form>
     </>

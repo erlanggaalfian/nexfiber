@@ -49,7 +49,13 @@ async def get_zone_row(db: AsyncSession, zone_id: int, owner_id: int | None) -> 
 
 
 async def zone_name_taken(db: AsyncSession, owner_id: int, name: str, skip_id: int | None) -> bool:
-    stmt = select(Zone.id).where(Zone.owner_id == owner_id, func.lower(Zone.name) == name.lower())
+    # Pencocokan ternormalisasi seperti get_or_create_zone: "_" dianggap spasi dan
+    # spasi dirapatkan, supaya "Jakarta ", "Kecamatan_Selogiri", dan
+    # "Kecamatan Selogiri" tidak lolos sebagai nama berbeda.
+    key = " ".join(name.replace("_", " ").split()).lower()
+    stmt = select(Zone.id).where(
+        Zone.owner_id == owner_id,
+        func.lower(func.regexp_replace(Zone.name, r"[_\s]+", " ", "g")) == key)
     if skip_id:
         stmt = stmt.where(Zone.id != skip_id)
     return await db.scalar(stmt) is not None
@@ -87,9 +93,14 @@ Parent = Splitter.__table__.alias("parent")
 
 
 def _splitter_rows() -> Select:
+    # OUTER join ke Zone: splitter tanpa zone (mis. dari auto-provision) dulu hilang
+    # dari list/detail untuk semua role karena inner join. Untuk Admin, filter
+    # `owned()` tetap menyembunyikan splitter tanpa zone (kepemilikannya tidak
+    # bisa diwariskan dari zone), tapi Superadmin sekarang bisa melihat dan
+    # memperbaikinya.
     return (
         select(Splitter, Zone.name, Parent.c.name, _onu_count(Onu.splitter_id == Splitter.id))
-        .join(Zone, Zone.id == Splitter.zone_id)
+        .outerjoin(Zone, Zone.id == Splitter.zone_id)
         .outerjoin(Parent, Parent.c.id == Splitter.parent_id)
     )
 

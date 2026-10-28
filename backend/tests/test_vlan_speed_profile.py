@@ -89,6 +89,11 @@ class FakeDb:
     async def get(self, _model, _pk):
         return self.obj
 
+    async def scalar(self, _stmt):
+        # Guard worker push_delete memanggil _ensure_unused yang memakai
+        # db.scalar(); di test ini tidak ada rujukan apa pun, jadi None.
+        return None
+
     def add(self, obj):
         self.added.append(obj)
 

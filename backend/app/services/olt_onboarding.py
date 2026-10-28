@@ -21,7 +21,7 @@ Tahap terakhir (`onu_metadata`) murni baca DB: metadata zone/ODP/alamat/VLAN ber
 """
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
@@ -40,6 +40,10 @@ KEY_PREFIX = "olt_sync:"
 # Rantai ikut di belakang job yang dipicu user (100), tapi di depan sync periodik (200).
 CHAIN_PRIORITY = 150
 ACTIVE_STATES = ("pending", "running")
+# Rantai tidak boleh menggantung selamanya: bila satu rantai masih aktif setelah
+# 2 jam (jauh di atas durasi normal seluruh tahap, termasuk retry job 3x), ia
+# ditutup sebagai failed supaya UI berhenti polling dan operator bisa sync-all lagi.
+CHAIN_TIMEOUT = timedelta(hours=2)
 # Field yang kalau berubah membuat data lama tidak bisa dipercaya lagi -> sinkron ulang.
 RECONNECT_FIELDS = frozenset({
     "host", "cli_port", "cli_protocol", "cli_username", "cli_password",
@@ -148,6 +152,9 @@ async def start_chain(db: AsyncSession, olt_id: int, *, trigger: str,
     record = await _load(db, olt_id)
     if record and record.get("state") in ACTIVE_STATES:
         return record
+    olt = await db.get(Olt, olt_id)
+    if olt is None or olt.deleted_at is not None or not olt.is_active:
+        raise ConflictError(f"OLT {olt_id} tidak aktif; rantai sinkron tidak bisa dimulai")
     record = _blank(datetime.now(UTC), trigger, created_by)
     record["state"] = "running"
     await _enqueue_stage(db, olt_id, record["stages"][0], created_by)
@@ -201,11 +208,44 @@ async def _advance_one(db: AsyncSession, olt_id: int, record: dict) -> bool:
     return True
 
 
+async def cancel_chain(db: AsyncSession, olt_id: int, reason: str) -> None:
+    """Hentikan rantai yang masih jalan (dipakai delete/nonaktifkan OLT).
+
+    State yang ditulis adalah "failed" dengan pesan alasan, BUKAN "cancelled":
+    kontrak frontend (oltSyncStages.ts SyncState) hanya mengenal
+    pending/running/success/failed, dan "failed" sudah menghentikan polling.
+    Tahap yang masih pending/running ditandai failed supaya tidak ada tahap yang
+    tampak jalan selamanya. Caller yang commit."""
+    record = await _load(db, olt_id)
+    if record is None or record["state"] not in ACTIVE_STATES:
+        return
+    for stage in record["stages"]:
+        if stage["status"] in ("pending", "running"):
+            stage["status"] = "failed"
+            stage["error"] = reason[:300]
+            stage["finished_at"] = datetime.now(UTC).isoformat()
+    record["state"] = "failed"
+    await _save(db, olt_id, record)
+
+
 async def advance_chain(db: AsyncSession, olt_id: int) -> dict | None:
     """Majukan rantai satu OLT sejauh mungkin dalam satu panggilan. Caller yang commit."""
     record = await _load(db, olt_id)
     if record is None or record["state"] not in ACTIVE_STATES:
         return record
+    # OLT deleted/nonaktif tidak boleh lagi dimajukan rantainya.
+    olt = await db.get(Olt, olt_id)
+    if olt is None or olt.deleted_at is not None or not olt.is_active:
+        await cancel_chain(db, olt_id, "OLT dihapus/dinonaktifkan")
+        return await _load(db, olt_id)
+    # Timeout rantai macet: jangan biarkan satu rantai "running" selamanya.
+    try:
+        started = datetime.fromisoformat(record.get("run_started_at", ""))
+    except ValueError:
+        started = None
+    if started is not None and datetime.now(UTC) - started > CHAIN_TIMEOUT:
+        await cancel_chain(db, olt_id, "Rantai sinkron macet (melebihi 2 jam)")
+        return await _load(db, olt_id)
     changed = False
     while await _advance_one(db, olt_id, record):
         changed = True

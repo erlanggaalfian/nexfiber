@@ -50,7 +50,7 @@ import {
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { Popover } from "radix-ui";
 import { TitleIcon } from "../components/onu/icons";
 import { OnuRearPanel } from "../components/onu/OnuRearPanel";
@@ -62,9 +62,11 @@ import {
 } from "../components/data";
 import { Button } from "../components/ui/button";
 import {
-  api, ApiError, type OnuDetail as Detail, type OnuLog, type OnuType, type SignalPoint,
-  type TrafficHistoryPoint,
+  api, ApiError, qs, type OnuDetail as Detail, type OnuLog, type OnuType, type SignalPoint,
+  type TrafficHistoryPoint, type Vlan,
 } from "../lib/api";
+import { Field, JobTrace } from "../components/crud";
+import { ModalShell } from "../components/onu/modals/ModalShell";
 import { useAuth } from "../lib/auth";
 import { DONE, useJob } from "../lib/jobs";
 import { cleanProfileName } from "../lib/profileName";
@@ -126,7 +128,9 @@ const onuLabel = (mode: string | null) =>
   mode === null || mode === "" ? null : (ONU_MODE_LABEL[mode.toLowerCase()] ?? mode);
 
 /** Mode IP manajemen pada acuan: `Static` / `DHCP`. Nilai lain tampil apa adanya. */
-const MGMT_MODE_LABEL: Record<string, string> = { static: "Static", dhcp: "DHCP" };
+const MGMT_MODE_LABEL: Record<string, string> = {
+  static: "Static", dhcp: "DHCP", inactive: "Inactive",
+};
 
 /** Lebar kolom label = `dl-horizontal` acuan: label 160px + jarak 20px pada basis font
  *  15px. Basis Nexfiber 13px, jadi diskalakan dengan rasio yang sama -> 140px + 18px.
@@ -465,7 +469,13 @@ function RxChart({ points }: { points: SignalPoint[] }) {
   const min = Math.min(dataMin - 1.5, -27.25);
   const max = Math.max(dataMax + 1.5, -24.75);
   const span = max - min;
-  const x = (i: number) => (i / (points.length - 1)) * 100;
+  // Sumbu waktu nyata dari sampled_at: histori mencampur baris perubahan status (Rx
+  // lama) dan baris optik 15 menit (Rx segar), jadi indeks seragam menyesatkan.
+  const times = points.map((p) => Date.parse(p.sampled_at));
+  const tStart = Math.min(...times.filter(Number.isFinite));
+  const tEnd = Math.max(...times.filter(Number.isFinite));
+  const x = (i: number) =>
+    !Number.isFinite(times[i]) || tEnd === tStart ? 50 : ((times[i] - tStart) / (tEnd - tStart)) * 100;
   const y = (v: number) => 100 - ((v - min) / span) * 100;
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => max - f * span);
   const range = `${fmtDateTime(points[0].sampled_at)} → ${fmtDateTime(points[points.length - 1].sampled_at)}`;
@@ -478,24 +488,40 @@ function RxChart({ points }: { points: SignalPoint[] }) {
       </div>
       <div className="min-w-0 grow rounded-sm border border-line/40 bg-sunken/20 p-1">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-36 w-full" role="img"
-             aria-label={`Grafik Rx ONU dan OLT, ${all.length} titik, terendah ${min.toFixed(1)} dBm`}>
+             aria-label={`Grafik Rx ONU dan OLT, ${all.length} titik, terendah ${dataMin.toFixed(1)} dBm`}>
           {ticks.map((t, i) => (
             <line key={i} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
                   strokeWidth="0.3" className="text-line" vectorEffect="non-scaling-stroke" />
           ))}
-          {[-25, -27].map((t) => (
+          {[-25, -27, -28].map((t) => (
             <line key={t} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
                   strokeWidth="0.4" strokeDasharray="2 2" className="text-muted" vectorEffect="non-scaling-stroke" />
           ))}
           {series.map((s) => {
-            const line = points
-              .map((p, i) => (p[s.field] === null ? null : `${x(i)},${y(p[s.field] as number)}`))
-              .filter((v): v is string => v !== null)
-              .join(" ");
-            return s.values.length === 1
-              ? <circle key={s.label} cx="50" cy={y(s.values[0])} r="1.2" className={s.dot} vectorEffect="non-scaling-stroke" />
-              : <polyline key={s.label} points={line} fill="none" stroke="currentColor" strokeWidth="1.2"
-                          className={s.line} vectorEffect="non-scaling-stroke" />;
+            // Garis diputus di null (LOS/offline), seperti grafik trafik — sebelumnya
+            // titik null dibuang lalu ujungnya disambung, sehingga LOS tidak terlihat.
+            // Segmen satu titik digambar sebagai lingkaran (polyline 1 titik tak terlihat).
+            if (s.values.length === 1) {
+              const i = points.findIndex((p) => p[s.field] !== null);
+              return <circle key={s.label} cx={x(i)} cy={y(s.values[0])} r="1.2" className={s.dot} vectorEffect="non-scaling-stroke" />;
+            }
+            const segments: string[][] = [];
+            let current: string[] = [];
+            points.forEach((p, i) => {
+              if (p[s.field] === null) { if (current.length) segments.push(current); current = []; }
+              else current.push(`${x(i)},${y(p[s.field] as number)}`);
+            });
+            if (current.length) segments.push(current);
+            return (
+              <g key={s.label}>
+                {segments.map((seg, si) =>
+                  seg.length === 1
+                    ? <circle key={si} cx={seg[0].split(",")[0]} cy={seg[0].split(",")[1]} r="1.2" className={s.dot} vectorEffect="non-scaling-stroke" />
+                    : <polyline key={si} points={seg.join(" ")} fill="none" stroke="currentColor" strokeWidth="1.2"
+                                className={s.line} vectorEffect="non-scaling-stroke" />
+                )}
+              </g>
+            );
           })}
         </svg>
         <p className="mt-1.5 flex justify-between px-1 font-mono text-[10px] text-faint">
@@ -607,23 +633,36 @@ function TrafficHistoryChart({ points }: { points: TrafficHistoryPoint[] }) {
   const peak = Math.max(...rated.flatMap((p) => [p.in_bps ?? 0, p.out_bps ?? 0])) / 1e6;
   const top = niceTop(peak);
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * top);
-  const x = (i: number) => (i / (points.length - 1)) * 100;
+  // Sumbu waktu nyata, seperti RxChart: indeks seragam menyembunyikan celah sampler.
+  const times = points.map((p) => Date.parse(p.sampled_at));
+  const tStart = Math.min(...times.filter(Number.isFinite));
+  const tEnd = Math.max(...times.filter(Number.isFinite));
+  const x = (i: number) =>
+    !Number.isFinite(times[i]) || tEnd === tStart ? 50 : ((times[i] - tStart) / (tEnd - tStart)) * 100;
   const y = (mbpsValue: number) => 100 - (mbpsValue / top) * 100;
-  /** Segmen terpisah per rentetan titik yang lajunya diketahui: jeda sampler = garis putus. */
+  /** Segmen terpisah per rentetan titik yang lajunya diketahui: jeda sampler = garis
+   *  putus. Segmen diputus juga bila selisih waktu antar titik > 15 menit (3x interval
+   *  sampler 5 menit) — menyambung melintasi celah itu akan mengarang trafik yang tidak
+   *  pernah diukur. Titik terisolasi digambar sebagai lingkaran, bukan dibuang. */
   const segments = (pick: (p: TrafficHistoryPoint) => number | null) => {
-    const out: string[] = [];
+    const lines: string[] = [];
+    const dots: string[] = [];
     let current: string[] = [];
+    const flush = () => {
+      if (current.length === 1) dots.push(current[0]);
+      else if (current.length > 1) lines.push(current.join(" "));
+      current = [];
+    };
     points.forEach((p, i) => {
       const v = pick(p);
-      if (v === null) {
-        if (current.length > 1) out.push(current.join(" "));
-        current = [];
-        return;
-      }
-      current.push(`${x(i)},${y(v / 1e6)}`);
+      const gap = i > 0 && Number.isFinite(times[i]) && Number.isFinite(times[i - 1])
+        && times[i] - times[i - 1] > 15 * 60 * 1000;
+      if (v === null) flush();
+      else if (gap) flush();
+      if (v !== null) current.push(`${x(i)},${y(v / 1e6)}`);
     });
-    if (current.length > 1) out.push(current.join(" "));
-    return out;
+    flush();
+    return { lines, dots };
   };
   const span = `${fmtDateTime(points[0].sampled_at)} → ${fmtDateTime(points[points.length - 1].sampled_at)}`;
   return (
@@ -639,13 +678,21 @@ function TrafficHistoryChart({ points }: { points: TrafficHistoryPoint[] }) {
             <line key={t} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
                   strokeWidth="0.3" className="text-line" vectorEffect="non-scaling-stroke" />
           ))}
-          {segments((p) => p.out_bps).map((pts, i) => (
+          {segments((p) => p.out_bps).lines.map((pts, i) => (
             <polyline key={`up-${i}`} points={pts} fill="none" stroke="currentColor"
                       strokeWidth="1.2" className="text-amber" vectorEffect="non-scaling-stroke" />
           ))}
-          {segments((p) => p.in_bps).map((pts, i) => (
+          {segments((p) => p.out_bps).dots.map((pt, i) => (
+            <circle key={`up-dot-${i}`} cx={pt.split(",")[0]} cy={pt.split(",")[1]} r="1.2"
+                    className="fill-amber" vectorEffect="non-scaling-stroke" />
+          ))}
+          {segments((p) => p.in_bps).lines.map((pts, i) => (
             <polyline key={`down-${i}`} points={pts} fill="none" stroke="currentColor"
                       strokeWidth="1.2" className="text-fiber" vectorEffect="non-scaling-stroke" />
+          ))}
+          {segments((p) => p.in_bps).dots.map((pt, i) => (
+            <circle key={`down-dot-${i}`} cx={pt.split(",")[0]} cy={pt.split(",")[1]} r="1.2"
+                    className="fill-fiber" vectorEffect="non-scaling-stroke" />
           ))}
         </svg>
         <p className="mt-1.5 flex justify-between px-1 font-mono text-[10px] text-faint">
@@ -665,13 +712,17 @@ function trafficStats(points: TrafficHistoryPoint[]) {
   if (down.length === 0 && up.length === 0) return null;
   const avg = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
   return {
-    count: Math.max(down.length, up.length),
+    // Jumlah baris sampel yang punya laju di minimal satu arah (bukan max per arah,
+    // yang bukan jumlah baris bila satu arah lebih banyak terbaca).
+    count: points.filter((p) => p.in_bps !== null || p.out_bps !== null).length,
     downMax: Math.max(0, ...down) / 1e6, downAvg: avg(down) / 1e6,
     upMax: Math.max(0, ...up) / 1e6, upAvg: avg(up) / 1e6,
   };
 }
 
-const axisTick = (v: number) => (v === 0 ? "0" : v < 1 ? v.toFixed(1) : String(Number(v.toFixed(1))));
+// Tick < 1 Mbps dengan 2 desimal (0.05 Mbps sebelumnya tampil "0.0" dan tak terbedakan).
+const axisTick = (v: number) =>
+  v === 0 ? "0" : v < 1 ? v.toFixed(2).replace(/0+$/, "").replace(/\.$/, "") : String(Number(v.toFixed(1)));
 
 /** Satu baris ringkasan arah (naik/turun) di bawah grafik LIVE, mengikuti acuan:
  *  Speed / Max / Pps / Avg size. `Pps` dan `Avg size` butuh counter PAKET yang BELUM ADA di
@@ -870,20 +921,28 @@ function useLiveTraffic(serial: string, enabled: boolean) {
   const [error, setError] = useState<string | null>(null);
   const [last, setLast] = useState<TrafficSample | null>(null);
   const prev = useRef<TrafficSample | null>(null);
+  // Penjaga in-flight: satu bulkwalk bisa 9-12 detik sementara interval live 5 detik,
+  // jadi tanpa ini tick menumpuk dan baseline ditimpa sesuai urutan selesai.
+  const inFlight = useRef(false);
 
   useEffect(() => {
+    // Serial berubah = ONU lain: titik sesi lama tidak boleh tercampur sesi baru.
+    setPoints([]);
+    setLast(null);
+    setError(null);
+    prev.current = null;
     if (!enabled) {
-      prev.current = null;
       // Titik dibuang saat LIVE mati: "Max" di panel = maksimum sesi LIVE yang sedang jalan,
       // bukan sisa sesi sebelumnya yang sudah tidak terlihat di grafik.
-      setPoints([]);
-      setLast(null);
-      setError(null);
       return;
     }
     let alive = true;
     const tick = async () => {
-      if (document.hidden) return;
+      // Tab tersembunyi: baseline basi — buang, supaya titik pertama setelah kembali
+      // tidak memakai sampel lama. deltaMbps juga menolak delta > 60 detik.
+      if (document.hidden) { prev.current = null; return; }
+      if (inFlight.current) return;
+      inFlight.current = true;
       try {
         const s = await api<TrafficSample>(`/api/onus/${serial}/traffic`);
         if (!alive) return;
@@ -896,7 +955,12 @@ function useLiveTraffic(serial: string, enabled: boolean) {
         if (point === null) return; // counter reset/jump: baseline baru, tanpa titik palsu
         setPoints((p) => [...p, point].slice(-TRAFFIC_KEEP));
       } catch (e) {
+        // Fetch gagal juga membatalkan baseline: sampel berikutnya harus jadi baseline
+        // baru, bukan dibandingkan dengan sampel sebelum kegagalan.
+        prev.current = null;
         if (alive) setError(e instanceof Error ? e.message : "Gagal membaca counter trafik");
+      } finally {
+        inFlight.current = false;
       }
     };
     void tick();
@@ -923,8 +987,58 @@ const isNumericId = (v: string) => /^\d+$/.test(v);
 const detailPath = (param: string) =>
   isNumericId(param) ? `/api/onus/by-id/${param}` : `/api/onus/${encodeURIComponent(param)}`;
 
+/** Ubah VLAN primer (onu.vlan_id) lewat job set_onu_vlan — endpoint ini sebelumnya
+ *  tidak punya UI sama sekali, hanya bisa dipanggil lewat API langsung. */
+function PrimaryVlanModal({ serial, oltId, currentVlanId, onClose, onDone }: {
+  serial: string; oltId: number; currentVlanId: number | null;
+  onClose: () => void; onDone: (msg: string) => void;
+}) {
+  const [selected, setSelected] = useState(currentVlanId != null ? String(currentVlanId) : "");
+  const [jobId, setJobId] = useState<number | null>(null);
+  const vlans = useQuery({
+    queryKey: ["vlans", oltId],
+    queryFn: () => api<Vlan[]>(`/api/vlans${qs({ olt_id: oltId })}`),
+  });
+  const save = useMutation({
+    mutationFn: () => api<{ job_id: number }>(`/api/onus/${serial}/vlan`, {
+      method: "POST", json: { vlan_id: Number(selected) },
+    }),
+    // Seperti modal aksi job lainnya: jangan tutup saat job dibuat, tampilkan
+    // status job dulu; catatan halaman baru diisi saat dialog status ditutup.
+    onSuccess: (r) => { setJobId(r.job_id); },
+  });
+  const rows = (vlans.data ?? []).filter((v) => v.olt_id === oltId || v.olt_id == null);
+  if (jobId !== null) {
+    return (
+      <ModalShell title={`Job ubah VLAN primer #${jobId}`}
+                  onClose={() => { onDone(`Job ubah VLAN primer #${jobId} dibuat.`); onClose(); }}
+                  closeLabel="Tutup">
+        <JobTrace jobId={jobId} />
+      </ModalShell>
+    );
+  }
+  return (
+    <ModalShell title="Ubah VLAN primer" onClose={onClose} action="Simpan"
+                busy={save.isPending} error={save.error?.message ?? null}
+                disabled={!selected || Number(selected) === currentVlanId}
+                onSubmit={() => save.mutate()}>
+      <Field label="VLAN">
+        <select className="w-full rounded border border-line bg-surface px-2 py-1.5"
+                value={selected} onChange={(e) => setSelected(e.target.value)}>
+          <option value="">Pilih VLAN ...</option>
+          {rows.map((v) => (
+            <option key={v.id} value={v.id}>VLAN {v.vlan_id}{v.name ? ` — ${v.name}` : ""}</option>
+          ))}
+        </select>
+      </Field>
+      {vlans.error && <p className="mt-2 text-xs text-down">{vlans.error.message}</p>}
+    </ModalShell>
+  );
+}
+
 export function OnuDetail() {
   const { id: routeKey = "" } = useParams();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const { isManager } = useAuth();
   /** Rentang tiap kartu grafik = state lokal toggle (24 jam / 7 hari / 30 hari); memilih
@@ -950,6 +1064,7 @@ export function OnuDetail() {
   };
   /** Modal aksi ONU (kontrak `/api/onus/{id}/actions`), satu state untuk semua modal. */
   const [modal, setModal] = useState<OnuModalState | null>(null);
+  const [vlanPrimerOpen, setVlanPrimerOpen] = useState(false);
   const [note, setNote] = useState("");
   /** Panel output diagnostik: satu panel, isi = hasil job view yang terakhir diminta. */
   const [diagView, setDiagView] = useState<DiagView | null>(null);
@@ -962,6 +1077,23 @@ export function OnuDetail() {
   const [diagStart, setDiagStart] = useState<number | null>(null);
   const [diagSecs, setDiagSecs] = useState(0);
   const [live, setLive] = useState(false);
+
+  // Navigasi /onu/A -> /onu/B tanpa unmount: semua state sesi ONU lama harus dibuang,
+  // kalau tidak chip IP, panel diagnostik, dan grafik LIVE milik A tampil di B.
+  useEffect(() => {
+    setLiveIp(null);
+    setLiveWanIp(null);
+    setNote("");
+    setDiagView(null);
+    setDiagJobId(null);
+    setDiagRunView(null);
+    setDiagMsg("");
+    setDiagStart(null);
+    setDiagSecs(0);
+    setLive(false);
+    setModal(null);
+    setVlanPrimerOpen(false);
+  }, [routeKey]);
 
   const onu = useQuery({
     queryKey: ["onu", routeKey],
@@ -984,7 +1116,9 @@ export function OnuDetail() {
         setLiveIp(r.ip_address ?? null);
         setLiveWanIp(r.wan_ip_address ?? null);
       })
-      .catch(() => {});
+      // Jangan diam-diam: kalau pembacaan IP gagal, operator harus tahu bahwa
+      // IP yang tampil masih dari cache, bukan hasil baca perangkat terbaru.
+      .catch((e: Error) => setNote(`IP perangkat gagal dibaca: ${e.message}`));
   };
   // Refresh IP HANYA saat dibuka bila salah satu kolom masih kosong di cache DB — satu
   // POST mengisi dua-duanya (`ip_address` management + `wan_ip_address` non-management);
@@ -1040,7 +1174,11 @@ export function OnuDetail() {
       // 409 = backend sengaja menolak job sejenis yang tumpang-tindih untuk ONU yang sama.
       // Pesannya dibuat jelas dan panel hasil sebelumnya dibiarkan utuh.
       if (e instanceof ApiError && e.status === 409) {
-        setDiagMsg("Pembacaan untuk ONU ini masih berjalan, tunggu selesai.");
+        // Backend memakai 409 untuk dua penyebab berbeda: job sejenis masih diproses
+        // ("masih diproses") vs ONU belum ter-provisioning ("not provisioned yet").
+        setDiagMsg(e.message.includes("not provisioned")
+          ? "ONU ini belum ter-provisioning (belum ada onu_index atau konfigurasi belum sukses)."
+          : "Pembacaan untuk ONU ini masih berjalan, tunggu selesai.");
         return;
       }
       setNote(e.message);
@@ -1079,14 +1217,17 @@ export function OnuDetail() {
   const stats = rxStats(signal.data ?? [], "rx_power_dbm");
   const oltStats = rxStats(signal.data ?? [], "olt_rx_power_dbm");
   const tStats = trafficStats(trafficHistory.data ?? []);
-  const specs = (onuTypes.data ?? []).find(
-    (t) => t.id === d.onu_type_id || t.name.toLowerCase() === (d.onu_type ?? "").toLowerCase(),
-  );
+  // Katalog dicocokkan UTAMA lewat ID; nama hanya fallback bila ID tidak ada (nama
+  // usang tidak boleh mengalahkan ID yang valid).
+  const specs = (onuTypes.data ?? []).find((t) => t.id === d.onu_type_id)
+    ?? (d.onu_type_id === null
+      ? (onuTypes.data ?? []).find((t) => t.name.toLowerCase() === (d.onu_type ?? "").toLowerCase())
+      : undefined);
   const statusKey = d.admin_state === "disabled" ? "disabled" : d.status;
   /** `null` = backend belum mengirim daftar VLAN (field `vlans`), bukan "tidak ada VLAN". */
   const vlanList = serviceVlans(d);
   const meta = d.device_metadata ?? null;
-  const onuIf = `gpon-onu_${d.slot}/${d.port}${d.onu_index === null ? "" : `:${d.onu_index}`}`;
+  const onuIf = `gpon-onu_1/${d.slot}/${d.port}${d.onu_index === null ? "" : `:${d.onu_index}`}`;
   const latest = traffic.points.at(-1) ?? null;
   /** "Max" di panel LIVE = puncak sejak LIVE dinyalakan (titik dibuang saat LIVE mati). */
   const liveMax = traffic.points.length === 0 ? null : {
@@ -1141,8 +1282,9 @@ export function OnuDetail() {
     external_id: d.external_id, olt_id: d.olt_id, olt_name: d.olt_name,
     slot: d.slot, port: d.port, onu_mode: d.onu_mode, wan_mode: d.wan_mode, pppoe_username: d.pppoe_username,
     wan_vlan: d.wan_vlan ?? null, pppoe_password: d.pppoe_password ?? null,
-    mgmt_ip_mode: d.mgmt_ip_mode, vlan_id: d.mgmt_vlan ?? null, ip_address: d.ip_address,
+    mgmt_ip_mode: d.mgmt_ip_mode, ip_address: ipLive,
     download_profile_name: d.download_profile_name, upload_profile_name: d.upload_profile_name,
+    download_speed_profile_id: d.download_speed_profile_id, upload_speed_profile_id: d.upload_speed_profile_id,
     zone_id: d.zone_id, splitter_id: d.splitter_id, splitter_port: d.splitter_port,
     name: d.name, customer_name: d.customer_name, address: d.address, contact: d.contact,
     latitude: d.latitude, longitude: d.longitude,
@@ -1231,11 +1373,16 @@ export function OnuDetail() {
             <DRow label="Tipe ONU" value={orNone(d.onu_type)}
                   onEdit={isManager ? () => setModal({ kind: "onu-type" }) : undefined} />
             <DRow label="Preset konfigurasi" value={orNone(d.preset_name)} />
-            <DRow label="Nama pelanggan" value={orNone(d.customer_name ?? d.name)} onEdit={locationDialog} />
+            {/* Nama/Kontak hanya dari field yang disunting modal Lokasi: fallback ke
+                name/phone menampilkan nilai yang tidak bisa dihapus lewat pensil ini.
+                Alamat: string description mentah (d.description) tidak lagi dipakai —
+                hanya alamat hasil parse (meta?.address) bila backend mengirim
+                device_metadata; bila master kosong dan metadata tidak ada, tampil "—". */}
+            <DRow label="Nama pelanggan" value={orNone(d.customer_name)} onEdit={locationDialog} />
             <DRow label="Alamat"
-                  value={fromMasterOrDescription(d.address, meta?.address ?? d.description)}
+                  value={fromMasterOrDescription(d.address, meta?.address)}
                   onEdit={locationDialog} />
-            <DRow label="Kontak" value={orNone(d.contact ?? d.phone)} onEdit={locationDialog} />
+            <DRow label="Kontak" value={orNone(d.contact)} onEdit={locationDialog} />
             <DRow label="Zona" value={fromMasterOrDescription(d.zone_name, meta?.zone)} onEdit={locationDialog} />
             <DRow label="Splitter" onEdit={locationDialog} value={
               d.splitter_name
@@ -1243,8 +1390,10 @@ export function OnuDetail() {
                 : fromMasterOrDescription(null, meta?.splitter)
             } />
             {/* Sektor belum ada kolomnya di master data Nexfiber: baris tetap ada supaya
-                urutan acuan utuh, nilainya `None` karena memang tidak ada datanya. */}
-            <DRow label="Sektor" value={NONE} onEdit={locationDialog} />
+                urutan acuan utuh, nilainya `None` karena memang tidak ada datanya.
+                Tanpa pensil: pensil menyiratkan sektor bisa disunting padahal modal
+                yang terbuka tidak punya field sektor. */}
+            <DRow label="Sektor" value={NONE} />
             <DRow label="ID eksternal" value={orNone(d.external_id)}
                   onEdit={() => setModal({ kind: "external-id" })} />
             <DRow label="Tanggal otorisasi" value={
@@ -1285,17 +1434,19 @@ export function OnuDetail() {
                 Web GUI ONU. Mode kosong = perangkat tak melaporkan → tampil "None"
                 (bukan fakta `Inactive`, bukan "belum terbaca"). */}
             <DRow label="Mgmt IP" value={
-              mgmtMode === null ? <span className="text-faint">None</span> : (
-                <>
+              <>
+                {mgmtMode === null ? <span className="text-faint">None</span> : (
                   <span>
                     {mgmtMode}
                     {d.mgmt_vlan != null && ` - vlan: ${d.mgmt_vlan}`}
                   </span>
-                  {ipLive && (
-                    <IpLink ip={ipLive} title={`Buka Web GUI ONU (${ipLive})`} />
-                  )}
-                </>
-              )
+                )}
+                {/* IP live tetap ditampilkan meski mode null: IP yang berhasil dibaca
+                    tidak boleh disembunyikan hanya karena modenya tidak dilaporkan. */}
+                {ipLive && (
+                  <IpLink ip={ipLive} title={`Buka Web GUI ONU (${ipLive})`} />
+                )}
+              </>
             } onEdit={isManager ? () => setModal({ kind: "mgmt-ip" }) : undefined} />
             {/* Nexfiber belum punya profil ACS/TR-069 internal (DECISIONS.md), jadi nilainya
                 selalu `Inactive` apa adanya dengan titik netral — bukan badge "via Mgmt IP"
@@ -1325,6 +1476,8 @@ export function OnuDetail() {
                 </>
               )
             } onEdit={() => setModal({ kind: "attached-vlans" })} />
+            <DRow label="VLAN primer" value={dash(d.vlan_number)}
+                  onEdit={isManager ? () => setVlanPrimerOpen(true) : undefined} />
             {/* Mode ONU: nilai efektif dari backend (CLI atau default `routing`), cukup
                 modenya saja — nomor VLAN sudah tampil di baris VLAN terpasang. */}
             <DRow label="Mode ONU" value={onuMode === null ? DASH : onuMode}
@@ -1352,7 +1505,7 @@ export function OnuDetail() {
                 <DRow label="Username PPPoE" value={
                   d.pppoe_username ? <span className="font-mono text-ink">{d.pppoe_username}</span> : DASH
                 } onEdit={() => setModal({ kind: "onu-mode" })} />
-                <DRow label="Password PPPoE" value={<PppoePassword password={d.pppoe_password ?? null} />}
+                <DRow label="Password PPPoE" value={<PppoePassword key={d.serial_number} password={d.pppoe_password ?? null} />}
                       onEdit={() => setModal({ kind: "onu-mode" })} />
               </>
             )}
@@ -1469,7 +1622,7 @@ export function OnuDetail() {
       <section className="entrance rounded-md border bg-surface p-4">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
           <h2 className="flex items-center gap-2 text-base font-bold text-fiber"><TitleIcon title="Trafik & Histori Sinyal" />Trafik & Histori Sinyal</h2>
-          <span className="font-mono text-xs text-muted">Rentang {RANGE_TITLE[range]}</span>
+          <span className="font-mono text-xs text-muted">Trafik {RANGE_TITLE[range]} · Sinyal {RANGE_TITLE[srange]}</span>
         </div>
         <div className="stagger grid gap-5 lg:grid-cols-2">
           <ChartCard title={`Trafik ${RANGE_TITLE[range]}`}
@@ -1604,7 +1757,7 @@ export function OnuDetail() {
                         <span className="ml-1.5 font-mono text-xs text-faint">eth_0/{i + 1}</span>
                       </td>
                       <td className="px-3 py-2 text-muted">Belum dibaca</td>
-                      <td className="px-3 py-2 font-mono font-medium">LAN</td>
+                      <td className="px-3 py-2 text-muted">Belum dibaca</td>
                       <td className="px-3 py-2 text-center">
                         <ConfigureLink label={`Konfigurasi eth_0/${i + 1}`}
                                        onClick={() => setModal({ kind: "eth-port", port: i + 1 })} />
@@ -1627,7 +1780,7 @@ export function OnuDetail() {
                   </div>
                   <div className="mt-1 grid grid-cols-2 gap-2 text-xs">
                     <p><span className="text-muted">Status</span><br />Belum dibaca</p>
-                    <p><span className="text-muted">Mode</span><br /><span className="font-mono">LAN</span></p>
+                    <p><span className="text-muted">Mode</span><br />Belum dibaca</p>
                   </div>
                 </article>
               ))}
@@ -1692,7 +1845,9 @@ export function OnuDetail() {
             </span>
           </>
         ) : (
-          <span className="text-muted">Tidak ada SSID WiFi</span>
+          <span className="text-muted">
+            {specs ? "Tidak ada SSID WiFi" : "Tipe ONU belum terdaftar di ONU Types."}
+          </span>
         )}
         </Section>
       </div>
@@ -1752,6 +1907,12 @@ export function OnuDetail() {
                       onClick={() => setModal({ kind: "resync-config" })}>
                 Resync config
               </Button>
+              {isManager && (
+                <Button className="min-h-11 grow sm:grow-0" size="sm" variant="secondary"
+                        onClick={() => setModal({ kind: "move" })}>
+                  Pindah PON
+                </Button>
+              )}
             </div>
           </div>
           <div className="flex flex-col justify-between rounded-md border border-down p-3.5">
@@ -1792,7 +1953,20 @@ export function OnuDetail() {
 
       {/* Semua modal aksi ONU dirender satu kali di sini; isinya dipilih oleh `modal`. */}
       <OnuActionModals state={modal} onu={modalOnu} onClose={() => setModal(null)}
-                       onDone={(kind, r) => setNote(r?.detail ?? `Aksi ${kind} terkirim.`)} />
+                       onDone={(kind, r) => {
+                         // Setelah Hapus sukses, ONU tidak ada lagi: refetch detail hanya
+                         // akan jadi ErrorState 404, jadi pergi ke daftar Configured.
+                         // Setelah Replace-SN lewat URL serial, URL lama juga tidak ketemu
+                         // lagi — ID numerik tidak berubah, jadi itu URL yang benar.
+                         if (kind === "delete") { navigate("/configured"); return; }
+                         if (kind === "replace-sn" && d.id != null) { navigate(`/onu/${d.id}`); return; }
+                         setNote(r?.detail ?? `Aksi ${kind} terkirim.`);
+                       }} />
+      {vlanPrimerOpen && onu.data && (
+        <PrimaryVlanModal serial={onu.data.serial_number} oltId={onu.data.olt_id}
+                          currentVlanId={onu.data.vlan_id}
+                          onClose={() => setVlanPrimerOpen(false)} onDone={setNote} />
+      )}
     </div>
   );
 }

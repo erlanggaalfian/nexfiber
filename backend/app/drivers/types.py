@@ -166,8 +166,10 @@ class ModifyRequest:
     port: int
     onu_id: int
     name: str | None = None
-    line_profile_id: str | None = None
-    srv_profile_id: str | None = None
+    # Nama profile di perangkat, dengan arah yang eksplisit (bukan line/srv lama):
+    # upload -> tcont, download -> gemport traffic-limit, sama seperti authorize.
+    upload_profile: str | None = None
+    download_profile: str | None = None
     vlan_id: int | None = None
 
 @dataclass

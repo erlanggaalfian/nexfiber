@@ -1,6 +1,8 @@
 /** Configure WiFi port wifi_0/N — acuan `configureWifiPort`.
  *  Encryption AES tetap (satu-satunya nilai pada acuan), password lewat tombol mata dan
- *  hanya di state lokal, "Clear WiFi port settings" memakai kind `wifi-clear`. */
+ *  hanya di state lokal, "Clear WiFi port settings" memakai kind `wifi-clear`.
+ *  Tidak ada field DHCP: tidak ada sintaks DHCP WiFi yang terbukti di repo, jadi field
+ *  itu hanya akan dibuang diam-diam oleh backend kalau tetap ditampilkan. */
 import { useState } from "react";
 import { serviceVlanOptions, type OnuConfigOptions } from "../../../lib/onuActions";
 import { Help, ModalShell, PasswordInput, Radios, Row, Select, VlanMulti, field } from "./ModalShell";
@@ -9,7 +11,7 @@ import { Button } from "../../ui/button";
 export type WifiPortBody = {
   port: number; enabled: boolean; mode: string; vlan_id: number | null;
   allowed_vlans: number[]; ssid: string | null; auth_mode: string;
-  password: string | null; dhcp: string;
+  password: string | null;
 };
 
 const MODES = [
@@ -18,10 +20,6 @@ const MODES = [
 ];
 const AUTH = [
   { value: "wpa2", label: "WPA2" }, { value: "auto", label: "Auto" }, { value: "open", label: "Open" },
-];
-const DHCP = [
-  { value: "none", label: "No control" }, { value: "isp", label: "From ISP" },
-  { value: "onu", label: "From ONU" }, { value: "forbidden", label: "Forbidden" },
 ];
 
 export function WifiPortModal(
@@ -46,28 +44,53 @@ export function WifiPortModal(
   const [ssid, setSsid] = useState("");
   const [auth, setAuth] = useState("wpa2");
   const [pass, setPass] = useState("");
-  const [dhcp, setDhcp] = useState("none");
+  // Konfirmasi dua klik untuk Clear (tanpa modal baru): klik pertama meminta
+  // konfirmasi, klik kedua menjalankan. Tombol juga mati saat aksi lain berjalan.
+  const [confirmClear, setConfirmClear] = useState(false);
   const vlanList = serviceVlanOptions(options);
   const showAllowed = mode === "trunk" || mode === "hybrid";
   const text = (v: string) => (v.trim() === "" ? null : v.trim());
+  // Sama seperti Eth: mode tag/hybrid wajib VLAN, dan password wajib untuk WPA2/Auto
+  // (backend menolak password kosong — tidak ada "pertahankan sandi lama" karena sandi
+  // lama tidak tersimpan di Nexfiber). Modal ini juga menulis ulang konfigurasi port
+  // dari nilai di bawah, bukan hanya field yang diubah, jadi Save mati sampai ada
+  // perubahan. Validasi disamakan dengan backend: SSID 1-32 karakter tanpa " dan ?,
+  // sandi 8-63 tanpa spasi dan ?. SSID kosong = SSID lama dipertahankan (builder hanya
+  // mengirim perintah SSID bila ada), bukan dihapus — jadi jangan diklaim berubah.
+  const vlanRequired = mode === "lan" || mode === "access" || mode === "hybrid";
+  const ssidBad = ssid !== "" && (ssid.length > 32 || /["?]/.test(ssid) || /\s/.test(ssid.replace(/ /g, "")));
+  const passBad = auth !== "open" && pass !== ""
+    && (pass.length < 8 || pass.length > 63 || /\s/.test(pass) || pass.includes("?"));
+  const changed = enabled !== "on" || mode !== "lan" || vlan !== "" || allowed.length > 0
+    || ssid !== "" || auth !== "wpa2" || pass !== "";
+  const disabled = !changed || ssidBad || passBad
+    || (vlanRequired && vlan === "") || (showAllowed && allowed.length === 0)
+    || (auth !== "open" && pass.trim() === "");
 
   return (
     <ModalShell title={`Configure WiFi port wifi_0/${port}`} action="Save"
                 supported={supported} note={note} busy={busy} error={error} onClose={onClose}
+                disabled={disabled}
                 extra={
-                  <Button size="md" variant="dangerSolid" disabled={clearSupported === false}
-                          onClick={() => onClear(port)}>
-                    Clear WiFi port settings
+                  <Button size="md" variant="dangerSolid"
+                          disabled={clearSupported === false || busy}
+                          onClick={() => {
+                            if (confirmClear) onClear(port);
+                            else setConfirmClear(true);
+                          }}>
+                    {confirmClear ? "Klik lagi untuk menghapus" : "Clear WiFi port settings"}
                   </Button>
                 }
                 onSubmit={() => onSubmit({
                   port, enabled: enabled === "on", mode,
-                  vlan_id: vlan === "" ? null : Number(vlan),
+                  vlan_id: vlanRequired && vlan !== "" ? Number(vlan) : null,
                   allowed_vlans: showAllowed ? allowed : [],
                   ssid: text(ssid), auth_mode: auth,
                   password: auth === "open" ? null : text(pass),
-                  dhcp,
                 })}>
+      <div className="mb-3.5">
+        <Help>Modal ini menulis ulang konfigurasi port dari nilai di bawah. Save aktif setelah ada perubahan.</Help>
+      </div>
       <Row label="Status">
         <Radios name={`wifi-${port}-status`} value={enabled} onChange={setEnabled}
                 options={[{ value: "on", label: "Enabled" }, { value: "off", label: "Port shutdown" }]} />
@@ -76,41 +99,48 @@ export function WifiPortModal(
       <Row label="Mode">
         <Radios name={`wifi-${port}-mode`} value={mode} onChange={setMode} options={MODES} />
       </Row>
-      <Row label="VLAN-ID">
-        <Select value={vlan} onChange={setVlan} placeholder="Tanpa VLAN" label="VLAN-ID">
-          {vlanList.map((v) => <option key={v.number} value={v.number}>{v.number} - {v.name}</option>)}
-        </Select>
-      </Row>
+      {vlanRequired && (
+        <Row label="VLAN-ID">
+          <Select value={vlan} onChange={setVlan} placeholder="Tanpa VLAN" label="VLAN-ID">
+            {vlanList.map((v) => <option key={v.number} value={v.number}>{v.number} - {v.name}</option>)}
+          </Select>
+        </Row>
+      )}
       {showAllowed && (
         <Row label="Allowed VLANs list">
           <VlanMulti label="Allowed VLANs list" options={vlanList} value={allowed} onChange={setAllowed} />
         </Row>
       )}
-      <Row label="SSID">
-        <input className={field} value={ssid} aria-label="SSID" autoComplete="off"
+      <Row label="SSID" hint="Kosong = SSID lama dipertahankan, bukan dihapus.">
+        <input className={field} value={ssid} aria-label="SSID" autoComplete="off" maxLength={32}
                onChange={(e) => setSsid(e.target.value)} />
       </Row>
+      {ssid.includes(" ") && (
+        <div className="mb-3.5">
+          <Help warn>SSID berspasi bisa terpotong di CLI OLT (perintah dipisah spasi).</Help>
+        </div>
+      )}
       <Row label="Auth mode"
            hint={<Help>Kemampuan autentikasi belum dilaporkan oleh ONU.</Help>}>
         <Select value={auth} onChange={setAuth} label="Auth mode">
           {AUTH.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
         </Select>
       </Row>
+      {auth === "open" && (
+        <div className="mb-3.5">
+          <Help warn>Auth lama di perangkat tidak bisa dihapus (batas firmware); memilih Open tidak menghapus kunci WPA lama.</Help>
+        </div>
+      )}
       {auth !== "open" && (
         <>
           <Row label="Encryption">
             <span className="font-mono text-sm text-muted">AES</span>
           </Row>
-          <Row label="New password" hint="Kosongkan bila tidak diganti.">
+          <Row label="New password" hint="Wajib diisi untuk WPA2/Auto.">
             <PasswordInput label="Password WiFi" value={pass} onChange={setPass} />
           </Row>
         </>
       )}
-      <Row label="DHCP">
-        <Select value={dhcp} onChange={setDhcp} label="DHCP">
-          {DHCP.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-        </Select>
-      </Row>
     </ModalShell>
   );
 }

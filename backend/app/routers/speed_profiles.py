@@ -17,9 +17,12 @@ ACCEPTED = {"response_model": JobAccepted, "status_code": status.HTTP_202_ACCEPT
 
 
 @router.get("", response_model=list[SpeedProfileRow])
-async def list_profiles(olt_id: int | None = None, db: AsyncSession = Depends(get_db),
+async def list_profiles(olt_id: int | None = None, include_inactive: bool = False,
+                        db: AsyncSession = Depends(get_db),
                         user: User = Depends(get_current_user)):
-    return await svc.list_profiles(db, olt_id, user)
+    # include_inactive hanya untuk halaman Settings (mengaktifkan kembali profile
+    # nonaktif); dropdown otorisasi tetap memanggil tanpa flag ini (aktif saja).
+    return await svc.list_profiles(db, olt_id, user, include_inactive=include_inactive)
 
 
 @router.post("", response_model=SpeedProfileRow, status_code=status.HTTP_201_CREATED)

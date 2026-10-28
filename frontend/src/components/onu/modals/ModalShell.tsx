@@ -143,7 +143,7 @@ export function VlanMulti(
   );
 }
 
-/** Select sederhana dengan opsi "Jangan ubah"/placeholder di urutan pertama. */
+/** Select sederhana dengan opsi placeholder di urutan pertama (nilai kosong). */
 export function Select(
   { value, onChange, placeholder, children, label }:
   { value: string; onChange: (v: string) => void; placeholder?: string; children: ReactNode; label?: string },

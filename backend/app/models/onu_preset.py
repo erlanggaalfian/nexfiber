@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Enum, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, Enum, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -12,6 +12,9 @@ class OnuPreset(TimestampMixin, Base):
     """Config template picked when authorizing an ONU — name matched per-OLT at use (PRD 4.6)."""
 
     __tablename__ = "onu_presets"
+    __table_args__ = (
+        Index("uq_onu_preset_owner_name", "owner_id", "name", unique=True),
+    )
 
     owner_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)

@@ -143,15 +143,18 @@ def test_last_action_log_popup_reuses_existing_endpoints(src: str):
 
 
 def test_removed_onu_actions_stay_removed(src: str):
-    """6 aksi yang dibuang pemilik tidak boleh kembali sebagai tombol di halaman detail.
+    """5 aksi yang dibuang pemilik tidak boleh kembali sebagai tombol di halaman detail.
     Endpoint backend-nya SENGAJA dibiarkan hidup (dipakai halaman/klien lain), jadi yang
-    diperiksa hanya hilangnya titik buka di UI."""
+    diperiksa hanya hilangnya titik buka di UI.
+    Pengecualian: "Move ONU" sengaja DIHIDUPKAN kembali pada audit menyeluruh
+    2026-10-28 (backend sudah mendukung move lengkap dengan pre-check, UI-nya yang
+    hilang), jadi label dan kind "move" kini justru harus ada."""
     for label in ("Ubah data pelanggan", "Ubah lokasi", "Ubah speed", "Ubah VLAN",
-                  "Move ONU", "Replace ONU / ganti SN"):
+                  "Replace ONU / ganti SN"):
         assert f">{label}<" not in src, label
     modals = (Path(__file__).resolve().parents[2]
               / "frontend/src/components/onu/modals/OnuActionModals.tsx").read_text()
-    assert 'kind: "move"' not in modals
+    assert 'kind: "move"' in modals
 
 
 def test_port_counts_come_from_master_data_not_hardcode(src: str):

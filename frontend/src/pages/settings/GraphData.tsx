@@ -5,12 +5,13 @@ import { Confirm, Field, input } from "../../components/crud";
 import { ErrorState, PageTitle, Skeleton } from "../../components/data";
 import { Button } from "../../components/ui/button";
 import { api, type Olt } from "../../lib/api";
+import { useAuth } from "../../lib/auth";
 
 type Kind = "traffic" | "signal";
 type Retention = { traffic: number; signal: number };
 type Stat = { kind: Kind; rows: number; oldest_at: string | null; newest_at: string | null; size_bytes: number | null };
 type DeleteResult = { deleted: Record<string, number>; total: number };
-type DeleteForm = { date_from: string; date_to: string; olt_id: string };
+type DeleteForm = { date_from: string; date_to: string; olt_id: string; deleted_olt_id: string };
 
 const DAYS = [0, 7, 14, 30, 60, 90, 180];
 const META = {
@@ -34,18 +35,23 @@ const todayWib = () => new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit",
 }).format(new Date());
 
-function GraphCard({ kind, stat, retention, olts }: {
-  kind: Kind; stat: Stat | undefined; retention: Retention; olts: Olt[];
+function GraphCard({ kind, stat, retention, olts, isSuperadmin }: {
+  kind: Kind; stat: Stat | undefined; retention: Retention; olts: Olt[]; isSuperadmin: boolean;
 }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState<DeleteForm>({ date_from: "", date_to: "", olt_id: "" });
+  const [form, setForm] = useState<DeleteForm>({ date_from: "", date_to: "", olt_id: "", deleted_olt_id: "" });
   const [preview, setPreview] = useState<DeleteResult | null>(null);
+  const [deleted, setDeleted] = useState<DeleteResult | null>(null);
   const [confirm, setConfirm] = useState(false);
   const meta = META[kind];
   const Icon = meta.icon;
+  // ID OLT terhapus (Superadmin) mengalahkan dropdown: dropdown tidak pernah
+  // menampilkan OLT yang sudah dihapus, jadi tanpa ini historinya tidak bisa
+  // dibersihkan manual.
   const payload = {
     kinds: [kind], date_from: form.date_from, date_to: form.date_to,
-    olt_id: form.olt_id ? Number(form.olt_id) : null,
+    olt_id: form.deleted_olt_id ? Number(form.deleted_olt_id)
+      : form.olt_id ? Number(form.olt_id) : null,
   };
   const saveRetention = useMutation({
     mutationFn: (days: number) => api<Retention>("/api/settings/graph-data/retention", {
@@ -65,13 +71,18 @@ function GraphCard({ kind, stat, retention, olts }: {
     }),
     onSuccess: (result) => {
       setConfirm(false);
-      setPreview(result);
+      // Pratinjau dikosongkan dan angka HASIL tampil: kalau pratinjau lama
+      // dipertahankan, halaman terlihat seperti data masih ada (dan tombol Hapus
+      // masih aktif padahal data sudah terhapus).
+      setPreview(null);
+      setDeleted(result);
       qc.invalidateQueries({ queryKey: ["graph-data", "stats"] });
     },
   });
   const change = (key: keyof DeleteForm, value: string) => {
     setForm((old) => ({ ...old, [key]: value }));
     setPreview(null);
+    setDeleted(null);
   };
 
   return (
@@ -83,7 +94,7 @@ function GraphCard({ kind, stat, retention, olts }: {
 
       <dl className="mb-5 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
         <div><dt className="text-xs text-muted">Baris</dt><dd className="font-mono">{number.format(stat?.rows ?? 0)}</dd></div>
-        <div><dt className="text-xs text-muted">Ukuran tabel</dt><dd className="font-mono">{bytes(stat?.size_bytes ?? null)}</dd></div>
+        <div><dt className="text-xs text-muted">Ukuran tabel (semua OLT)</dt><dd className="font-mono">{bytes(stat?.size_bytes ?? null)}</dd></div>
         <div><dt className="text-xs text-muted">Tertua</dt><dd>{date(stat?.oldest_at ?? null)}</dd></div>
         <div><dt className="text-xs text-muted">Terbaru</dt><dd>{date(stat?.newest_at ?? null)}</dd></div>
       </dl>
@@ -122,10 +133,20 @@ function GraphCard({ kind, stat, retention, olts }: {
             </select>
           </Field>
         </div>
+        {isSuperadmin && (
+          <div className="col-span-2">
+            <Field label="ID OLT terhapus (opsional, Superadmin)">
+              <input aria-label={`ID OLT terhapus ${meta.title}`} className={input} inputMode="numeric"
+                     value={form.deleted_olt_id}
+                     onChange={(e) => change("deleted_olt_id", e.target.value.replace(/\D/g, ""))} />
+            </Field>
+          </div>
+        )}
       </div>
       <div className="mt-3 flex min-h-8 items-center justify-between gap-3">
         <p aria-live="polite" className="text-sm text-muted">
           {preview && `${number.format(preview.total)} baris ditemukan`}
+          {deleted && `${number.format(deleted.total)} baris dihapus.`}
         </p>
         <div className="flex gap-2">
           <Button size="sm" disabled={!form.date_from || !form.date_to || previewDelete.isPending}
@@ -155,6 +176,7 @@ function GraphCard({ kind, stat, retention, olts }: {
 }
 
 export function GraphData() {
+  const { me } = useAuth();
   const stats = useQuery({
     queryKey: ["graph-data", "stats"],
     queryFn: () => api<Stat[]>("/api/settings/graph-data/stats"),
@@ -179,7 +201,8 @@ export function GraphData() {
         <div data-graph-grid className="grid gap-4 lg:grid-cols-2">
           {(["traffic", "signal"] as Kind[]).map((kind) => (
             <GraphCard key={kind} kind={kind} retention={retention.data}
-                       stat={stats.data?.find((row) => row.kind === kind)} olts={olts.data ?? []} />
+                       stat={stats.data?.find((row) => row.kind === kind)} olts={olts.data ?? []}
+                       isSuperadmin={me.role === "superadmin"} />
           ))}
         </div>
       )}

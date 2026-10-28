@@ -49,7 +49,21 @@ export function Login() {
     try {
       await login(String(f.get("username")), String(f.get("password")));
       const next = params.get("next");
-      navigate(next?.startsWith("/") ? next : "/", { replace: true });
+      // Validasi next yang ketat: hanya path internal absolut, bukan
+      // //evil.com (redirect protokol-relatif), bukan /\evil.com, dan bukan
+      // /login atau /setup (akan meloop kembali ke halaman auth).
+      const safeNext =
+        next !== null &&
+        next.startsWith("/") &&
+        !next.startsWith("//") &&
+        !next.startsWith("/\\") &&
+        next !== "/login" &&
+        next !== "/setup" &&
+        !next.startsWith("/login?") &&
+        !next.startsWith("/login#") &&
+        !next.startsWith("/setup?") &&
+        !next.startsWith("/setup#");
+      navigate(safeNext ? next! : "/", { replace: true });
     } catch (err) {
       setToken(null);
       setError(err instanceof Error ? err.message : "Login gagal");

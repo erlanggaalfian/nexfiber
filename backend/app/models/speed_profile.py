@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Enum, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, Boolean, Enum, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -15,6 +15,15 @@ class SpeedProfile(TimestampMixin, Base):
     """
 
     __tablename__ = "speed_profiles"
+    # Identitas get_or_create dari sync: satu device profile per OLT+arah.
+    # NULL di device_profile_id dianggap berbeda oleh Postgres, jadi profile
+    # yang belum di-push tidak saling memblokir.
+    __table_args__ = (
+        Index(
+            "uq_speed_profile_olt_direction_device", "olt_id", "direction",
+            "device_profile_id", unique=True,
+        ),
+    )
 
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     direction: Mapped[str] = mapped_column(SpeedProfileDirection, nullable=False)

@@ -1,5 +1,10 @@
-"""netmiko SSH transport wrapper (PRD 4.3): paging/prompt/timeout handled by netmiko,
-plus auto-answer for destructive-command (y/n) prompts and raw command/output logging.
+"""netmiko SSH transport wrapper (PRD 4.3): paging/prompt/timeout handled by netmiko.
+
+Koreksi klaim lama: `send_command_timing` TIDAK menjawab prompt (y/n) secara
+otomatis — ia hanya menunggu jeda. Prompt konfirmasi ditangani di level driver
+(`zte_c320._send_config`): dijawab "n" untuk membatalkan dan dilaporkan gagal,
+bukan dilaporkan sukses palsu. Daftar di bawah dipertahankan sebagai penanda
+prompt yang dikenali driver, bukan sebagai jawaban otomatis.
 """
 
 import asyncio
@@ -7,7 +12,7 @@ import asyncio
 from netmiko import ConnectHandler
 
 # Confirmation prompts ZTE CLI issues for destructive commands (e.g. "no onu <id>").
-# Netmiko's send_command_timing with these strings answered avoids hanging forever.
+# Lihat app.drivers.errors.CONFIRMATION_PROMPTS — satu definisi yang dipakai driver.
 AUTO_ANSWER_PROMPTS = ["(y/n)", "[y/n]", "continue?"]
 
 class SshTransport:

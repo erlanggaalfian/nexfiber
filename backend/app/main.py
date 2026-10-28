@@ -5,7 +5,9 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -55,6 +57,28 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
 
 
+@app.exception_handler(PydanticValidationError)
+@app.exception_handler(ValueError)
+@app.exception_handler(KeyError)
+@app.exception_handler(TypeError)
+async def input_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    # Sebelumnya satu-satunya handler adalah AppError, sehingga kesalahan input
+    # yang lolos validasi router (mis. body aksi ONU berupa dict bebas, field
+    # hilang, tipe salah, atau Pydantic ValidationError dari validasi di service)
+    # menjadi 500. Kesalahan-kesalahan ini adalah input/keadaan yang salah dari
+    # pemanggil, jadi dipetakan ke 422 dengan pesan yang bisa dibaca — tanpa
+    # membocorkan traceback. Ini sengaja TIDAK menangkap bug internal lain
+    # (AttributeError, dll.) yang tetap harus 500 dan terlihat di log server.
+    return JSONResponse(status_code=422, content={"detail": str(exc) or "Input tidak valid"})
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
+    # Race/duplikat/FK yang tidak tertangkap guard aplikasi: 409, bukan 500.
+    # Pesan sengaja generik supaya detail constraint DB tidak bocor ke klien.
+    return JSONResponse(status_code=409, content={"detail": "Data bertentangan dengan data yang sudah ada"})
+
+
 @app.get("/healthz")
 async def healthz() -> dict:
     return {"status": "ok"}
@@ -82,6 +106,15 @@ for module in (auth, olts, onu_by_id, onu_actions, onu_traffic, onus, jobs, mast
                onu_types, splitters, vlans, speed_profiles, onu_presets, activity_logs,
                graph_data):
     app.include_router(module.router)
+
+
+@app.api_route("/api/{full_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def api_not_found(full_path: str) -> JSONResponse:
+    # Didaftarkan SETELAH semua router API dan SEBELUM catch-all SPA di bawah:
+    # path /api/ yang tidak dikenal sebelumnya jatuh ke SPA dan dibalas 200 +
+    # HTML, sehingga klien API yang salah ketik endpoint mengira sukses.
+    # Route ini hanya tercapai bila tidak ada router yang cocok.
+    return JSONResponse(status_code=404, content={"detail": "Not found"})
 
 # ponytail: sajikan frontend build dari API sendiri, satu port saja, no nginx/caddy.
 # skipped: CDN/edge caching terpisah, add kalau trafik butuh itu.

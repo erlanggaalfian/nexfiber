@@ -166,15 +166,17 @@ function DesktopHeader({ pending }: { pending: number }) {
           <NavLink to="/logs" className={({ isActive }) => menuClass(isActive)}>Logs</NavLink>
         </nav>
         <div className="ml-auto flex items-center gap-2">
-          {/* ponytail: input only; command palette (DESIGN 11) comes with the search stage. */}
-          <label className="relative">
-            <span className="sr-only">Cari</span>
+          {/* Pencarian header BELUM berfungsi (command palette ditunda ke tahap search):
+              input dinonaktifkan supaya tidak terlihat bisa dipakai. */}
+          <label className="relative" title="Pencarian segera hadir">
+            <span className="sr-only">Cari (segera hadir)</span>
             <input
               type="search"
-              placeholder="Cari SN, nama, PPPoE, IP OLT"
-              className="h-8 w-60 rounded-sm border border-line-strong bg-surface pr-9 pl-2 text-sm placeholder:text-faint"
+              disabled
+              placeholder="Cari (segera hadir)"
+              className="h-8 w-60 rounded-sm border border-line-strong bg-surface pr-9 pl-2 text-sm placeholder:text-faint disabled:opacity-60"
             />
-            <kbd aria-hidden className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 font-mono text-xs text-faint">⌘K</kbd>
+            <kbd aria-hidden className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 font-mono text-xs text-faint">Segera</kbd>
           </label>
           <SystemDot />
           <AvatarMenu />
@@ -186,15 +188,18 @@ function DesktopHeader({ pending }: { pending: number }) {
 
 function MobileTopBar({ isTab, title }: { isTab: boolean; title: string }) {
   const navigate = useNavigate();
+  // Bila tidak ada riwayat kembali (mis. dibuka langsung lewat URL), kembali ke
+  // Dashboard, bukan navigate(-1) yang tidak ke mana-mana.
+  const goBack = () => { window.history.length > 1 ? navigate(-1) : navigate("/"); };
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b bg-surface px-3 lg:hidden">
       {!isTab && (
-        <button onClick={() => navigate(-1)} className="-ml-1 flex size-11 items-center justify-center" aria-label="Kembali">
+        <button onClick={goBack} className="-ml-1 flex size-11 items-center justify-center" aria-label="Kembali">
           <ArrowLeft size={20} />
         </button>
       )}
       <span className="min-w-0 flex-1 truncate text-lg font-semibold" aria-hidden>{title}</span>
-      <button className="flex size-11 items-center justify-center text-muted" aria-label="Cari">
+      <button disabled title="Pencarian segera hadir" className="flex size-11 items-center justify-center text-muted disabled:opacity-60" aria-label="Cari (segera hadir)">
         <MagnifyingGlass size={20} />
       </button>
       <AvatarMenu />
@@ -242,7 +247,7 @@ function BottomNav({ pending }: { pending: number }) {
 }
 
 export function Layout() {
-  useJobStream();
+  const { disconnected } = useJobStream();
   const pending = usePending();
   const { pathname } = useLocation();
   const isTab = TABS.some((t) => t.to === pathname);
@@ -251,6 +256,11 @@ export function Layout() {
       <a href="#konten" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-surface focus:p-2">
         Langsung ke konten
       </a>
+      {disconnected && (
+        <p className="bg-amber/15 px-4 py-2 text-center text-xs text-amber" role="status">
+          Koneksi update job terputus — pembaruan job mungkin tertunda sampai koneksi pulih.
+        </p>
+      )}
       <DesktopHeader pending={pending} />
       <MobileTopBar isTab={isTab} title={pageTitle(pathname)} />
       <main id="konten" className={`mx-auto max-w-[1440px] p-3 lg:p-4 ${isTab ? "pb-24 lg:pb-4" : ""}`}>

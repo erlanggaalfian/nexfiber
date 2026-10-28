@@ -23,6 +23,14 @@ _CATEGORY_BY_ACTION: dict[str, LogCategory] = {
 def category_of(action: str) -> LogCategory:
     if action in _CATEGORY_BY_ACTION:
         return _CATEGORY_BY_ACTION[action]
+    # Konsisten dengan kondisi SQL di activity_log_repo: semua penghapusan
+    # (apa pun prefix-nya) adalah kategori "delete", dan user.login adalah
+    # "login", bukan "user". Sebelumnya keduanya jatuh ke kategori prefix
+    # sehingga filter Hapus menyembunyikan sebagian besar penghapusan.
+    if action.endswith(".delete") or action == "onu.restore_factory":
+        return "delete"  # type: ignore[return-value]
+    if action == "user.login":
+        return "login"  # type: ignore[return-value]
     entity = action.split(".", 1)[0]
     return "olt" if entity == "olt" else "user" if entity == "user" else "service"  # type: ignore[return-value]
 
@@ -32,7 +40,8 @@ def category_of(action: str) -> LogCategory:
 _KNOWN_ACTIONS = [
     "onu.authorize", "onu.reboot", "onu.delete", "onu.restore_factory",
     "onu.apply_speed_profile", "onu.set_vlan", "onu.set_state", "onu.refresh_detail",
-    "user.login", "user.create", "user.update", "user.reset_password",
+    "user.login", "user.create", "user.update", "user.delete", "user.reset_password",
+    "olt.delete",
     "olt.create", "olt.update", "olt.delete", "olt.test_connection",
     "vlan.create", "vlan.update", "vlan.set_ports", "vlan.delete",
     "speed_profile.create", "speed_profile.update", "speed_profile.delete", "speed_profile.push",
@@ -44,6 +53,9 @@ _KNOWN_ACTIONS = [
 
 
 def actions_for_category(category: LogCategory) -> list[str]:
+    # LEGACY, hanya untuk test: filter DB sekarang memakai kondisi SQL di
+    # activity_log_repo._category_condition supaya aksi baru tidak pernah hilang
+    # dari filter hanya karena belum ditambahkan ke daftar ini.
     return [a for a in _KNOWN_ACTIONS if category_of(a) == category]
 
 

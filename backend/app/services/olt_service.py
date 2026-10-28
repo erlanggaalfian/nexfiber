@@ -17,8 +17,11 @@ from app.core.exceptions import (
 )
 from app.core.rbac import MANAGERS, SUPERADMIN, scope_olt_ids
 from app.core.security import encrypt_secret
+from app.core.db import olt_cli_lock
 from app.drivers.factory import build_driver
 from app.drivers.transport.snmp import SnmpTransport
+from app.drivers.zte_c320 import build_port_config_commands, normalize_uplink_name
+from app.repositories import job_repo
 from app.drivers.types import debug_log
 from app.models.job import Job
 from app.models.olt import Olt
@@ -40,6 +43,7 @@ from app.schemas.olt import (
     PortConfigRequest,
 )
 from app.services import job_service, olt_onboarding
+from app.services.onu_service import ensure_writes_allowed
 
 SECRET_FIELDS = {
     "cli_password": "cli_password_enc",
@@ -57,6 +61,15 @@ async def get_olt(db: AsyncSession, olt_id: int, user: User) -> Olt:
         raise NotFoundError(f"OLT {olt_id} not found")
     return olt
 
+async def get_olt_for_action(db: AsyncSession, olt_id: int, user: User) -> Olt:
+    """get_olt + gate is_active, KHUSUS endpoint aksi manual (antre job, sync ulang,
+    set_port_config). Detail/list sengaja tetap pakai get_olt: OLT nonaktif tetap
+    harus bisa dilihat dan diaktifkan kembali, bukan 404/409 di halaman detailnya."""
+    olt = await get_olt(db, olt_id, user)
+    if not olt.is_active:
+        raise ConflictError(f"OLT {olt_id} nonaktif; aktifkan dulu sebelum antre job")
+    return olt
+
 async def list_olts(db: AsyncSession, user: User) -> list[Olt]:
     return await olt_repo.list_active(db, scope_olt_ids(user))
 
@@ -72,16 +85,31 @@ async def list_rows(db: AsyncSession, user: User, search: str | None = None) -> 
     ]
 
 async def _manager(db: AsyncSession, user_id: int) -> User:
-    """Hanya Admin/Superadmin aktif boleh memiliki atau diberi akses ke OLT (PRD 3.7)."""
+    """Hanya Admin/Superadmin aktif boleh memiliki atau diberi akses ke OLT (PRD 3.7).
+
+    "Aktif" di sini dicek dua lapis: tidak soft-delete DAN is_active — sebelumnya
+    hanya deleted_at yang dicek, sehingga user yang dinonaktifkan masih bisa
+    dijadikan pemilik/penerima akses.
+    """
     manager = await db.get(User, user_id)
-    if manager is None or manager.deleted_at is not None or manager.role not in MANAGERS:
+    if manager is None or manager.deleted_at is not None \
+            or manager.is_active is not True or manager.role not in MANAGERS:
         raise ValidationAppError("Pemilik/penerima akses OLT harus Admin atau Superadmin aktif")
     return manager
 
 async def _owner_id(db: AsyncSession, owner_id: int | None, user: User) -> int:
-    """Superadmin picks the owner; anyone else owns what it touches (PRD 3.7)."""
-    if user.role != SUPERADMIN or owner_id is None:
+    """Superadmin picks the owner; anyone else owns what it touches (PRD 3.7).
+
+    Perubahan perilaku yang disengaja (sebelumnya diam-diam ditulis ulang):
+    non-Superadmin yang MENGIRIM owner_id kini DITOLAK, bukan ditulis ulang
+    menjadi user.id — penulisan ulang diam-diam menyembunyikan percobaan
+    merebut/mengubah kepemilikan dan membuat API berbohong tentang apa yang
+    disimpan. Bila owner_id tidak dikirim (None), pemiliknya tetap pemanggil.
+    """
+    if owner_id is None:
         return user.id
+    if user.role != SUPERADMIN:
+        raise ValidationAppError("Hanya Superadmin bisa menentukan owner_id OLT")
     return (await _manager(db, owner_id)).id
 
 async def _set_access(db: AsyncSession, olt: Olt, user_ids: list[int], user: User) -> list[int]:
@@ -171,6 +199,11 @@ async def update_olt(db: AsyncSession, olt_id: int, body: OltUpdate, user: User)
     if access is not None:
         values["access_user_ids"] = await _set_access(db, olt, access, user)
         await _flush(db)
+    # Nonaktifkan = hentikan pekerjaan yang masih antre untuk OLT ini dan rantai
+    # onboardingnya, supaya job lama tidak berjalan di OLT yang sudah dimatikan.
+    if was_active and not olt.is_active:
+        await job_repo.cancel_pending_for_olt(db, olt.id)
+        await olt_onboarding.cancel_chain(db, olt.id, reason="olt_deactivated")
     await log_activity(db, action="olt.update", entity_type="olt", entity_id=str(olt.id),
                        success=True, user_id=user.id, olt_id=olt.id,
                        after=OltUpdate(**values).model_dump(
@@ -193,6 +226,11 @@ async def delete_olt(db: AsyncSession, olt_id: int, user: User, confirm_name: st
     now = datetime.now(UTC)
     olt.deleted_at = now
     olt.is_active = False
+    # Hapus = hentikan juga job pending + rantai onboarding OLT ini; job yang sudah
+    # running ditolak di run_job (worker mengecek deleted_at/is_active), bukan
+    # dibatalkan paksa di tengah perintah CLI.
+    await job_repo.cancel_pending_for_olt(db, olt.id)
+    await olt_onboarding.cancel_chain(db, olt.id, reason="olt_deleted")
     deleted = await olt_repo.soft_delete_onus(db, olt_id, now)
     await log_activity(db, action="olt.delete", entity_type="olt", entity_id=str(olt.id),
                        success=True, user_id=user.id, olt_id=olt.id,
@@ -200,7 +238,14 @@ async def delete_olt(db: AsyncSession, olt_id: int, user: User, confirm_name: st
     await db.commit()
 
 async def test_connection(db: AsyncSession, body: OltTestRequest, user: User) -> OltTestResult:
-    """SNMP sysDescr get against the values in the form; no row needed, nothing written."""
+    """SNMP sysDescr get against the values in the form; no row needed, nothing written.
+
+    Batasan yang didokumentasikan, bukan disembunyikan: form pra-simpan ini TIDAK
+    membawa kredensial CLI (hanya host + SNMP), jadi uji CLI penuh tidak mungkin di
+    endpoint ini tanpa menambah field form + halaman (di luar kepemilikan Area 2).
+    Yang diperbaiki: walk KOSONG tidak lagi dilaporkan sukses — sysDescr kosong
+    berarti SNMP tidak benar-benar menjawab, bukan "SNMP menjawab".
+    """
     snmp = SnmpTransport(str(body.host), body.snmp_community, body.snmp_port)
     try:
         rows = await snmp.bulkwalk(OID_SYS_DESCR)
@@ -209,12 +254,15 @@ async def test_connection(db: AsyncSession, body: OltTestRequest, user: User) ->
     except Exception as exc:  # pysnmp surfaces socket/engine errors as plain exceptions
         message = f"SNMP gagal: {exc}"
     else:
-        descr = str(rows[0][1]) if rows else ""
-        await log_activity(db, action="olt.test_connection", entity_type="olt", success=True,
-                           user_id=user.id, raw_command=f"snmpget {OID_SYS_DESCR}",
-                           raw_output=descr[:500])
-        await db.commit()
-        return OltTestResult(success=True, message=descr[:200] or "SNMP menjawab")
+        if not rows:
+            message = "SNMP tidak mengembalikan sysDescr (walk kosong)"
+        else:
+            descr = str(rows[0][1]) if rows else ""
+            await log_activity(db, action="olt.test_connection", entity_type="olt", success=True,
+                               user_id=user.id, raw_command=f"snmpget {OID_SYS_DESCR}",
+                               raw_output=descr[:500])
+            await db.commit()
+            return OltTestResult(success=True, message=descr[:200] or "SNMP menjawab")
     await log_activity(db, action="olt.test_connection", entity_type="olt", success=False,
                        user_id=user.id, raw_command=f"snmpget {OID_SYS_DESCR}",
                        raw_output=message[:500])
@@ -228,15 +276,47 @@ async def list_interfaces(db: AsyncSession, olt_id: int, user: User) -> list[Int
     pra-simpan: tidak ada state yang diubah, dan nilainya tidak berguna kalau basi.
     """
     olt = await get_olt(db, olt_id, user)
-    return [InterfaceOut(**asdict(row)) for row in await build_driver(olt).fetch_interfaces()]
+    # Baca live juga harus menghormati "satu OLT = satu sesi CLI": tanpa kunci
+    # ini, tab Interfaces bisa membuka sesi kedua bersamaan dengan job CLI yang
+    # sedang berjalan untuk OLT yang sama. Sibuk = 409 yang jelas, bukan antre
+    # diam-diam atau sesi ganda.
+    async with olt_cli_lock(olt.id) as acquired:
+        if not acquired:
+            raise ConflictError(
+                f"OLT {olt_id} sedang dipakai sesi CLI lain; coba lagi sesaat lagi")
+        return [InterfaceOut(**asdict(row))
+                for row in await build_driver(olt).fetch_interfaces()]
 
 
 async def set_port_config(db: AsyncSession, olt_id: int, port: str, body: PortConfigRequest,
                           user: User) -> int:
     """Push auto-nego/speed/duplex satu port uplink lewat job (AGENTS.md: menyentuh
     perangkat selalu lewat job, sama seperti VLAN uplink ports).
+
+    Validasi DI ENQUEUE, bukan di worker: format port + kombinasi speed/duplex
+    dicek dengan builder perintah driver yang sama (satu sumber aturan, DRY), dan
+    port harus ada di daftar uplink terakhir yang diketahui perangkat bila daftar
+    itu sudah pernah tersinkron. Gagal validasi di sini = ValidationAppError, yang
+    tidak pernah masuk antrean — bukan job gagal yang di-retry.
     """
-    await get_olt(db, olt_id, user)
+    olt = await get_olt_for_action(db, olt_id, user)
+    # Celah gate sebelumnya: set_port_config (enqueue maupun worker) tidak memanggil
+    # ensure_writes_allowed, sehingga ALLOW_WRITE_COMMANDS=false tidak memblokirnya
+    # padahal semua push VLAN/speed-profile diblokir. Diselaraskan dengan keduanya.
+    ensure_writes_allowed()
+    # Normalisasi hyphen/underscore di sisi enqueue: "gei-1/5/1" dan "gei_1/5/1"
+    # adalah port yang sama; tanpa ini, port hyphen ditolak perbandingan daftar
+    # uplink yang tersimpan (selalu bentuk "_"), padahal driver akan
+    # menormalisasinya juga saat membangun perintah.
+    port = normalize_uplink_name(port)
+    try:
+        build_port_config_commands(port, body.auto_nego, body.speed, body.duplex)
+    except ValueError as exc:
+        raise ValidationAppError(str(exc)) from exc
+    known_uplinks = [normalize_uplink_name(str(p)) for p in (olt.uplink_ports or [])]
+    if known_uplinks and port not in known_uplinks:
+        raise ValidationAppError(
+            f"Port {port} tidak ada di daftar uplink OLT ini ({', '.join(known_uplinks)})")
     job = await job_service.enqueue(
         db, "set_port_config", olt_id=olt_id, created_by=user.id,
         payload={"port": port, "auto_nego": body.auto_nego, "speed": body.speed,
@@ -256,6 +336,19 @@ async def push_port_config(db: AsyncSession, job: Job, driver) -> dict:
     bisa menampilkannya baik saat sukses maupun gagal.
     """
     payload = job.payload
+    # Gate yang sama di worker: job yang antre sebelum gate enqueue ada (atau
+    # flag dimatikan setelah enqueue) tetap tidak boleh menyentuh perangkat.
+    ensure_writes_allowed()
+    # Normalisasi sisi worker juga (job lama yang antre sebelum normalisasi
+    # enqueue ada, atau payload dikirim API langsung dengan hyphen).
+    payload = {**payload, "port": normalize_uplink_name(payload["port"])}
+    # Validasi ulang di worker untuk job lama yang antre sebelum validasi enqueue
+    # ada: ValueError di sini menjadi ValidationAppError (permanen, bukan retry).
+    try:
+        build_port_config_commands(payload["port"], payload["auto_nego"],
+                                   payload.get("speed"), payload.get("duplex"))
+    except ValueError as exc:
+        raise ValidationAppError(str(exc)) from exc
     result = await driver.set_port_config(
         payload["port"], payload["auto_nego"], payload.get("speed"), payload.get("duplex")
     )
@@ -271,7 +364,9 @@ async def push_port_config(db: AsyncSession, job: Job, driver) -> dict:
 
 
 async def enqueue_olt_job(db: AsyncSession, olt_id: int, job_type: str, user: User) -> int:
-    await get_olt(db, olt_id, user)
+    # Aksi manual (test/refresh/backup) ditolak untuk OLT nonaktif; anti-pileup
+    # untuk tipe yang sama ada di job_service.enqueue.
+    await get_olt_for_action(db, olt_id, user)
     job = await job_service.enqueue(db, job_type, olt_id=olt_id, created_by=user.id)
     await db.commit()
     return job.id
@@ -289,7 +384,7 @@ async def sync_all(db: AsyncSession, olt_id: int, user: User) -> OltSyncStatus:
     """Tombol "Sinkron ulang semua": rantai yang sama, idempoten (rantai yang masih
     jalan dikembalikan apa adanya, tanpa job kedua).
     """
-    olt = await get_olt(db, olt_id, user)
+    olt = await get_olt_for_action(db, olt_id, user)
     record = await olt_onboarding.start_chain(db, olt_id, trigger="manual",
                                               created_by=user.id)
     await log_activity(db, action="olt.sync_all", entity_type="olt", entity_id=str(olt_id),

@@ -18,6 +18,26 @@ function detailText(detail: unknown): string {
   return "";
 }
 
+/** Arahkan ke login tanpa membuang halaman asal, kecuali bila sudah di /login
+ *  (menghindari loop next=/login). */
+function redirectToLogin() {
+  setToken(null);
+  const here = location.pathname + location.search;
+  location.assign(here === "/login" ? "/login" : `/login?next=${encodeURIComponent(here)}`);
+}
+
+/** Baca body error sekali: JSON bila bisa diparse, sonst teks terpotong 200 karakter.
+ *  Sebelumnya body non-JSON dibuang dan hanya tersisa "HTTP <status> dari API". */
+async function errorMessage(res: Response): Promise<string> {
+  const text = await res.text().catch(() => "");
+  try {
+    const body = JSON.parse(text) as { detail?: unknown };
+    return detailText(body.detail) || `HTTP ${res.status} dari API`;
+  } catch {
+    return text.trim().slice(0, 200) || `HTTP ${res.status} dari API`;
+  }
+}
+
 export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
   const headers = new Headers(init.headers);
   const token = getToken();
@@ -33,14 +53,8 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
   } catch {
     throw new ApiError(0, "API tidak dapat dihubungi");
   }
-  if (res.status === 401 && token) {
-    setToken(null);
-    location.assign("/login");
-  }
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, detailText(body.detail) || `HTTP ${res.status} dari API`);
-  }
+  if (res.status === 401 && token) redirectToLogin();
+  if (!res.ok) throw new ApiError(res.status, await errorMessage(res));
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
@@ -63,16 +77,21 @@ export const qsMulti = (params: Record<string, string | number | string[] | unde
   return s ? `?${s}` : "";
 };
 
-/** Unduh file dari endpoint yang butuh Authorization — <a href> biasa tidak mengirim token. */
+/** Unduh file dari endpoint yang butuh Authorization — <a href> biasa tidak mengirim token.
+ *  Menangani 401 sama seperti api(): token dibersihkan dan pengguna diarahkan ke login,
+ *  bukan dibiarkan dengan token basi dan pesan error generik. */
 export async function download(path: string, fallbackName: string) {
   const headers = new Headers();
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(path, { headers });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, detailText(body.detail) || `HTTP ${res.status} dari API`);
+  let res: Response;
+  try {
+    res = await fetch(path, { headers });
+  } catch {
+    throw new ApiError(0, "API tidak dapat dihubungi");
   }
+  if (res.status === 401 && token) redirectToLogin();
+  if (!res.ok) throw new ApiError(res.status, await errorMessage(res));
   const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1];
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement("a");
@@ -216,9 +235,19 @@ export type SpeedProfileRow = SpeedProfile & {
 };
 
 export type Job = {
-  id: number; job_type: string; status: string; olt_id: number | null; onu_id: number | null;
+  id: number; job_type: string; status: string; priority: number;
+  payload: Record<string, unknown>; olt_id: number | null; onu_id: number | null;
+  created_by: number | null; attempts: number; max_attempts: number;
   created_at: string; started_at: string | null; finished_at: string | null;
+  duration_ms: number | null;
   error_message: string | null; error_code: string | null; result: Record<string, unknown> | null;
+};
+
+/** GET /api/users — sama dengan UserOut backend (tidak pernah memuat password_hash). */
+export type User = {
+  id: number; username: string; full_name: string; role: Role; admin_id: number | null;
+  admin_username: string | null; olt_count: number; is_active: boolean;
+  must_change_password: boolean; last_login_at: string | null; created_at: string;
 };
 
 /** PRD 3.4.15 /logs. */

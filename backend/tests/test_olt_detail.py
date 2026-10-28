@@ -328,21 +328,26 @@ async def test_push_ports_rejected_raises(monkeypatch):
 
 
 def test_driver_builds_hybrid_before_untag():
-    """Kode 60584: `untag` ditolak selama port masih trunk, jadi hybrid harus lebih dulu."""
+    """Kode 60584: `untag` ditolak selama port masih trunk, jadi hybrid harus lebih dulu.
+
+    Diperbarui putaran fix lifecycle: driver kini mengirim config satu per satu
+    (bukan send_config_set borongan), jadi yang ditangkap adalah urutan perintah
+    lewat send_command, termasuk "configure terminal" pembuka dan "exit" penutup.
+    """
     import asyncio
 
     cli = FakeCli()
     driver = _driver(cli=cli)
-    sent: list[list[str]] = []
+    sent: list[str] = []
 
-    async def capture(commands):
-        sent.append(commands)
+    async def capture(command):
+        sent.append(command)
         return ""
 
-    cli.send_config_set = capture
+    cli.send_command = capture
     asyncio.run(driver.set_vlan_ports(100, {"gei_1/5/1": "untagged"}))
-    assert sent == [["interface gei_1/5/1", "switchport mode hybrid",
-                     "switchport vlan 100 untag", "exit"]]
+    assert sent == ["configure terminal", "interface gei_1/5/1", "switchport mode hybrid",
+                    "switchport vlan 100 untag", "exit", "exit"]
 
 
 # --- Tab Interfaces: push konfigurasi port uplink ----------------------------

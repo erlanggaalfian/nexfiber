@@ -164,7 +164,7 @@ export function OnuTypes() {
           title={`Hapus ${del.name}?`}
           body={del.onu_count > 0
             ? `Tipe ini dipakai ${del.onu_count} ONU, penghapusan akan ditolak.`
-            : "Tipe ONU dihapus permanen."}
+            : "Tipe ONU dihapus permanen. Penghapusan juga ditolak bila tipe masih dipakai preset."}
           action="Hapus"
           busy={remove.isPending}
           error={remove.error?.message}

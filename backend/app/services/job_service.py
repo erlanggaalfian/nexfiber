@@ -13,10 +13,47 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import SessionLocal
-from app.core.exceptions import ConflictError, NotFoundError
-from app.core.rbac import Scope, scoped
+from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
+from app.core.rbac import MANAGERS, Scope, scope_olt_ids, scoped
+from app.core.security import decode_access_token, password_token_claim
 from app.models.job import Job
+from app.models.user import User
+from app.repositories import job_repo
 from app.schemas.job import JobOut
+
+# Job level OLT yang rawan menumpuk dari klik berulang: satu job aktif per OLT
+# sudah cukup; job kedua dengan payload lebih lama tidak boleh mengantre dan
+# menang atas job yang lebih baru. Cek ini ada di enqueue pusat supaya semua
+# jalur (API, VLAN, speed profile) tertutup tanpa mengubah file-file itu.
+OLT_LEVEL_SINGLE_ACTIVE = {
+    "set_vlan_ports", "set_port_config", "push_speed_profile",
+    "sync_speed_profiles", "test_connection", "backup_olt_config",
+}
+
+# Hasil job yang memuat kredensial pelanggan dan hanya boleh dibaca manager:
+# refresh_onu_detail mengembalikan running_config utuh, diagnostik running
+# mengembalikan output running-config utuh. Pembaca non-manager tetap boleh
+# melihat status job dan field lain, tapi bukan isi sensitifnya.
+_SENSITIVE_JOB_TYPES = {"refresh_onu_detail", "read_onu_running_config"}
+
+
+def redact_job(job: Job, viewer: User | None) -> JobOut:
+    """JobOut dengan hasil sensitif disensor untuk non-manager.
+
+    Dipakai di get/list/stream supaya gate role tidak hanya ada saat enqueue
+    (diagnostik running) tapi juga saat MEMBACA hasil — sebelumnya user biasa
+    cukup menebak job_id job manager untuk membaca running-config.
+    """
+    out = JobOut.model_validate(job)
+    if viewer is not None and viewer.role in MANAGERS:
+        return out
+    if job.job_type in _SENSITIVE_JOB_TYPES and out.result:
+        result = dict(out.result)
+        result.pop("running_config", None)
+        if job.job_type == "read_onu_running_config":
+            result["output"] = None
+        out = out.model_copy(update={"result": result})
+    return out
 
 
 async def enqueue(
@@ -39,6 +76,11 @@ async def enqueue(
     (uq_jobs_active_per_onu) melakukan hal sama untuk job per ONU, jadi dua proses yang
     menekan tombol sama bersamaan tetap menghasilkan tepat satu job.
     """
+    if job_type in OLT_LEVEL_SINGLE_ACTIVE and olt_id is not None:
+        # Cek eksplisit sebelum INSERT: index partial hanya menutupi sync_* dan
+        # job per ONU, sedangkan tipe-tipe ini sebelumnya bisa menumpuk tanpa batas.
+        if await job_repo.exists_active_for_olt(db, olt_id, job_type):
+            raise ConflictError(f"Job {job_type} untuk OLT ini masih pending/running")
     job = Job(
         job_type=job_type,
         olt_id=olt_id,
@@ -53,12 +95,20 @@ async def enqueue(
     try:
         await db.flush()
     except IntegrityError as exc:
+        # Rollback SEBELUM raise: tanpa ini sesi pemanggil "teracuni"
+        # (PendingRollbackError pada query berikutnya) dan pemanggil yang
+        # menangkap ConflictError lalu melanjutkan transaksi akan meledak
+        # di tempat yang tidak berhubungan. Objek job yang gagal dibuang
+        # dari sesi supaya tidak ikut ter-flush lagi.
+        await db.rollback()
+        db.expunge(job)
         raise ConflictError(
             f"Job {job_type} untuk target ini masih pending/running"
         ) from exc
     return job
 
-async def get_job(db: AsyncSession, job_id: int, scope: Scope) -> Job:
+async def get_job(db: AsyncSession, job_id: int, scope: Scope,
+                  viewer: User | None = None) -> Job:
     job = await db.scalar(scoped(select(Job).where(Job.id == job_id), Job.olt_id, scope))
     if job is None:
         raise NotFoundError("Job not found")
@@ -82,8 +132,16 @@ async def list_jobs(
         stmt = stmt.where(Job.onu_id == onu_id)
     return list((await db.execute(stmt)).scalars().all())
 
-async def cancel_job(db: AsyncSession, job_id: int, scope: Scope) -> Job:
+async def cancel_job(db: AsyncSession, job_id: int, scope: Scope,
+                     viewer: User | None = None) -> Job:
     job = await get_job(db, job_id, scope)
+    # Pembuat job, atau manager/superadmin. Job sistem (created_by IS NULL)
+    # HANYA boleh dibatalkan manager: sebelumnya siapa saja dalam scope bisa
+    # membatalkan job sistem (scheduler/sinkronisasi), karena created_by None
+    # lolos dari cek "bukan pembuat".
+    if viewer is not None and viewer.role not in MANAGERS \
+            and (job.created_by is None or job.created_by != viewer.id):
+        raise ForbiddenError("Hanya pembuat job atau manager yang bisa membatalkannya")
     if job.status not in ("pending",):
         raise ConflictError(f"Cannot cancel a job in status '{job.status}'")
     job.status = "cancelled"
@@ -105,11 +163,64 @@ async def _changed_since(since: datetime, scope: Scope) -> list[Job]:
         stmt = scoped(stmt, Job.olt_id, scope)
         return list((await db.execute(stmt)).scalars().all())
 
-async def stream_job_events(scope: Scope) -> AsyncIterator[str]:
+
+async def _stream_viewer(user_id: int) -> User | None:
+    """Validasi ulang pemilik token SSE secara berkala (fallback tanpa token).
+
+    Dipakai bila stream dipanggil tanpa token mentah: user dibaca ulang dari
+    DB; bila sudah tidak aktif/terhapus, stream berhenti. Bila token mentah
+    tersedia, _revalidate_stream_token dipakai sebagai gantinya (lebih ketat).
+    Sisa risiko yang TIDAK tertutup di sini: token tetap dikirim lewat query
+    string URL (masuk access log/proxy) — itu keterbatasan EventSource yang
+    tidak bisa mengirim header Authorization, dan butuh token SSE khusus
+    berumur pendek untuk benar-benar menutupnya.
+    """
+    async with SessionLocal() as db:
+        return await db.get(User, user_id)
+
+
+async def _revalidate_stream_token(token: str) -> tuple[User | None, Scope]:
+    """Validasi penuh token SSE: decode (termasuk exp), user dari DB, klaim ph.
+
+    Mengembalikan (user_segara, scope_segara) atau (None, scope_lama) bila
+    validasi gagal — pemanggil harus menghentikan stream. Scope dihitung ulang
+    dari user segar, supaya perubahan kepemilikan/akses OLT di tengah koneksi
+    langsung berlaku, bukan scope saat koneksi dibuka.
+    """
+    try:
+        payload = decode_access_token(token)
+        user_id = int(payload["sub"])
+    except Exception:
+        return None, None
+    async with SessionLocal() as db:
+        user = await db.get(User, user_id)
+    if user is None or not user.is_active or user.deleted_at is not None:
+        return None, None
+    ph = payload.get("ph")
+    if ph is not None and ph != password_token_claim(user.password_hash):
+        return None, None
+    return user, scope_olt_ids(user)
+
+
+async def stream_job_events(scope: Scope, viewer: User | None = None,
+                            token: str | None = None) -> AsyncIterator[str]:
     """SSE frames for every job whose row changed (PRD 4.5.C). DB polling, no LISTEN/NOTIFY."""
     started = datetime.now(UTC)
     sent: dict[tuple[int, datetime], datetime] = {}
+    ticks = 0
     while True:
+        ticks += 1
+        if viewer is not None and ticks % 60 == 1 and ticks > 1:
+            if token:
+                fresh, fresh_scope = await _revalidate_stream_token(token)
+                if fresh is None:
+                    return
+                viewer, scope = fresh, fresh_scope
+            else:
+                fresh = await _stream_viewer(viewer.id)
+                if fresh is None or not fresh.is_active or fresh.deleted_at is not None:
+                    return
+                viewer = fresh
         cutoff = datetime.now(UTC) - STREAM_OVERLAP
         new = False
         for job in await _changed_since(max(started, cutoff), scope):
@@ -117,7 +228,7 @@ async def stream_job_events(scope: Scope) -> AsyncIterator[str]:
                 continue
             sent[(job.id, job.updated_at)] = job.updated_at
             new = True
-            yield f"event: job\ndata: {JobOut.model_validate(job).model_dump_json()}\n\n"
+            yield f"event: job\ndata: {redact_job(job, viewer).model_dump_json()}\n\n"
         sent = {k: t for k, t in sent.items() if t > cutoff}
         if not new:
             yield ": ping\n\n"

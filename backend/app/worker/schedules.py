@@ -3,9 +3,10 @@ process. Pileup guard is the DB partial unique index; ConflictError = skip this 
 """
 
 import logging
+from datetime import date
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.db import SessionLocal
 from app.core.exceptions import ConflictError
@@ -40,6 +41,37 @@ async def purge_graph_data() -> None:
         purged = await graph_data_service.purge_expired(db)
     log.info("purge graph data: %s", purged)
 
+def _next_month_first(d: date) -> date:
+    return date(d.year + 1, 1, 1) if d.month == 12 else date(d.year, d.month + 1, 1)
+
+
+async def create_next_activity_log_partition(today: date | None = None) -> None:
+    """Buat partisi activity_logs untuk bulan berikutnya, satu bulan sebelumnya.
+
+    Aman tanpa DB nyata untuk dinilai: hanya DDL CREATE TABLE ... PARTITION OF
+    (IF NOT EXISTS), tidak memindahkan satu baris pun. Baris yang sudah terlanjur
+    masuk partisi DEFAULT tetap di DEFAULT — memindahkannya butuh jendela
+    perawatan dan ditulis sebagai langkah manual di docs/db-maintenance.md,
+    bukan dilakukan scheduler ini. Bila partisi sudah ada, IF NOT EXISTS
+    membuatnya no-op; bila DDL gagal, dicatat dan tidak menggagalkan scheduler.
+    """
+    start = _next_month_first(today or date.today())
+    end = _next_month_first(start)
+    name = f"activity_logs_{start.year:04d}_{start.month:02d}"
+    sql = (
+        f"CREATE TABLE IF NOT EXISTS {name} PARTITION OF activity_logs "
+        f"FOR VALUES FROM ('{start.isoformat()}') TO ('{end.isoformat()}')"
+    )
+    try:
+        async with SessionLocal() as db:
+            await db.execute(text(sql))
+            await db.commit()
+    except Exception:
+        log.exception("create_next_activity_log_partition gagal untuk %s", name)
+        return
+    log.info("activity_logs partition ready: %s", name)
+
+
 def start_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler()
     def add(job_type: str, trigger: str, **when: int) -> None:
@@ -59,6 +91,10 @@ def start_scheduler() -> AsyncIOScheduler:
     add("backup_olt_config", "cron", hour=2)  # PRD only says "harian"; 02:00 = quiet hours
     # Purge retensi data graph: 03:00, setelah backup, jauh dari jam sibuk.
     scheduler.add_job(purge_graph_data, "cron", hour=3, max_instances=1, coalesce=True)
+    # Partisi activity_logs bulan berikutnya dibuat tanggal 25 tiap bulan,
+    # sebelum bulan itu dimulai — tidak memindahkan data DEFAULT (lihat fungsi).
+    scheduler.add_job(create_next_activity_log_partition, "cron", day=25, hour=4,
+                      max_instances=1, coalesce=True)
     # Rantai onboarding OLT: tahap berikutnya diantre begitu tahap sebelumnya sukses.
     # 5 detik = progres terasa langsung di UI tanpa membebani DB (query 1 tabel settings).
     scheduler.add_job(olt_onboarding.advance_active_chains, "interval", seconds=5,

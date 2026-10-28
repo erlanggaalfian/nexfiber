@@ -9,7 +9,7 @@
  *  filternya dikirim ke backend (app/core/signal.py). Satu definisi bucket saja.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
   Confirm, FilterChip, MultiFilter, TableCard, cell, filterInput, input,
@@ -18,8 +18,8 @@ import { PageTitle, RX_BUCKETS, SignalBar, StatusBadge, fmtAgo, nf } from "../co
 import { Button } from "../components/ui/button";
 import {
   api, download, qsMulti,
-  type BulkActionResult, type Olt, type OnuRow, type Page, type SpeedProfile, type Splitter,
-  type Vlan, type Zone,
+  type BulkActionResult, type Olt, type OnuRow, type OnuType, type Page, type SpeedProfile,
+  type Splitter, type Vlan, type Zone,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
@@ -67,8 +67,24 @@ export function Configured() {
   const [downloadError, setDownloadError] = useState("");
 
   const q = params.get("q") ?? "";
-  const page = Number(params.get("page") ?? 1);
-  const size = Number(params.get("size") ?? 50);
+  // Sanitasi page/size seperti Logs: NaN/nol/negatif -> 1, size di luar SIZES -> 50.
+  // Tanpa ini ?page=abc dulu jadi NaN dan dikirim ke backend (422), dan ?size=7
+  // membuat footer "1–7 dari N" padahal backend tetap memotong sesuai size-nya.
+  const rawPage = Number(params.get("page") ?? 1);
+  const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.floor(rawPage) : 1;
+  const rawSize = Number(params.get("size") ?? 50);
+  const size = SIZES.includes(rawSize) ? rawSize : 50;
+  // Kotak cari controlled + debounce 300ms: sebelumnya input uncontrolled
+  // (defaultValue) sehingga Reset (setParams kosong) tidak mengosongkan kotak,
+  // dan tiap ketikan langsung memicu query baru.
+  const [searchText, setSearchText] = useState(q);
+  useEffect(() => { setSearchText(q); }, [q]);
+  useEffect(() => {
+    if (searchText === q) return;
+    const t = setTimeout(() => patch({ q: searchText }), 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchText]);
   const multi = useMemo(() => {
     const out = {} as Record<MultiKey, string[]>;
     for (const k of MULTI_KEYS) out[k] = params.getAll(k);
@@ -101,6 +117,9 @@ export function Configured() {
   });
   const profiles = useQuery({
     queryKey: ["speed-profiles"], queryFn: () => api<SpeedProfile[]>("/api/speed-profiles"),
+  });
+  const onuTypeCatalog = useQuery({
+    queryKey: ["onu-types"], queryFn: () => api<OnuType[]>("/api/onu-types"),
   });
 
   const exportCsv = useMutation({
@@ -139,6 +158,11 @@ export function Configured() {
   const rows = onus.data?.items ?? [];
   const total = onus.data?.total ?? 0;
   const pages = Math.max(Math.ceil(total / size), 1);
+  // Clamp page ke halaman terakhir bila total menyusut (pola yang sama dengan Logs).
+  useEffect(() => {
+    if (onus.data && page > pages) patch({ page: pages }, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onus.data, page, pages]);
   const allPicked = rows.length > 0 && picked.length === rows.length;
 
   const labelFor = (key: MultiKey, value: string) => {
@@ -162,10 +186,18 @@ export function Configured() {
     onu_type: "Tipe",
   };
   const activeChips = MULTI_KEYS.flatMap((k) => multi[k].map((v) => ({ key: k, value: v })));
+  // Opsi tipe = gabungan katalog + nilai yang muncul di baris. Mengganti opsi
+  // sepenuhnya dengan katalog TIDAK aman: Onu.onu_type adalah string bebas
+  // (nama katalog saat authorize, tapi bisa juga tipe pending/legacy seperti
+  // "ALL-ONT"), sehingga tipe di luar katalog akan hilang dari filter dan
+  // tidak bisa dipilih lagi. Gabungan ini memperbaiki keterbatasan lama
+  // (opsi hanya dari halaman aktif) tanpa menghilangkan tipe yang sudah ada.
   const onuTypes = useMemo(
-    () => [...new Set(rows.map((r) => r.onu_type).filter((t): t is string => !!t))]
-      .map((t) => ({ value: t, label: t })),
-    [rows],
+    () => [...new Set([
+      ...(onuTypeCatalog.data ?? []).map((t) => t.name),
+      ...rows.map((r) => r.onu_type).filter((t): t is string => !!t),
+    ])].map((t) => ({ value: t, label: t })),
+    [onuTypeCatalog.data, rows],
   );
 
   return (
@@ -192,9 +224,9 @@ export function Configured() {
         <input
           className={`${input} max-w-xs`}
           placeholder="Nama, SN, alamat, PPPoE, external ID ..."
-          defaultValue={q}
+          value={searchText}
           aria-label="Cari ONU"
-          onChange={(e) => patch({ q: e.target.value })}
+          onChange={(e) => setSearchText(e.target.value)}
         />
         <MultiFilter label="OLT" value={multi.olt_id} onChange={(v) => patch({ olt_id: v })}
           options={(olts.data ?? []).map((o) => ({ value: String(o.id), label: o.name }))} />
@@ -220,7 +252,7 @@ export function Configured() {
           onChange={(v) => patch({ splitter_id: v })}
           options={(splitters.data ?? []).map((s) => ({ value: String(s.id), label: s.name }))} />
         {(activeChips.length > 0 || q) && (
-          <Button variant="quiet" size="sm" onClick={() => setParams(new URLSearchParams(), { replace: true })}>
+          <Button variant="quiet" size="sm" onClick={() => { setSearchText(""); setParams(new URLSearchParams(), { replace: true }); }}>
             Reset
           </Button>
         )}
@@ -240,6 +272,11 @@ export function Configured() {
 
       {(note || downloadError) && (
         <p className="mb-2 text-muted" role="status">{note || downloadError}</p>
+      )}
+      {total > 50000 && (
+        <p className="mb-2 text-amber" role="status">
+          Export CSV hanya mengekspor 50.000 dari {nf.format(total)} baris (batas backend).
+        </p>
       )}
 
       <TableCard

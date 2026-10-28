@@ -126,8 +126,12 @@ def _host_vlan_map(running: str) -> dict[int, int]:
     flows = {int(f): int(v) for f, v in _FLOW_RE.findall(text)}
     gems = {int(g): int(f) for g, f in _GEM_FLOW_RE.findall(text)}
     for n, _ in _IPHOST_RE.findall(text):
-        if n not in out and int(n) in gems and gems[int(n)] in flows:
-            out[int(n)] = flows[gems[int(n)]]
+        # BUG lama: `n` dari regex adalah str, sedangkan kunci `out` int — `n not in
+        # out` selalu True, jadi fallback bisa MENIMPA pasangan vlan-filter yang sudah
+        # benar dengan pasangan flow lama. Bandingkan dalam bentuk int.
+        n_int = int(n)
+        if n_int not in out and n_int in gems and gems[n_int] in flows:
+            out[n_int] = flows[gems[n_int]]
     return out
 
 
@@ -263,14 +267,15 @@ def parse_management_ip(running: str) -> list[tuple[int, str, str | None]] | Non
     Aturan pasangan dari konfigurasi nyata: `ip-host 2` membawa `flow 2` lewat
     `gemport 2 flow 2` — nilai diambil dari baris `ip-host` dan flow-nya, bukan
     menyebar ke semua flow. Tanpa baris `ip-host N` untuk gemport N = inactive.
-    Bentuk ambigu/tidak dikenal = None.
+    Bentuk ambigu/tidak dikenal pada host yang BERPASANGAN = None. Sebaliknya,
+    satu `ip-host` yang tidak punya `gemport N` bernomor sama hanya DILEWATI —
+    sebelumnya satu host tak berpasangan membatalkan SELURUH daftar (semua kandidat
+    hilang, kolom IP management kosong walau host lain valid).
     """
     text = running or ""
     flows = {int(flow): int(vlan) for flow, vlan in _FLOW_RE.findall(text)}
     gems = {int(gem): int(flow) for gem, flow in _GEM_FLOW_RE.findall(text)}
     hosts = {int(n): value.strip() for n, value in _IPHOST_RE.findall(text)}
-    if any(n not in gems for n in hosts):
-        return None  # ip-host tanpa `gemport N` bernomor sama: tak bisa dipasangkan
     out: list[tuple[int, str, str | None]] = []
     for gem, flow in sorted(gems.items()):
         if flow not in flows:
@@ -304,6 +309,12 @@ def wan_vlan_not_management(
     `wan` (biasanya `flow 1`) dipakai bila memang bukan management. Bila kena VLAN
     management, ganti dengan kandidat non-management pertama (urutan flow); tidak
     ada kandidat = None — VLAN management tidak boleh jadi VLAN WAN.
+
+    Catatan Area 2: fallback ini dipertahankan karena tes yang ada memberkatinya
+    untuk jalur refresh, dan kandidatnya HANYA flow ber-ip-host (bukan VLAN layanan
+    sembarang seperti VoIP yang tidak punya ip-host). Sisa ambiguitas: pada ONU
+    multi-ip-host, kandidat non-management pertama belum tentu flow WAN — itu
+    batasan yang tidak bisa ditutup dari teks running-config saja.
     """
     if wan is None or wan not in management:
         return wan

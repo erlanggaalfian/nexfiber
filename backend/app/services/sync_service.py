@@ -55,6 +55,28 @@ def _mark_olt_ok(olt: Olt, now: datetime) -> None:
     olt.last_sync_at = now
     olt.last_error = None
 
+
+async def _refresh_pon_oper_states(db: AsyncSession, olt: Olt, driver: OltDriver) -> int:
+    """Tulis PonPort.oper_state dari SNMP ifOperStatus (driver ZTE).
+
+    Dipanggil lewat getattr karena metodenya belum ada di interface OltDriver
+    (types.py di luar kepemilikan Area 2): driver/fake yang tidak menyediakannya
+    dilewati diam-diam. Dict kosong (SNMP gagal) membiarkan nilai lama, bukan
+    menimpa dengan None — itu yang membuat semua port tampil offline selama ini.
+    """
+    fetch = getattr(driver, "fetch_pon_oper_states", None)
+    if fetch is None:
+        return 0
+    states = await fetch()
+    written = 0
+    for (slot, port), state in sorted(states.items()):
+        result = await db.execute(
+            update(PonPort).where(PonPort.olt_id == olt.id, PonPort.slot == slot,
+                                  PonPort.port == port).values(oper_state=state)
+        )
+        written += result.rowcount or 0
+    return written
+
 OPTICAL_COLUMNS = ("rx_power_dbm", "tx_power_dbm", "olt_rx_power_dbm",
                    "temperature_c", "voltage_v", "bias_current_ma")
 
@@ -74,6 +96,7 @@ async def sync_onu_status(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict
     known = await _pon_ports_by_position(db, olt.id)
     missing = {(s.slot, s.port): None for s in samples if (s.slot, s.port) not in known}
     await _upsert_pon_ports(db, olt.id, missing, now)
+    pon_oper_written = await _refresh_pon_oper_states(db, olt, driver)
     onus = await _onus_by_position(db, olt.id)
     changed, still_online = 0, []
     # Urut posisi: dua proses menulis baris dalam urutan sama -> tidak ada deadlock.
@@ -94,6 +117,7 @@ async def sync_onu_status(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict
         db.add(OnuSignalHistory(
             onu_id=onu.id, status=sample.status, sampled_at=now,
             rx_power_dbm=onu.rx_power_dbm, olt_rx_power_dbm=onu.olt_rx_power_dbm,
+            source="status_change",
         ))
         # Riwayat sudah menyimpan angka terakhir di atas; baris ONU-nya dikosongkan
         # supaya ONU yang tidak online tidak lagi menampilkan Rx/Tx lama.
@@ -102,8 +126,34 @@ async def sync_onu_status(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict
         changed += 1
     if still_online:
         await db.execute(update(Onu).where(Onu.id.in_(still_online)).values(last_seen_at=now))
-    _mark_olt_ok(olt, now)
-    return {"changed": changed, "unchanged_online": len(still_online)}
+    absent_marked = 0
+    if samples:
+        # ONU yang hilang dari sampel perangkat tidak boleh tetap "online" di DB:
+        # barisnya TIDAK dihapus, statusnya jadi offline dengan alasan hilang dari
+        # tabel phase perangkat. Hanya ONU yang tadinya online yang ditandai —
+        # ONU yang sudah offline/los mempertahankan status spesifiknya, dan walk
+        # kosong (gagal baca sesaat) TIDAK menandai apa pun, supaya satu SNMP
+        # gagal tidak mematikan seluruh OLT di UI.
+        seen_keys = {(s.slot, s.port, s.onu_id) for s in samples}
+        for (slot, port, onu_id), onu in sorted(onus.items()):
+            if (slot, port, onu_id) in seen_keys or onu.status != "online":
+                continue
+            # Riwayat dulu (menyimpan angka terakhir), baru kosongkan kolom ONU.
+            db.add(OnuSignalHistory(
+                onu_id=onu.id, status="offline", sampled_at=now,
+                rx_power_dbm=onu.rx_power_dbm, olt_rx_power_dbm=onu.olt_rx_power_dbm,
+                source="status_change",
+            ))
+            onu.status = "offline"
+            onu.last_down_at = now
+            onu.last_down_reason = "absent_from_device_sample"
+            _clear_optical(onu)
+            absent_marked += 1
+        _mark_olt_ok(olt, now)
+    return {"changed": changed, "unchanged_online": len(still_online),
+            "absent_marked_offline": absent_marked,
+            "absent_skipped_empty_sample": not samples,
+            "pon_oper_written": pon_oper_written}
 
 async def sync_onu_optical(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict:
     """ONU yang tidak online dilewati (nilai optiknya dikosongkan): polling 15 menit
@@ -111,7 +161,8 @@ async def sync_onu_optical(db: AsyncSession, olt: Olt, driver: OltDriver) -> dic
     now = datetime.now(UTC)
     onus = await _onus_by_position(db, olt.id)
     updated = skipped_offline = 0
-    for sample in sorted(await driver.fetch_optical(None, None),
+    optical_samples = await driver.fetch_optical(None, None)
+    for sample in sorted(optical_samples,
                          key=lambda s: (s.slot, s.port, s.onu_id)):
         onu = onus.get((sample.slot, sample.port, sample.onu_id))
         if onu is None:
@@ -121,16 +172,38 @@ async def sync_onu_optical(db: AsyncSession, olt: Olt, driver: OltDriver) -> dic
             onu.last_sync_at = now
             skipped_offline += 1
             continue
-        onu.rx_power_dbm = sample.rx_power_dbm
-        onu.tx_power_dbm = sample.tx_power_dbm
-        onu.olt_rx_power_dbm = sample.olt_rx_power_dbm
+        # Guard None per kolom (sama seperti guard health): satu sampel dengan
+        # field None tidak boleh menimpa nilai baik sebelumnya dengan kosong.
+        # Sebelumnya semua kolom ditulis apa adanya, termasuk None.
+        for column, value in (
+            ("rx_power_dbm", sample.rx_power_dbm),
+            ("tx_power_dbm", sample.tx_power_dbm),
+            ("olt_rx_power_dbm", sample.olt_rx_power_dbm),
+            ("temperature_c", sample.temperature_c),
+            ("voltage_v", sample.voltage_v),
+            ("bias_current_ma", sample.bias_current_ma),
+        ):
+            if value is not None:
+                setattr(onu, column, value)
         onu.last_sync_at = now
-        db.add(OnuSignalHistory(onu_id=onu.id, status=onu.status, sampled_at=now,
-                                rx_power_dbm=sample.rx_power_dbm, tx_power_dbm=sample.tx_power_dbm,
-                                olt_rx_power_dbm=sample.olt_rx_power_dbm))
+        if any(v is not None for v in (sample.rx_power_dbm, sample.tx_power_dbm,
+                                       sample.olt_rx_power_dbm)):
+            db.add(OnuSignalHistory(onu_id=onu.id, status=onu.status, sampled_at=now,
+                                    rx_power_dbm=sample.rx_power_dbm,
+                                    tx_power_dbm=sample.tx_power_dbm,
+                                    olt_rx_power_dbm=sample.olt_rx_power_dbm,
+                                    source="optical"))
         updated += 1
-    _mark_olt_ok(olt, now)
-    return {"updated": updated, "skipped_offline": skipped_offline}
+    # SNMP-only sync tidak boleh menghidupkan status OLT dari walk kosong: walk
+    # kosong = tidak ada bukti perangkat terbaca, jadi status dibiarkan apa adanya
+    # (bukan "online"). Bila ada sampel, pembacaan SNMP berhasil -> tandai ok.
+    # Batasan yang tersisa: sukses SNMP saja tetap menandai online walau CLI mati;
+    # status "online" di sini berarti "terjangkau lewat SNMP", bukan "CLI sehat" —
+    # kesehatan CLI hanya dibuktikan job test_connection / aksi CLI.
+    if optical_samples:
+        _mark_olt_ok(olt, now)
+    return {"updated": updated, "skipped_offline": skipped_offline,
+            "olt_marked_ok": bool(optical_samples)}
 
 def _clip(value: str | None, limit: int) -> str | None:
     """Teks bebas dari perangkat bisa lebih panjang dari kolomnya; potong, jangan gagalkan
@@ -209,6 +282,25 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
             with_management += 1
         onu = existing.get(snap.serial_number)
         if onu is None:
+            # Bentrok posisi PON yang dipakai ulang: serial baru menempati posisi
+            # yang masih diklaim baris DB lain (serial lama) — DO NOTHING diam-diam
+            # akan membuat ONU baru ini tidak pernah teradopsi. Baris lama yang
+            # sudah tidak ada di perangkat ditandai offline + posisinya dilepas
+            # (onu_index=None) supaya INSERT baru bisa jalan; kalau baris lama
+            # ternyata masih ada di perangkat (konflik nyata), lewati dengan
+            # alasan, bukan diam.
+            position_owner = next(
+                (o for o in existing.values()
+                 if o.pon_port_id == pon_port_id and o.onu_index == snap.onu_id), None)
+            if position_owner is not None:
+                if any(s.serial_number == position_owner.serial_number for s in inv.onus):
+                    skipped += 1
+                    continue
+                position_owner.status = "offline"
+                position_owner.last_down_at = now
+                position_owner.last_down_reason = "position_reused_by_new_serial"
+                position_owner.onu_index = None
+                _clear_optical(position_owner)
             stmt = insert(Onu).values(
                 olt_id=olt.id, pon_port_id=pon_port_id, onu_index=snap.onu_id,
                 serial_number=snap.serial_number, auth_type="sn", onu_type=snap.onu_type,
@@ -221,8 +313,9 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
                 last_seen_at=now if snap.status == "online" else None,
                 last_sync_at=now, registered_at=now,
             )
-            # Dua index partial yang bisa bentrok: serial per OLT dan posisi (pon, onu_index).
-            # DO NOTHING pada keduanya -> pemenang menulis, yang kalah diam.
+            # Serial per OLT masih DO NOTHING (balapan antar proses adopsi yang
+            # sama); posisi sudah dibersihkan di atas, jadi DO NOTHING di sini
+            # hanya menutupi balapan persis, bukan konflik posisi yang dibiarkan.
             res = await db.execute(stmt.on_conflict_do_nothing())
             added += res.rowcount or 0
             continue
@@ -258,6 +351,15 @@ async def _adopt_inventory(db: AsyncSession, olt: Olt, driver: OltDriver, now: d
         if wan_ip:
             # IP non-management hanya masuk kolom WAN; tanpa kandidat kolom tidak disentuh.
             onu.wan_ip_address = wan_ip
+        # TIDAK ADA pengosongan di sini (temuan 15, diputuskan setelah tes gagal):
+        # snapshot perangkat tidak cukup setia untuk membuktikan penghapusan —
+        # parse_management_ip mengembalikan None untuk seluruh stanza bila satu
+        # baris ambigu, dan kolom-kolom ini juga menampung isian operator. Tes
+        # yang ada ("tanpa kandidat: kolom tidak disentuh, tidak dikosongkan")
+        # mengunci keputusan itu. Pengosongan yang aman butuh penanda per-field
+        # (mis. "stanza perangkat terbaca penuh + field ini memang tidak ada") di
+        # level snapshot/driver, bukan di adopsi — itu pekerjaan lanjutan, bukan
+        # pengosongan diam-diam yang menghapus data operator.
         if snap.status == "online":
             onu.last_seen_at = now
         updated += 1
@@ -291,30 +393,66 @@ async def sync_olt_metrics(db: AsyncSession, olt: Olt, driver: OltDriver) -> dic
     metadata = await onboarding_sync.sync_onu_metadata(db, olt, driver, create_master=False)
     now = datetime.now(UTC)
     health = await driver.fetch_health()
-    olt.cpu_pct = health.cpu_pct
-    olt.ram_pct = health.ram_pct
-    olt.temperature_c = health.temperature_c
-    olt.uptime_seconds = health.uptime_seconds
-    olt.software_version = health.software_version
-    olt.sys_name = health.sys_name
-    olt.sys_location = health.sys_location
-    olt.cards = [asdict(card) for card in health.cards]
-    olt.uplink_ports = health.uplink_ports
+    # Jangan timpa data baik dengan None/[] saat SNMP gagal sesaat: fetch_health
+    # mengembalikan None/[] bila walk gagal, dan nilai lama lebih berguna daripada
+    # kosong. Hanya nilai yang benar-benar ada yang ditulis.
+    if health.cpu_pct is not None:
+        olt.cpu_pct = health.cpu_pct
+    if health.ram_pct is not None:
+        olt.ram_pct = health.ram_pct
+    if health.temperature_c is not None:
+        olt.temperature_c = health.temperature_c
+    if health.uptime_seconds is not None:
+        olt.uptime_seconds = health.uptime_seconds
+    if health.software_version is not None:
+        olt.software_version = health.software_version
+    if health.sys_name is not None:
+        olt.sys_name = health.sys_name
+    if health.sys_location is not None:
+        olt.sys_location = health.sys_location
+    if health.cards:
+        olt.cards = [asdict(card) for card in health.cards]
+    if health.uplink_ports:
+        olt.uplink_ports = health.uplink_ports
     await _upsert_pon_ports(
         db, olt.id, {(p.slot, p.port): p.ifindex for p in await driver.list_pon_ports()}, now
     )
-    _mark_olt_ok(olt, now)
+    pon_oper_written = await _refresh_pon_oper_states(db, olt, driver)
+    # _mark_olt_ok hanya bila minimal satu pembacaan mengembalikan data:
+    # sebelumnya selalu ditandai online di akhir job ini, bahkan bila semua
+    # pembacaan (optik, inventory, health) gagal/kosong — OLT yang tidak
+    # terjangkau tampil online karena job-nya "selesai".
+    has_data = bool(optical.get("olt_marked_ok")) or any(
+        v is not None for v in (health.cpu_pct, health.ram_pct, health.temperature_c,
+                                health.uptime_seconds, health.software_version,
+                                health.sys_name, health.sys_location)
+    ) or bool(health.cards) or bool(health.uplink_ports) \
+        or bool(inventory.get("onus_added")) or bool(inventory.get("onus_updated"))
+    if has_data:
+        _mark_olt_ok(olt, now)
     return {**optical, **inventory, **metadata,
-            "cards": len(health.cards), "uplink_ports": health.uplink_ports}
+            "cards": len(health.cards), "uplink_ports": health.uplink_ports,
+            "pon_oper_written": pon_oper_written, "olt_marked_ok": has_data}
 
 async def sync_unconfigured(db: AsyncSession, olt: Olt, driver: OltDriver) -> dict:
     """UPSERT what the scan saw, then drop rows it didn't. Only reached when the scan
     succeeded — a driver exception skips this, so a failed scan never wipes old data.
+
+    Tambahan: scan KOSONG tidak lagi menghapus semua pending. Scan kosong yang valid
+    (OLT memang tidak punya ONU unconfigured) hanya terjadi bila daftar PON
+    perangkat terbaca (list_pon_ports non-kosong) — bila PON pun tidak terbaca,
+    hasil scan tidak bisa dipercaya dan penghapusan dilewati. Ini membedakan
+    "kosong yang valid" dari "output error yang kebetulan kosong".
     """
     now = datetime.now(UTC)
     found = await driver.list_unconfigured()
+    pon_ports_for_check = await driver.list_pon_ports()
+    if not found and not pon_ports_for_check:
+        # Tidak ada bukti perangkat benar-benar terbaca: jangan hapus pending lama,
+        # dan jangan tandai OLT online dari hasil yang meragukan ini.
+        return {"found": 0, "skipped_unknown_port": 0, "wipe_skipped_empty_untrusted": True}
     ports: dict[tuple[int, int], int | None] = {(i.slot, i.port): None for i in found}
-    ports.update({(p.slot, p.port): p.ifindex for p in await driver.list_pon_ports()})
+    ports.update({(p.slot, p.port): p.ifindex for p in pon_ports_for_check})
     await _upsert_pon_ports(db, olt.id, ports, now)
     pon_ports = await _pon_ports_by_position(db, olt.id)
     seen, skipped = [], 0
@@ -335,6 +473,17 @@ async def sync_unconfigured(db: AsyncSession, olt: Olt, driver: OltDriver) -> di
     await db.execute(
         delete(UnconfiguredOnu).where(UnconfiguredOnu.olt_id == olt.id,
                                       UnconfiguredOnu.serial_number.not_in(seen))
+    )
+    # Anti-join: pending yang serialnya sudah terdaftar (mis. muncul lagi di scan
+    # setelah restore-factory) dihapus dari pending walau masih terlihat di scan,
+    # supaya Unconfigured tidak menawarkan authorize yang pasti ditolak.
+    await db.execute(
+        delete(UnconfiguredOnu).where(
+            UnconfiguredOnu.olt_id == olt.id,
+            UnconfiguredOnu.serial_number.in_(
+                select(Onu.serial_number).where(
+                    Onu.olt_id == olt.id, Onu.deleted_at.is_(None))),
+        )
     )
     _mark_olt_ok(olt, now)
     return {"found": len(seen), "skipped_unknown_port": skipped}

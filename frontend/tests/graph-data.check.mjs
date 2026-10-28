@@ -10,7 +10,9 @@ const check = (name, fn) => { fn(); passed += 1; console.log(`ok  ${name}`); };
 
 check("route dan nav Graph Data manager tersedia", () => {
   assert.match(nav, /Graph Data.*\/settings\/graph-data.*MANAGERS/);
-  assert.match(routes, /path="\/settings\/graph-data" element={<GraphData \/>}/);
+  // Sejak audit 2026-10-28 route ini dibungkus RequireSettingsRole (manager-only),
+  // jadi pola lama tanpa wrapper tidak berlaku lagi.
+  assert.match(routes, /path="\/settings\/graph-data" element={<RequireSettingsRole roles={MANAGERS}><GraphData \/><\/RequireSettingsRole>}/);
 });
 check("dua jenis memakai satu markup kartu", () => {
   assert.match(page, /\(\["traffic", "signal"\] as Kind\[\]\)\.map/);

@@ -16,16 +16,17 @@ from __future__ import annotations
 
 import re
 
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.exceptions import ValidationAppError as ValidationError
-from app.core.rbac import MANAGERS, scope_olt_ids
+from app.core.rbac import MANAGERS, owner_of, scope_olt_ids
 from app.drivers import zte_onu_actions as za
 from app.drivers.onu_report import parse_current_ip, parse_wan_ip
 from app.models.olt import Olt, PonPort
 from app.models.onu import Onu
+from app.models.unconfigured_onu import UnconfiguredOnu
 from app.models.onu_type import OnuType
 from app.models.speed_profile import SpeedProfile
 from app.models.splitter import Splitter
@@ -44,6 +45,10 @@ JOB_KINDS: dict[str, str] = {
     "disable": "set_state",
     "enable": "set_state",
     "speed-profile": "apply_speed_profile",
+    # Recreate config = job resync_onu (authorize ulang dari DB), BUKAN perintah
+    # `clear` langsung: clear menghapus tcont/gemport/service-port tanpa mengirim
+    # ulang apa pun, jadi modal ini tidak boleh lagi memakai jalur perintah langsung.
+    "resync-config": "resync_onu",
 }
 #: kind yang butuh role manager (sama dengan endpoint tulis yang sudah ada).
 MANAGER_KINDS = {"delete", "restore-factory", "replace-sn", "move"}
@@ -102,9 +107,27 @@ async def config_options(db: AsyncSession, onu_id: int, user: User) -> dict:
     scope = scope_olt_ids(user)
     vlans = await onu_repo.list_vlans(db, onu.olt_id, scope)
     profiles = await onu_repo.list_speed_profiles(db, onu.olt_id, scope)
-    zones = (await db.execute(select(Zone).order_by(Zone.name))).scalars().all()
-    splitters = (await db.execute(select(Splitter).order_by(Splitter.name))).scalars().all()
-    onu_types = (await db.execute(select(OnuType).order_by(OnuType.name))).scalars().all()
+    # Zone/Splitter sebelumnya dikembalikan TANPA filter pemilik (enumerasi lintas
+    # tenant): siapa pun dalam scope satu OLT bisa mendaftar nama zone/splitter
+    # tenant lain. Sekarang: zone dibatasi owner_id pemanggil (Superadmin = semua),
+    # splitter dibatasi lewat zone pemilik — konsisten dengan list_splitters yang
+    # memakai owned() (splitter tanpa zone tetap tidak terlihat non-Superadmin,
+    # karena kepemilikannya hanya bisa diwariskan lewat zone).
+    owner = owner_of(user)
+    zone_stmt = select(Zone).order_by(Zone.name)
+    if owner is not None:
+        zone_stmt = zone_stmt.where(Zone.owner_id == owner)
+    zones = (await db.execute(zone_stmt)).scalars().all()
+    splitter_stmt = select(Splitter).order_by(Splitter.name)
+    if owner is not None:
+        splitter_stmt = splitter_stmt.where(
+            Splitter.zone_id.in_([z.id for z in zones]))
+    splitters = (await db.execute(splitter_stmt)).scalars().all()
+    # Tipe nonaktif tidak boleh ditawarkan/diterapkan lewat modal (konsisten dengan
+    # daftar VLAN dan speed profile yang sudah memfilter is_active).
+    onu_types = (await db.execute(
+        select(OnuType).where(OnuType.is_active.is_(True)).order_by(OnuType.name)
+    )).scalars().all()
     return {
         "vlans": [{"number": v.vlan_id, "name": v.name,
                    "is_management": v.type == "management"} for v in vlans],
@@ -113,7 +136,8 @@ async def config_options(db: AsyncSession, onu_id: int, user: User) -> dict:
                        "ports": s.capacity} for s in splitters],
         # Sector belum jadi tabel sendiri di Nexfiber (dipakai zone sebagai sektor).
         "sectors": [{"id": z.id, "name": z.name} for z in zones],
-        "speed_profiles": [{"id": p.id, "name": p.name} for p in profiles],
+        "speed_profiles": [{"id": p.id, "name": p.name, "direction": p.direction}
+                            for p in profiles],
         "onu_types": [{"id": t.id, "name": t.name} for t in onu_types],
         "wan_modes": ["webpage", "dhcp", "static", "pppoe"],
     }
@@ -122,14 +146,14 @@ async def config_options(db: AsyncSession, onu_id: int, user: User) -> dict:
 async def update_location(db: AsyncSession, onu_id: int, body: dict, user: User):
     """Update location details — HANYA kolom DB, tanpa perintah ke perangkat.
 
-    Pakai `onu_service.update_info` yang sudah ada (DRY); `sector_id` dipetakan ke
-    kolom zone sektor belum punya tabel sendiri, jadi disimpan apa adanya bila ada.
+    Pakai `onu_service.update_info` yang sudah ada (DRY). PUT penuh: nilai null
+    ikut diteruskan supaya mengosongkan field benar-benar menghapus nilai lama,
+    bukan diam-diam dipertahankan.
     """
     from app.schemas.onu import OnuInfoBody
 
     onu, _ = await _onu_and_pon(db, onu_id, user)
-    fields = {k: v for k, v in body.items()
-              if k in OnuInfoBody.model_fields and v is not None}
+    fields = {k: v for k, v in body.items() if k in OnuInfoBody.model_fields}
     info = OnuInfoBody.model_validate(fields)
     return await onu_service.update_info(db, onu.serial_number, info, user)
 
@@ -175,42 +199,73 @@ async def refresh_ip(db: AsyncSession, onu_id: int, user: User) -> dict:
     return {"ip_address": saved, "wan_ip_address": saved_wan}
 
 
+def _int_field(body: dict, key: str, *, lo: int, hi: int) -> int:
+    """Field int wajib dengan rentang — menggantikan akses body[...] mentah yang
+    sebelumnya jadi KeyError/TypeError (500) bila field hilang atau bertipe salah."""
+    v = body.get(key)
+    if not isinstance(v, int) or isinstance(v, bool) or not lo <= v <= hi:
+        raise ValidationError(f"{key} harus angka {lo}..{hi}, dapat {v!r}")
+    return v
+
+
+def _bool_field(body: dict, key: str, default: bool) -> bool:
+    v = body.get(key, default)
+    if not isinstance(v, bool):
+        raise ValidationError(f"{key} harus boolean, dapat {v!r}")
+    return v
+
+
+def _str_field(body: dict, key: str) -> str:
+    v = body.get(key)
+    if not isinstance(v, str) or v == "":
+        raise ValidationError(f"{key} wajib diisi")
+    return v
+
+
 def _build_commands(kind: str, onu: Onu, pon: PonPort, body: dict,
-                    vlan_numbers: list[int] | None = None) -> list[str]:
-    """kind -> perintah vendor. Hanya ZTE (MVP); vendor lain ditolak di caller."""
+                    vlan_numbers: list[int] | None = None,
+                    previous_vlan_count: int | None = None) -> list[str]:
+    """kind -> perintah vendor. Hanya ZTE (MVP); vendor lain ditolak di caller.
+
+    Semua field wajib divalidasi di sini (bukan di builder yang memakai perbandingan
+    mentah) supaya body hilang/salah tipe menjadi 422, bukan 500.
+    """
     slot, port, idx = pon.slot, pon.port, onu.onu_index
     if idx is None:
         raise ValidationError("ONU belum punya onu_index di OLT")
     if kind == "attached-vlans":
-        return za.build_attached_vlans(slot, port, idx, vlan_numbers or [])
+        return za.build_attached_vlans(slot, port, idx, vlan_numbers or [],
+                                       previous_count=previous_vlan_count)
     if kind == "eth-port":
         return za.build_eth_port(
-            slot, port, idx, eth_port=body["port"], enabled=body.get("enabled", True),
-            mode=body["mode"], vlan_id=body.get("vlan_id"),
+            slot, port, idx, eth_port=_int_field(body, "port", lo=1, hi=24),
+            enabled=_bool_field(body, "enabled", True),
+            mode=_str_field(body, "mode"), vlan_id=body.get("vlan_id"),
             allowed_vlans=body.get("allowed_vlans"), dhcp=body.get("dhcp", "none"))
     if kind == "wifi-port":
         return za.build_wifi_port(
-            slot, port, idx, wifi_port=body["port"], enabled=body.get("enabled", True),
-            mode=body["mode"], vlan_id=body.get("vlan_id"),
+            slot, port, idx, wifi_port=_int_field(body, "port", lo=1, hi=8),
+            enabled=_bool_field(body, "enabled", True),
+            mode=_str_field(body, "mode"), vlan_id=body.get("vlan_id"),
             allowed_vlans=body.get("allowed_vlans"), ssid=body.get("ssid"),
             auth_mode=body.get("auth_mode", "wpa2"), password=body.get("password"),
             dhcp=body.get("dhcp", "none"))
     if kind == "wifi-clear":
-        return za.build_wifi_clear(slot, port, idx, wifi_port=body["port"])
+        return za.build_wifi_clear(slot, port, idx,
+                                   wifi_port=_int_field(body, "port", lo=1, hi=8))
     if kind == "onu-type":
         return za.build_onu_type(slot, port, idx, onu_type=body["onu_type_name"])
     if kind == "mgmt-ip":
-        return za.build_mgmt_ip(slot, port, idx, mode=body["mode"], ip=body.get("ip"))
+        return za.build_mgmt_ip(slot, port, idx, mode=_str_field(body, "mode"),
+                                ip=body.get("ip"), netmask=body.get("netmask"))
     if kind in ("voip-enable", "voip-disable"):
         return za.build_voip(slot, port, idx, enabled=kind == "voip-enable")
-    if kind == "resync-config":
-        return za.build_resync_config(slot, port, idx)
     if kind == "replace-sn":
-        return za.build_replace_sn(slot, port, idx, onu_type=onu.onu_type or "",
-                                   new_sn=body["new_sn"])
+        return za.build_replace_sn(slot, port, idx, onu_type=onu.onu_type or "ALL-ONT",
+                                   new_sn=_str_field(body, "new_sn"))
     if kind == "move":
         return za.build_replace_sn(body["board"], body["port"], idx,
-                                   onu_type=onu.onu_type or "",
+                                   onu_type=onu.onu_type or "ALL-ONT",
                                    new_sn=onu.serial_number)
     raise ValidationError(f"kind {kind} tidak punya pembangun perintah")
 
@@ -230,9 +285,13 @@ async def run_action(db: AsyncSession, onu_id: int, kind: str, body: dict,
     # external-id: kolom DB saja, tidak menyentuh perangkat.
     if kind == "external-id":
         from app.schemas.onu import OnuInfoBody
-        await onu_service.update_info(
-            db, onu.serial_number,
-            OnuInfoBody.model_validate({"external_id": body.get("external_id")}), user)
+        from pydantic import ValidationError as PydanticValidationError
+        try:
+            info = OnuInfoBody.model_validate({"external_id": body.get("external_id")})
+        except PydanticValidationError as exc:
+            # Tanpa ini, external_id >50 karakter jadi 500 (bukan AppError).
+            raise ValidationError(str(exc)) from exc
+        await onu_service.update_info(db, onu.serial_number, info, user)
         return {"ok": True, "executed": False, "detail": "external_id disimpan di DB",
                 "commands": []}
 
@@ -253,25 +312,118 @@ async def run_action(db: AsyncSession, onu_id: int, kind: str, body: dict,
     if olt.vendor != "zte":
         raise NotImplementedError(f"Vendor {olt.vendor} belum didukung untuk aksi {kind}")
 
+    # Gate config_state, konsisten dengan jalur job: ONU yang sedang "configuring"
+    # (authorize berjalan) tidak boleh ditimpa aksi langsung — perintahnya bisa hilang
+    # saat authorize selesai. ONU "failed" tetap diizinkan: aksi langsung justru jalur
+    # perbaikan untuk config yang gagal, dan memblokirnya akan mengunci ONU itu.
+    if onu.config_state == "configuring":
+        raise ValidationError(
+            "ONU sedang dikonfigurasi (authorize berjalan); tunggu sampai selesai")
+
     vlan_numbers = None
+    previous_vlan_count = None
     if kind == "attached-vlans":
         vlans = await onu_repo.list_vlans(db, onu.olt_id, scope_olt_ids(user))
         wanted = body.get("vlans") or []
-        known = {v.vlan_id for v in vlans}
+        # VLAN yang sudah terpasang di perangkat boleh dipertahankan walau belum
+        # terdaftar di master — kalau tidak, ONU dengan VLAN device-only tidak bisa
+        # diubah sama sekali, padahal UI menjanjikan VLAN tersembunyi dipertahankan.
+        # Ini TIDAK membuka penambahan VLAN baru sembarangan: yang diizinkan di luar
+        # master hanyalah yang memang sudah ada di `service_vlan_ids` ONU ini.
+        known = {v.vlan_id for v in vlans} | {int(n) for n in (onu.service_vlan_ids or [])}
         unknown = [n for n in wanted if n not in known]
         if unknown:
             raise ValidationError(f"VLAN belum terdaftar di OLT ini: {unknown}")
-        vlan_numbers = wanted
+        # Simpan hasil validate (dedup + urut), bukan wanted mentah, supaya DB persis
+        # sama dengan perintah yang dikirim.
+        try:
+            vlan_numbers = za.validate_vlans([int(n) for n in wanted])
+        except (ValueError, TypeError) as exc:
+            raise ValidationError(str(exc)) from exc
+        # VLAN management tidak boleh DITAMBAH lewat API ini, meski UI menyembunyikannya.
+        # Pengecualian: yang memang sudah terpasang (hidden preservation) boleh
+        # dipertahankan — menolaknya akan membuat modal attached-vlans tidak bisa
+        # disimpan sama sekali untuk ONU yang punya VLAN management.
+        management = {v.vlan_id for v in vlans if v.type == "management"}
+        existing = {int(n) for n in (onu.service_vlan_ids or [])}
+        new_management = [n for n in vlan_numbers if n in management and n not in existing]
+        if new_management:
+            raise ValidationError(
+                f"VLAN management tidak boleh ditambahkan ke ONU: {new_management}")
+        previous_vlan_count = len(existing)
+    if kind in ("eth-port", "wifi-port"):
+        # VLAN port harus dikenal di master OLT ini dan bukan VLAN management.
+        # Sebelumnya hanya rentang 1..4094 yang dicek, jadi VLAN management / VLAN
+        # OLT lain / VLAN belum terdaftar bisa dipasang lewat API langsung.
+        vlans = await onu_repo.list_vlans(db, onu.olt_id, scope_olt_ids(user))
+        by_number = {v.vlan_id: v for v in vlans}
+        for label, value in (("vlan_id", body.get("vlan_id")),):
+            if value is not None:
+                row = by_number.get(value)
+                if row is None:
+                    raise ValidationError(f"VLAN {value} tidak terdaftar di OLT ini")
+                if row.type == "management":
+                    raise ValidationError(f"VLAN {value} adalah VLAN management")
+        allowed = body.get("allowed_vlans")
+        if allowed is not None:
+            if not isinstance(allowed, list):
+                raise ValidationError("allowed_vlans harus daftar angka")
+            for n in allowed:
+                row = by_number.get(n)
+                if row is None:
+                    raise ValidationError(f"VLAN {n} tidak terdaftar di OLT ini")
+                if row.type == "management":
+                    raise ValidationError(f"VLAN {n} adalah VLAN management")
+            # Trunk/hybrid dengan allowed kosong tidak punya perintah hapus yang
+            # terbukti, jadi kirimannya hanya akan diam-diam mempertahankan daftar
+            # lama — tolak di sini daripada menyesatkan.
+            if body.get("mode") in ("trunk", "hybrid") and len(allowed) == 0:
+                raise ValidationError(
+                    "Mode trunk/hybrid butuh minimal satu allowed VLAN")
     if kind == "onu-type":
         type_id = body.get("onu_type_id")
         onu_type = await db.get(OnuType, type_id) if type_id else None
         if onu_type is None:
             raise ValidationError("onu_type_id tidak dikenal")
+        # config_options sudah memfilter tipe nonaktif, tapi API langsung bisa
+        # melewatinya — tolak di sini seperti speed profile (`is False`, bukan
+        # `not`, supaya objek tanpa atribut is_active tidak salah ditolak).
+        if onu_type.is_active is False:
+            raise ValidationError("Tipe ONU nonaktif tidak bisa diterapkan")
         body = {**body, "onu_type_name": onu_type.name}
+    # Pre-check bentrok SEBELUM perintah dikirim ke perangkat: kalau dicek sesudah,
+    # perangkat sudah berubah tapi commit DB gagal (unique index) dan keduanya menyimpang.
+    if kind == "replace-sn":
+        new_sn = str(body.get("new_sn", "")).strip().upper()
+        if new_sn == onu.serial_number:
+            raise ValidationError("Serial number baru sama dengan yang sekarang")
+        if new_sn and await onu_repo.exists_serial(db, onu.olt_id, new_sn):
+            raise ValidationError(f"ONU {new_sn} sudah terdaftar di OLT ini")
+    target_pon_id = None
+    if kind == "move":
+        board, port = body.get("board"), body.get("port")
+        if not isinstance(board, int) or isinstance(board, bool) \
+                or not isinstance(port, int) or isinstance(port, bool):
+            raise ValidationError("move butuh board dan port (angka PON tujuan)")
+        target = (await db.execute(select(PonPort).where(
+            PonPort.olt_id == onu.olt_id, PonPort.slot == board, PonPort.port == port
+        ))).scalars().first()
+        if target is None:
+            raise ValidationError("PON tujuan belum tersinkron di database OLT ini")
+        target_pon_id = target.id
+        if onu.onu_index is not None:
+            clash = (await db.execute(select(Onu).where(
+                Onu.pon_port_id == target.id, Onu.onu_index == onu.onu_index,
+                Onu.deleted_at.is_(None), Onu.id != onu.id
+            ))).scalars().first()
+            if clash is not None:
+                raise ValidationError(
+                    f"ONU ID {onu.onu_index} sudah terpakai di PON tujuan {board}/{port}")
 
     try:
-        commands = _build_commands(kind, onu, pon, body, vlan_numbers)
-    except ValueError as exc:
+        commands = _build_commands(kind, onu, pon, body, vlan_numbers,
+                                   previous_vlan_count=previous_vlan_count)
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
         raise ValidationError(str(exc)) from exc
 
     onu_service.ensure_writes_allowed()
@@ -287,6 +439,62 @@ async def run_action(db: AsyncSession, onu_id: int, kind: str, body: dict,
     # sync 15 menit. Hanya saat sukses — kalau OLT menolak, DB tidak boleh mengklaim.
     if kind == "attached-vlans" and result.success and vlan_numbers is not None:
         onu.service_vlan_ids = list(vlan_numbers)
+        # Konsistensi dua jalur, arah kebalikan dari set_onu_vlan: bila VLAN
+        # primer dihapus dari daftar attached, primer tidak boleh lagi menunjuk
+        # VLAN yang sudah tidak terpasang. Aturannya: pakai VLAN pertama yang
+        # tersisa di daftar (urutan hasil validate_vlans) bila ada baris masternya
+        # (diutamakan OLT ini, lalu global); bila tidak ada baris master yang
+        # cocok, kosongkan — jangan mengarang baris master. Bila primer masih ada
+        # di daftar, tidak diubah. Daftar kosong tidak mungkin lolos validasi
+        # (validate_vlans menolaknya), jadi cabang kosong hanya pertahanan.
+        old_primary = await db.get(Vlan, onu.vlan_id) if onu.vlan_id else None
+        if old_primary is not None and old_primary.vlan_id not in vlan_numbers:
+            new_primary_id = None
+            if vlan_numbers:
+                candidate = (await db.execute(select(Vlan).where(
+                    Vlan.vlan_id == vlan_numbers[0], Vlan.olt_id == onu.olt_id
+                ))).scalars().first()
+                if candidate is None:
+                    candidate = (await db.execute(select(Vlan).where(
+                        Vlan.vlan_id == vlan_numbers[0], Vlan.olt_id.is_(None)
+                    ))).scalars().first()
+                new_primary_id = candidate.id if candidate else None
+            onu.vlan_id = new_primary_id
+    # Aksi langsung yang mengubah identitas di perangkat wajib ditulis balik ke DB
+    # saat sukses — kalau tidak, tampilan (yang membaca DB) dan sync (yang
+    # mempertahankan nilai DB lama) akan selamanya menampilkan nilai lama.
+    if result.success and kind == "onu-type":
+        onu.onu_type_id = body.get("onu_type_id")
+        onu.onu_type = body.get("onu_type_name")
+    if result.success and kind == "replace-sn":
+        new_serial = str(body.get("new_sn", "")).strip().upper()
+        onu.serial_number = new_serial
+        onu.mac_address = None
+        onu.software_version = None
+        onu.hardware_version = None
+        # Seperti jalur job replace_onu: baris pending ber-serial baru sudah
+        # terpakai (itulah ONU ini sekarang), jadi hapus supaya tidak muncul
+        # lagi di Unconfigured dan tidak bisa di-authorize kedua kali.
+        await db.execute(delete(UnconfiguredOnu).where(
+            UnconfiguredOnu.olt_id == onu.olt_id,
+            UnconfiguredOnu.serial_number == new_serial))
+    if result.success and kind == "move" and target_pon_id is not None:
+        onu.pon_port_id = target_pon_id
+    # Mgmt-IP sukses wajib ditulis balik: tanpa ini modal dibuka ulang menampilkan
+    # mode/IP lama sampai sync berikutnya. Mode perintah dipetakan kembali ke mode
+    # perangkat: manual -> static, release -> inactive. Pool (auto-assign) tidak
+    # menimpa IP lama karena IP barunya belum diketahui sampai sync berikutnya.
+    if result.success and kind == "mgmt-ip":
+        mode = body.get("mode")
+        if mode == "manual":
+            onu.mgmt_ip_mode = "static"
+            if body.get("ip"):
+                onu.ip_address = str(body["ip"]).strip()
+        elif mode == "release":
+            onu.mgmt_ip_mode = "inactive"
+            onu.ip_address = None
+        elif mode == "pool":
+            onu.mgmt_ip_mode = "dhcp"
     await log_activity(
         db, action=f"onu.action.{kind}", entity_type="onu", entity_id=str(onu.id),
         success=result.success, user_id=user.id, olt_id=onu.olt_id, onu_id=onu.id,

@@ -50,7 +50,9 @@ def _onu_rows() -> Select:
 def _apply_filters(stmt: Select, *, q, olt_id, pon_port_id, state,
                    download_speed_profile_id, upload_speed_profile_id,
                    rx_warn_dbm: float, signal=None, status=None, vlan_id=None, zone_id=None,
-                   splitter_id=None, onu_type=None) -> Select:
+                   splitter_id=None, onu_type=None, olt_ids=None, vlan_ids=None,
+                   zone_ids=None, splitter_ids=None, download_speed_profile_ids=None,
+                   upload_speed_profile_ids=None, onu_types=None) -> Select:
     if q:
         like = f"%{q}%"
         stmt = stmt.where(or_(
@@ -58,21 +60,37 @@ def _apply_filters(stmt: Select, *, q, olt_id, pon_port_id, state,
             Onu.customer_id.ilike(like), Onu.mac_address.ilike(like), Onu.name.ilike(like),
             Onu.address.ilike(like), Onu.pppoe_username.ilike(like), Onu.external_id.ilike(like),
         ))
-    if olt_id:
+    # Daftar multi-nilai menggantikan nilai tunggal bila diisi (UI Configured
+    # mengirim filter berulang); daftar kosong = tidak difilter, bukan "tidak ada".
+    if olt_ids:
+        stmt = stmt.where(Onu.olt_id.in_(olt_ids))
+    elif olt_id:
         stmt = stmt.where(Onu.olt_id == olt_id)
     if pon_port_id:
         stmt = stmt.where(Onu.pon_port_id == pon_port_id)
-    if download_speed_profile_id:
+    if download_speed_profile_ids:
+        stmt = stmt.where(Onu.download_speed_profile_id.in_(download_speed_profile_ids))
+    elif download_speed_profile_id:
         stmt = stmt.where(Onu.download_speed_profile_id == download_speed_profile_id)
-    if upload_speed_profile_id:
+    if upload_speed_profile_ids:
+        stmt = stmt.where(Onu.upload_speed_profile_id.in_(upload_speed_profile_ids))
+    elif upload_speed_profile_id:
         stmt = stmt.where(Onu.upload_speed_profile_id == upload_speed_profile_id)
-    if vlan_id:
+    if vlan_ids:
+        stmt = stmt.where(Onu.vlan_id.in_(vlan_ids))
+    elif vlan_id:
         stmt = stmt.where(Onu.vlan_id == vlan_id)
-    if zone_id:
+    if zone_ids:
+        stmt = stmt.where(Onu.zone_id.in_(zone_ids))
+    elif zone_id:
         stmt = stmt.where(Onu.zone_id == zone_id)
-    if splitter_id:
+    if splitter_ids:
+        stmt = stmt.where(Onu.splitter_id.in_(splitter_ids))
+    elif splitter_id:
         stmt = stmt.where(Onu.splitter_id == splitter_id)
-    if onu_type:
+    if onu_types:
+        stmt = stmt.where(Onu.onu_type.in_(onu_types))
+    elif onu_type:
         stmt = stmt.where(Onu.onu_type == onu_type)
     if status:
         stmt = stmt.where(Onu.status.in_(status))
@@ -92,13 +110,19 @@ def _apply_filters(stmt: Select, *, q, olt_id, pon_port_id, state,
 async def search(db: AsyncSession, scope: Scope, *, q, olt_id, pon_port_id, state,
                  download_speed_profile_id, upload_speed_profile_id,
                  rx_warn_dbm: float, sort: str, page: int, size: int, signal=None, status=None,
-                 vlan_id=None, zone_id=None, splitter_id=None, onu_type=None) -> tuple[list, int]:
+                 vlan_id=None, zone_id=None, splitter_id=None, onu_type=None,
+                 olt_ids=None, vlan_ids=None, zone_ids=None, splitter_ids=None,
+                 download_speed_profile_ids=None, upload_speed_profile_ids=None,
+                 onu_types=None) -> tuple[list, int]:
     filters = dict(q=q, olt_id=olt_id, pon_port_id=pon_port_id, state=state,
                    download_speed_profile_id=download_speed_profile_id,
                    upload_speed_profile_id=upload_speed_profile_id,
                    rx_warn_dbm=rx_warn_dbm, signal=signal,
                    status=status, vlan_id=vlan_id, zone_id=zone_id, splitter_id=splitter_id,
-                   onu_type=onu_type)
+                   onu_type=onu_type, olt_ids=olt_ids, vlan_ids=vlan_ids, zone_ids=zone_ids,
+                   splitter_ids=splitter_ids,
+                   download_speed_profile_ids=download_speed_profile_ids,
+                   upload_speed_profile_ids=upload_speed_profile_ids, onu_types=onu_types)
     total = await db.scalar(scoped(_apply_filters(
         select(func.count(Onu.id)).where(Onu.deleted_at.is_(None)), **filters
     ), Onu.olt_id, scope))
@@ -125,25 +149,60 @@ async def get_active(db: AsyncSession, onu_id: int) -> Onu | None:
     onu = await db.get(Onu, onu_id)
     return onu if onu and onu.deleted_at is None else None
 
-async def exists_serial(db: AsyncSession, olt_id: int, serial: str) -> bool:
+async def exists_serial(db: AsyncSession, olt_id: int, serial: str,
+                        exclude_id: int | None = None) -> bool:
+    """Serial sudah dipakai OLT ini? exclude_id = baris yang sedang diproses sendiri
+    (authorize ulang / replace): tanpa ini, baris itu memblokir dirinya sendiri."""
     stmt = select(Onu.id).where(Onu.olt_id == olt_id, Onu.serial_number == serial,
                                 Onu.deleted_at.is_(None))
+    if exclude_id is not None:
+        stmt = stmt.where(Onu.id != exclude_id)
     return await db.scalar(stmt) is not None
 
-async def exists_index(db: AsyncSession, pon_port_id: int, onu_index: int) -> bool:
+async def exists_index(db: AsyncSession, pon_port_id: int, onu_index: int,
+                       exclude_id: int | None = None) -> bool:
     stmt = select(Onu.id).where(Onu.pon_port_id == pon_port_id, Onu.onu_index == onu_index,
                                 Onu.deleted_at.is_(None))
+    if exclude_id is not None:
+        stmt = stmt.where(Onu.id != exclude_id)
     return await db.scalar(stmt) is not None
 
 async def exists_customer_id(db: AsyncSession, customer_id: str) -> bool:
     stmt = select(Onu.id).where(Onu.customer_id == customer_id, Onu.deleted_at.is_(None))
     return await db.scalar(stmt) is not None
 
+
+async def exists_customer_id_scoped(db: AsyncSession, customer_id: str,
+                                    scope: Scope) -> bool:
+    """Varian ber-scope untuk endpoint pengecekan: tanpa ini, siapa pun bisa
+    menguji apakah customer_id milik tenant lain sudah dipakai (oracle global).
+    Keunikan global customer_id sendiri TIDAK diubah (keputusan produk) — yang
+    diubah hanya apa yang terlihat lewat endpoint cek: pemanggil hanya melihat
+    baris dalam scope OLT-nya sendiri.
+    """
+    stmt = scoped(
+        select(Onu.id).where(Onu.customer_id == customer_id, Onu.deleted_at.is_(None)),
+        Onu.olt_id, scope)
+    return await db.scalar(stmt) is not None
+
 async def list_pending(db: AsyncSession, olt_id: int | None, scope: Scope) -> list:
+    # Anti-join ke onus: serial yang sudah terdaftar dan SUKSES (atau sedang
+    # configuring) tidak boleh ditawarkan untuk diotorisasi — klik itu selalu
+    # ditolak exists_serial tanpa jalan keluar. Baris config_state=failed
+    # DIKECUALIKAN dari anti-join: pending-nya tetap terlihat, karena baris
+    # gagal itu memang butuh tindakan operator (resync/hapus), bukan disembunyikan
+    # seolah tidak ada. OLT yang sudah soft-delete juga tidak ditampilkan.
+    registered = select(Onu.id).where(
+        Onu.olt_id == UnconfiguredOnu.olt_id,
+        Onu.serial_number == UnconfiguredOnu.serial_number,
+        Onu.deleted_at.is_(None),
+        Onu.config_state.in_(("success", "configuring")),
+    ).exists()
     stmt = (
         select(UnconfiguredOnu, Olt.name, PonPort.slot, PonPort.port)
         .join(Olt, Olt.id == UnconfiguredOnu.olt_id)
         .join(PonPort, PonPort.id == UnconfiguredOnu.pon_port_id)
+        .where(~registered, Olt.deleted_at.is_(None))
         .order_by(UnconfiguredOnu.first_seen_at)
     )
     if olt_id:

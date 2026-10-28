@@ -57,6 +57,7 @@ class Job(TimestampMixin, Base):
     __table_args__ = (
         Index("ix_jobs_claim", "status", "run_after", "priority"),
         Index("ix_jobs_onu_created", "onu_id", "created_at"),
+        Index("ix_jobs_olt_created", "olt_id", "created_at"),
         # Anti-numpuk per ONU: satu job tipe sama per ONU yang masih pending/running.
         # Pengganti cek aplikasi (exists_active_for_onu) yang bisa dilewati balapan dua
         # proses: index inilah yang memutuskan siapa menang.
@@ -74,10 +75,17 @@ class Job(TimestampMixin, Base):
             unique=True,
             # LIKE on a casted enum needs ::text, whose output function isn't IMMUTABLE and
             # Postgres rejects that in an index predicate — so list the sync_* values explicitly.
+            # Diperluas (area 5): backup_olt_config, sync_speed_profiles, dan
+            # test_connection adalah operasi satu-OLT yang tidak boleh menumpuk.
+            # TIDAK mencakup create/delete_vlan, set_vlan_ports, set_port_config,
+            # push_speed_profile: payload-nya berbeda-beda per job dan antrean
+            # berurutan lewat CLI lock sudah cukup; unique per-OLT akan menolak
+            # operasi berbeda yang sah. Jangan klaim indeks ini mencakup semua job.
             postgresql_where=text(
                 "status IN ('pending','running') "
                 "AND job_type IN ('sync_onu_status','sync_onu_optical','sync_unconfigured',"
-                "'sync_olt_metrics','sample_onu_traffic')"
+                "'sync_olt_metrics','sample_onu_traffic','backup_olt_config',"
+                "'sync_speed_profiles','test_connection')"
             ),
         ),
     )

@@ -148,8 +148,14 @@ def test_replace_sn_validasi():
         za.build_replace_sn(SLOT, PORT, IDX, onu_type="ZTE-F670L", new_sn="bad sn!")
 
 
-def test_resync_config_hanya_clear():
-    assert za.build_resync_config(SLOT, PORT, IDX)[1] == "clear"
+def test_resync_config_bukan_clear_langsung():
+    # Dulu: modal resync-config hanya mengirim `clear` lalu tidak mengirim ulang
+    # konfigurasi — ONU kehilangan layanan. Sekarang resync-config adalah job
+    # resync_onu (authorize ulang dari DB), dan tidak ada lagi builder `clear`.
+    from app.services import onu_action_service as oas
+
+    assert oas.JOB_KINDS["resync-config"] == "resync_onu"
+    assert not hasattr(za, "build_resync_config")
 
 
 def test_redaksi_password_wifi_dan_pppoe():

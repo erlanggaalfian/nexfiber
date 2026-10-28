@@ -30,6 +30,11 @@ def scope_olt_ids(user: User) -> Scope:
     """
     owner = owner_of(user)
     if owner is None:
+        # Superadmin saja yang tanpa batasan. Non-Superadmin dengan owner None
+        # (mis. user yatim tanpa admin_id) sebelumnya mendapat scope None =
+        # tanpa batasan; kini scope kosong, bukan tanpa batasan.
+        if user.role != SUPERADMIN:
+            return select(Olt.id).where(False)
         return None
     shared = select(OltAccess.olt_id).where(OltAccess.user_id == owner)
     return select(Olt.id).where(or_(Olt.owner_id == owner, Olt.id.in_(shared)))

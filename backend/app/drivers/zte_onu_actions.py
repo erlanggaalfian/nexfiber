@@ -176,11 +176,19 @@ def _vlan_list(vlans: list[int]) -> str:
     return ",".join(str(v) for v in vlans)
 
 
-def build_attached_vlans(slot: int, port: int, onu_id: int, vlans: list[int]) -> list[str]:
+def build_attached_vlans(slot: int, port: int, onu_id: int, vlans: list[int],
+                         previous_count: int | None = None) -> list[str]:
     """Update attached VLANs lewat `service-port` di interface ONU.
 
     `no service-port N` dulu supaya idempotent (mengirim ulang nilai yang sama tidak
     ditolak OLT) — terbukti di ONU uji 2026-10-25.
+
+    Mengurangi daftar juga menghapus service-port sisa: indeks di atas jumlah VLAN baru
+    (sampai `previous_count`, yaitu jumlah service-port yang diketahui dari DB) ikut
+    dikirim `no service-port N`. Tanpa ini, mengurangi 3 VLAN jadi 1 hanya menulis ulang
+    port 1 dan port 2/3 tetap aktif di perangkat. Batasan jujur: indeks perangkat yang
+    tidak tercatat di DB sama sekali tidak bisa dihapus dari sini — tidak ada perintah
+    baca service-port yang terbukti di repo untuk menentukannya.
 
     SENGAJA TIDAK menyentuh `flow`/`gemport`/`vlan-filter` di `pon-onu-mng`: di C320
     `no flow N` MENGHAPUS seluruh definisi flow dan sesudahnya `flow N pri ... vlan ...`
@@ -189,10 +197,13 @@ def build_attached_vlans(slot: int, port: int, onu_id: int, vlans: list[int]) ->
     dibaca dari `service-port`, jadi bagian itu cukup dan aman.
     """
     vlans = validate_vlans(vlans)
+    total = max(len(vlans), previous_count or 0)
     cmds = [f"interface {onu_iface(slot, port, onu_id)}"]
-    for i, vlan in enumerate(vlans, start=1):
+    for i in range(1, total + 1):
         cmds.append(f"no service-port {i}")
-        cmds.append(f"service-port {i} vport {i} user-vlan {vlan} vlan {vlan}")
+        if i <= len(vlans):
+            vlan = vlans[i - 1]
+            cmds.append(f"service-port {i} vport {i} user-vlan {vlan} vlan {vlan}")
     cmds.append("exit")
     return cmds
 
@@ -231,7 +242,12 @@ def build_wifi_port(slot: int, port: int, onu_id: int, *, wifi_port: int, enable
                     mode: str, vlan_id: int | None, allowed_vlans: list[int] | None,
                     ssid: str | None, auth_mode: str, password: str | None,
                     dhcp: str) -> list[str]:
-    """Configure WiFi port wifi_0/N. `password` tidak pernah di-log pemanggil."""
+    """Configure WiFi port wifi_0/N. `password` tidak pernah di-log pemanggil.
+
+    `dhcp` hanya divalidasi, tidak dikirim ke perangkat: tidak ada sintaks DHCP WiFi
+    yang terbukti di repo, jadi UI tidak lagi menawarkan field ini daripada dibuang
+    diam-diam. Jangan mengarang perintah `dhcp-ip wifiuni ...` tanpa transkrip.
+    """
     if mode not in WIFI_MODES:
         raise ValueError(f"Mode WiFi harus salah satu {sorted(WIFI_MODES)}")
     if auth_mode not in (*WIFI_AUTH_CLI, "open"):
@@ -291,7 +307,13 @@ def build_onu_type(slot: int, port: int, onu_id: int, *, onu_type: str) -> list[
 
 def build_speed_profile(slot: int, port: int, onu_id: int, *, upload_profile: str | None,
                         download_profile: str | None) -> list[str]:
-    """Configure speed profiles: tcont (upload) + gemport traffic-limit (download)."""
+    """Configure speed profiles: tcont (upload) + gemport traffic-limit (download).
+
+    TIDAK dipakai jalur produksi mana pun (speed profile lewat job memakai
+    `zte_c320.modify`); dipertahankan karena `tests/test_onu_actions.py` masih
+    mengujinya dan file tes itu di luar kepemilikan area ini. Menghapusnya tanpa
+    memperbarui tes tersebut hanya akan memecahkan tes, bukan membersihkan kode.
+    """
     if not upload_profile and not download_profile:
         raise ValueError("Minimal satu arah profil harus diisi")
     cmds = [f"interface {onu_iface(slot, port, onu_id)}"]
@@ -333,15 +355,6 @@ def build_state(slot: int, port: int, onu_id: int, *, enabled: bool) -> list[str
     """Enable/Disable ONU — `enable`/`disable` di interface ONU (terbukti di help)."""
     return [f"interface {onu_iface(slot, port, onu_id)}",
             "enable" if enabled else "disable", "exit"]
-
-
-def build_resync_config(slot: int, port: int, onu_id: int) -> list[str]:
-    """Recreate OLT config for this ONU: `clear` lalu kirim ulang config dasar.
-
-    `clear` MENGHAPUS tcont/gemport/service-port dan seluruh blok pon-onu-mng (terbukti
-    nyata di ONU uji 2026-10-25) — pemanggil WAJIB mengirim ulang config sesudahnya.
-    """
-    return [f"interface {onu_iface(slot, port, onu_id)}", "clear", "exit"]
 
 
 def build_replace_sn(slot: int, port: int, onu_id: int, *, onu_type: str,

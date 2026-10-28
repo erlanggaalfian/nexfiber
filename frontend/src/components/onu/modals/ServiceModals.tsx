@@ -1,12 +1,13 @@
 /** Update Management and VoIP IP, Enable/Disable VoIP, Update IPTV.
  *
- *  Body `mgmt-ip` {mode,vlan,ip} dan `iptv` {enabled} persis kontrak. Kontrak tidak mengunci
- *  body `voip-enable`, jadi field acuan (port, nomor, sandi) dikirim apa adanya dan backend
- *  boleh mengabaikan yang belum dipakai — tidak ada field karangan di luar acuan SmartOLT.
+ *  Body `mgmt-ip` {mode,ip} dan `iptv` {enabled} persis kontrak backend
+ *  (`build_mgmt_ip`: pool/manual/release; perintah `mgmt-ip` tidak memakai VLAN).
+ *  Kontrak tidak mengunci body `voip-enable`, jadi field acuan (port, nomor, sandi)
+ *  dikirim apa adanya dan backend boleh mengabaikan yang belum dipakai — tidak ada
+ *  field karangan di luar acuan SmartOLT.
  */
 import { useState } from "react";
-import type { OnuConfigOptions } from "../../../lib/onuActions";
-import { ModalShell, PasswordInput, Radios, Row, Select, field } from "./ModalShell";
+import { ModalShell, PasswordInput, Radios, Row, field } from "./ModalShell";
 
 type Common = {
   supported: boolean | null;
@@ -17,50 +18,52 @@ type Common = {
 };
 
 export function MgmtIpModal(
-  { options, current, onSubmit, ...c }:
+  { current, onSubmit, ...c }:
   Common & {
-    options: OnuConfigOptions | undefined;
-    current: { mode: string | null; vlan: number | null; ip: string | null };
-    onSubmit: (body: { mode: string; vlan: number | null; ip: string | null }) => void;
+    // Mode tampilan perangkat (inactive/static/dhcp) dipetakan ke mode perintah
+    // backend: static -> manual, inactive -> release. Mode dhcp tidak punya padanan
+    // perintah `mgmt-ip`, jadi dibiarkan kosong sampai operator memilih aksi.
+    current: { mode: string | null; ip: string | null };
+    onSubmit: (body: { mode: string; ip: string | null; netmask?: string }) => void;
   },
 ) {
-  const [mode, setMode] = useState<"" | "inactive" | "static" | "dhcp">(() => {
+  const [mode, setMode] = useState<"" | "pool" | "manual" | "release">(() => {
     const v = (current.mode ?? "").toLowerCase();
-    return v === "inactive" || v === "static" || v === "dhcp" ? v : "";
+    return v === "static" ? "manual" : v === "inactive" ? "release" : "";
   });
-  const [vlan, setVlan] = useState(current.vlan === null ? "" : String(current.vlan));
   const [ip, setIp] = useState(current.ip ?? "");
+  // Sebelumnya manual selalu memakai /24 tanpa field: jaringan management yang bukan
+  // /24 tidak bisa diisi dengan benar. Default tetap 255.255.255.0.
+  const [netmask, setNetmask] = useState("255.255.255.0");
+  const netmaskOk = /^(\d{1,3}\.){3}\d{1,3}$/.test(netmask)
+    && netmask.split(".").every((o) => Number(o) <= 255);
   return (
     <ModalShell title="Update Management and VoIP IP" action="Update" {...c}
+                disabled={mode === "" || (mode === "manual" && (ip.trim() === "" || !netmaskOk))}
                 onSubmit={() => onSubmit({
                   mode,
-                  vlan: mode === "inactive" || vlan === "" ? null : Number(vlan),
-                  ip: mode === "static" && ip.trim() !== "" ? ip.trim() : null,
+                  ip: mode === "manual" ? ip.trim() : null,
+                  netmask: mode === "manual" ? netmask.trim() : undefined,
                 })}>
-      <Row label="Mgmt IP mode" hint={mode === "" ? "Belum terbaca dari perangkat" : undefined}>
+      <Row label="Mgmt IP mode" hint={mode === "" ? "Pilih aksi: mode perangkat saat ini tidak bisa dipetakan ke perintah ini" : undefined}>
         <Radios name="mgmt-mode" value={mode} onChange={setMode}
                 options={[
-                  { value: "inactive", label: "Inactive" },
-                  { value: "static", label: "Static IP" },
-                  { value: "dhcp", label: "DHCP" },
+                  { value: "pool", label: "Auto-assign (pool)" },
+                  { value: "manual", label: "Static IP" },
+                  { value: "release", label: "Release" },
                 ]} />
       </Row>
-      {mode !== "inactive" && (
-        <Row label="Mgmt VLAN-ID">
-          <Select value={vlan} onChange={setVlan} placeholder="Tanpa VLAN" label="Mgmt VLAN-ID">
-            {(options?.vlans ?? [])
-              .filter((v) => v.is_management || String(v.number) === vlan)
-              .map((v) => (
-              <option key={v.number} value={v.number}>{v.number} - {v.name}</option>
-            ))}
-          </Select>
-        </Row>
-      )}
-      {mode === "static" && (
-        <Row label="Management IP address">
-          <input className={field} value={ip} autoComplete="off" aria-label="Management IP address"
-                 onChange={(e) => setIp(e.target.value.trim())} />
-        </Row>
+      {mode === "manual" && (
+        <>
+          <Row label="Management IP address">
+            <input className={field} value={ip} autoComplete="off" aria-label="Management IP address"
+                   onChange={(e) => setIp(e.target.value.trim())} />
+          </Row>
+          <Row label="Netmask" hint="Isi sesuai jaringan management bila bukan /24.">
+            <input className={field} value={netmask} autoComplete="off" aria-label="Netmask"
+                   onChange={(e) => setNetmask(e.target.value.trim())} />
+          </Row>
+        </>
       )}
     </ModalShell>
   );

@@ -481,7 +481,14 @@ class FakeDb:
         self._users, self.commits = users or {}, 0
 
     async def get(self, model, pk, **_kw):
-        return self._users.get(pk) if model is User else None
+        if model is User:
+            return self._users.get(pk)
+        if model.__name__ == "Olt":
+            # Gate is_active di enqueue: tes ini mengasumsikan OLT aktif
+            # (tidak soft-delete, is_active=True); OLT nonaktif diuji terpisah.
+            from types import SimpleNamespace
+            return SimpleNamespace(id=pk, is_active=True, deleted_at=None)
+        return None
 
     async def execute(self, _stmt):
         class _R:
@@ -903,9 +910,12 @@ def test_parse_management_ip_static_inactive_and_unknown():
     assert parse_management_ip(static) == [(15, "static", "192.0.2.9")]
     assert parse_management_ip("  flow 1 pri 0 vlan 15\n  gemport 1 flow 1\n") \
         == [(15, "inactive", None)]
-    # Bentuk tidak dikenal, dan ip-host yang tak bisa dipasangkan ke gemport: None.
+    # Bentuk tidak dikenal pada host yang BERPASANGAN: None (parsing tak bisa dipercaya).
     assert parse_management_ip("  flow 1 pri 0 vlan 15\n  gemport 1 flow 1\n  ip-host 1 magic on\n") is None
-    assert parse_management_ip("  flow 1 pri 0 vlan 15\n  gemport 1 flow 1\n  ip-host 2 magic on\n") is None
+    # Sebaliknya ip-host yang TAK berpasangan ke gemport hanya dilewati — sebelumnya
+    # satu host seperti ini membatalkan seluruh daftar (Area 2).
+    assert parse_management_ip("  flow 1 pri 0 vlan 15\n  gemport 1 flow 1\n  ip-host 2 magic on\n") \
+        == [(15, "inactive", None)]
 
 
 def test_inventory_parses_management_ip_per_onu():

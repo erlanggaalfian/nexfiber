@@ -295,7 +295,13 @@ class FakeDb:
         self.commits = 0
 
     async def get(self, model, pk):
-        return self.objects.get((model.__name__, pk))
+        found = self.objects.get((model.__name__, pk))
+        if found is None and model.__name__ == "Olt":
+            # Gate is_active di enqueue: default OLT aktif kecuali tes
+            # menyisipkan baris Olt sendiri ke objects.
+            from types import SimpleNamespace
+            return SimpleNamespace(id=pk, is_active=True, deleted_at=None)
+        return found
 
     async def flush(self):
         self.flushes += 1
@@ -532,11 +538,14 @@ async def test_update_info_writes_columns_without_touching_olt(monkeypatch):
     monkeypatch.setattr(onu_service.onu_repo, "exists_customer_id", no_dupe)
     monkeypatch.setattr(onu_service, "get_onu", fake_get_onu)
 
-    body = OnuInfoBody(customer_name="Budi Baru", address="Jl. Mawar 1", splitter_port=3)
+    # splitter_port TANPA splitter_id kini ditolak (aturan baru update_info),
+    # jadi tes kolom ini tidak lagi memakai splitter_port di sini; penolakan
+    # itu sendiri diuji di test_lifecycle_round2.py.
+    body = OnuInfoBody(customer_name="Budi Baru", address="Jl. Mawar 1")
     out = await onu_service.update_info(FakeDb(), "ZTEGC1234567", body, _user())
 
     assert out == "ZTEGC1234567"
-    assert (onu.customer_name, onu.address, onu.splitter_port) == ("Budi Baru", "Jl. Mawar 1", 3)
+    assert (onu.customer_name, onu.address) == ("Budi Baru", "Jl. Mawar 1")
     assert logged[0]["action"] == "onu.update_info"
 
 

@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { StrictMode } from "react";
+import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes, useLocation } from "react-router";
 import { PageTitle } from "./components/data";
 import { Layout } from "./components/Layout";
-import { RequireAuth } from "./lib/auth";
+import { ChangePasswordPage, RequireAuth, useAuth } from "./lib/auth";
 import { pageTitle } from "./lib/nav";
+import type { Role } from "./lib/api";
 import { Dashboard } from "./pages/Dashboard";
 import { Lainnya } from "./pages/Lainnya";
 import { Login } from "./pages/Login";
@@ -50,8 +51,28 @@ function Placeholder() {
   );
 }
 
+/** Gate role di UI, konsisten dengan menu (settingsFor): bukan redirect diam-diam,
+ *  melainkan halaman penjelasan + tautan ke Dashboard. Gate backend tetap penentu. */
+function RequireSettingsRole({ roles, children }: { roles: Role[]; children: ReactNode }) {
+  const { me } = useAuth();
+  if (!roles.includes(me.role)) {
+    return (
+      <>
+        <PageTitle title="Tidak ada akses" />
+        <p className="text-muted">Halaman ini hanya untuk {roles.join(", ")}. Peran kamu: {me.role}.</p>
+        <Link to="/" className="text-fiber hover:underline">Kembali ke Dashboard</Link>
+      </>
+    );
+  }
+  return <>{children}</>;
+}
+
+const MANAGERS: Role[] = ["superadmin", "admin"];
+
+// Hanya halaman "Segera" yang dikenal yang masih memakai Placeholder; URL settings
+// lain yang tidak dikenal diarahkan ke NotFound (bukan Placeholder yang menyamarkan typo).
 const LATER = [
-  "/settings/*", "/akun/password",
+  "/settings/vpn", "/settings/tr069",
 ];
 
 createRoot(document.getElementById("root")!).render(
@@ -68,15 +89,17 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/configured" element={<Configured />} />
             <Route path="/onu/:id" element={<OnuDetail />} />
             <Route path="/lainnya" element={<Lainnya />} />
+            <Route path="/akun/password" element={<ChangePasswordPage />} />
             <Route path="/olt/:id" element={<OltDetail />} />
-            <Route path="/settings/olts" element={<OltManagement />} />
-            <Route path="/settings/users" element={<UserManagement />} />
-            <Route path="/settings/onu-types" element={<OnuTypes />} />
+            <Route path="/settings/olts" element={<RequireSettingsRole roles={MANAGERS}><OltManagement /></RequireSettingsRole>} />
+            <Route path="/settings/users" element={<RequireSettingsRole roles={MANAGERS}><UserManagement /></RequireSettingsRole>} />
+            <Route path="/settings/onu-types" element={<RequireSettingsRole roles={MANAGERS}><OnuTypes /></RequireSettingsRole>} />
             <Route path="/settings/splitters" element={<Splitters />} />
             <Route path="/settings/speed-profiles" element={<SpeedProfile />} />
-            <Route path="/settings/graph-data" element={<GraphData />} />
+            <Route path="/settings/graph-data" element={<RequireSettingsRole roles={MANAGERS}><GraphData /></RequireSettingsRole>} />
             <Route path="/logs" element={<Logs />} />
             {LATER.map((p) => <Route key={p} path={p} element={<Placeholder />} />)}
+            <Route path="/settings/*" element={<NotFound />} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>

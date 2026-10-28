@@ -121,9 +121,15 @@ async def _onu_ids(db: AsyncSession, user: User, olt_id: int | None):
     """
     scope = scope_olt_ids(user)
     if olt_id is not None:
-        allowed = select(Olt.id).where(Olt.id == olt_id, Olt.deleted_at.is_(None))
-        if scope is not None:
-            allowed = allowed.where(Olt.id.in_(scope))
+        # Superadmin (scope None) boleh menyentuh histori OLT yang sudah dihapus:
+        # dulu filter deleted_at membuat hapus manual untuk OLT terhapus selalu 404
+        # dan, bila retensi diset 0, historinya yatim permanen. Non-superadmin
+        # tetap dibatasi scope + OLT yang belum dihapus.
+        if scope is None:
+            allowed = select(Olt.id).where(Olt.id == olt_id)
+        else:
+            allowed = select(Olt.id).where(Olt.id == olt_id, Olt.deleted_at.is_(None),
+                                           Olt.id.in_(scope))
         if await db.scalar(allowed) is None:
             raise NotFoundError(f"OLT {olt_id} tidak ditemukan")
         return select(Onu.id).where(Onu.olt_id == olt_id)

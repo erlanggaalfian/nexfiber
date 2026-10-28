@@ -1,5 +1,8 @@
 """netmiko Telnet transport wrapper. Same interface as SshTransport so drivers pick a
 transport based on `olts.cli_protocol` without branching their own command logic.
+
+Prompt konfirmasi ditangani di level driver, bukan di sini (lihat ssh.py dan
+`zte_c320._send_config`): tidak ada auto-answer "y" diam-diam.
 """
 
 import asyncio
