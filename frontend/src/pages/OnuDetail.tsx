@@ -462,7 +462,7 @@ function RxBox({ title, value }: { title: string; value: number | null }) {
 function RxChart({ points }: { points: SignalPoint[] }) {
   const SERIES = [
     { field: "rx_power_dbm", label: "ONU Rx", line: "text-fiber", dot: "fill-fiber" },
-    { field: "olt_rx_power_dbm", label: "OLT Rx", line: "text-amber", dot: "fill-amber" },
+    { field: "olt_rx_power_dbm", label: "OLT Rx", line: "text-ink", dot: "fill-ink" },
   ] as const;
   // Satu sampel BUKAN "belum cukup data": sampler optik jalan tiap 15 menit, jadi sesaat
   // setelah worker restart memang baru ada 1 titik. Polyline 1 titik tidak tergambar, maka
@@ -661,7 +661,7 @@ function LiveChart({ points }: { points: TrafficPoint[] }) {
             <line key={t} x1="0" x2="100" y1={y(t)} y2={y(t)} stroke="currentColor"
                   strokeWidth="0.3" className="text-line" vectorEffect="non-scaling-stroke" />
           ))}
-          {([["text-amber", (p: TrafficPoint) => p.outMbps], ["text-fiber", (p: TrafficPoint) => p.inMbps]] as const).map(([cls, pick]) => (
+          {([["text-ink", (p: TrafficPoint) => p.outMbps], ["text-fiber", (p: TrafficPoint) => p.inMbps]] as const).map(([cls, pick]) => (
             <g key={cls}>
               {segments(pick).map((seg, si) =>
                 seg.length === 1
@@ -766,11 +766,11 @@ function TrafficHistoryChart({ points }: { points: TrafficHistoryPoint[] }) {
           ))}
           {segments((p) => p.out_bps).lines.map((pts, i) => (
             <polyline key={`up-${i}`} points={pts} fill="none" stroke="currentColor"
-                      strokeWidth="1.2" className="text-amber" vectorEffect="non-scaling-stroke" />
+                      strokeWidth="1.2" className="text-ink" vectorEffect="non-scaling-stroke" />
           ))}
           {segments((p) => p.out_bps).dots.map((pt, i) => (
             <circle key={`up-dot-${i}`} cx={pt.split(",")[0]} cy={pt.split(",")[1]} r="1.2"
-                    className="fill-amber" vectorEffect="non-scaling-stroke" />
+                    className="fill-ink" vectorEffect="non-scaling-stroke" />
           ))}
           {segments((p) => p.in_bps).lines.map((pts, i) => (
             <polyline key={`down-${i}`} points={pts} fill="none" stroke="currentColor"
@@ -1642,12 +1642,12 @@ export function OnuDetail() {
                 {/* Running-config utuh memuat nilai konfigurasi sensitif: tombolnya hanya dirender
                     untuk admin/superadmin, dan backend tetap menolak role lain (403). */}
                 {isManager && (
-                  <Button className="min-h-11 w-full lg:min-h-0 lg:w-auto" size="sm" variant="fiber"
+                  <Button className="min-h-11 w-full lg:min-h-0 lg:w-auto" size="sm" variant="secondary"
                           onClick={() => runDiag("running")} disabled={diagRunning}>
                     {DIAG_LABEL.running}{diagRunning && diagRunView === "running" ? " ..." : ""}
                   </Button>
                 )}
-                <Button className="min-h-11 w-full lg:min-h-0 lg:w-auto" size="sm" variant="fiber"
+                <Button className="min-h-11 w-full lg:min-h-0 lg:w-auto" size="sm" variant="secondary"
                         onClick={() => runDiag("software")} disabled={diagRunning}>
                   {DIAG_LABEL.software}{diagRunning && diagRunView === "software" ? " ..." : ""}
                 </Button>
@@ -1666,8 +1666,8 @@ export function OnuDetail() {
                     Salin
                   </Button>
                 )}
-                <Button className="min-h-11 w-full lg:min-h-0 lg:w-auto" size="sm"
-                        variant={live ? "fiber" : "secondary"} aria-pressed={live}
+                <Button className={`min-h-11 w-full lg:min-h-0 lg:w-auto ${live ? "bg-sunken" : ""}`} size="sm"
+                        variant="secondary" aria-pressed={live}
                         onClick={() => setLive(!live)}>
                   <Gear size={13} aria-hidden />
                   LIVE!
@@ -1677,7 +1677,7 @@ export function OnuDetail() {
           </div>
         </div>
             {diagMsg && (
-              <p className="mt-2 text-sm text-amber" role="status">{diagMsg}</p>
+              <p className="mt-2 text-sm text-warn" role="status">{diagMsg}</p>
             )}
             {/* Panel realtime HANYA saat LIVE aktif (acuan screenshot ke-2): grafik Mbps +
                 dua baris ringkasan arah. Saat LIVE mati panel ini TIDAK dirender sama sekali. */}
@@ -1688,7 +1688,7 @@ export function OnuDetail() {
                 <LiveChart points={traffic.points} />
                 <div className="mt-2 flex flex-wrap items-center gap-3 border-t pt-2 font-mono text-xs">
                   <span className="flex items-center gap-1.5">
-                    <span aria-hidden className="inline-block h-2.5 w-2.5 rounded-sm bg-amber" />
+                    <span aria-hidden className="inline-block h-2.5 w-2.5 rounded-sm bg-ink" />
                     Upload
                   </span>
                   <span className="flex items-center gap-1.5">
@@ -1698,7 +1698,7 @@ export function OnuDetail() {
                 </div>
                 <div className="mt-1.5 flex flex-col">
                   {/* out_octets = KELUAR dari ONU = upload pelanggan (schemas/onu_traffic.py). */}
-                  <LiveRow dir="up" label="U Speed" color="text-amber"
+                  <LiveRow dir="up" label="U Speed" color="text-ink"
                            speed={latest?.outMbps ?? null} max={liveMax?.out ?? null} />
                   <LiveRow dir="down" label="D Speed" color="text-fiber"
                            speed={latest?.inMbps ?? null} max={liveMax?.in ?? null} />
@@ -1740,7 +1740,7 @@ export function OnuDetail() {
               <>
                 <LegendRow color="bg-fiber" label={`Download maks · rata-rata (${range})`}
                   value={tStats ? `${mbpsId(tStats.downMax)} · ${mbpsId(tStats.downAvg)}` : "—"} />
-                <LegendRow color="bg-amber" label={`Upload maks · rata-rata (${range})`}
+                <LegendRow color="bg-ink" label={`Upload maks · rata-rata (${range})`}
                   value={tStats ? `${mbpsId(tStats.upMax)} · ${mbpsId(tStats.upAvg)}` : "—"} />
                 <LegendRow color="bg-line-strong" label="Sampel dengan laju terbaca"
                   value={tStats ? String(tStats.count) : "0"} />
@@ -1766,7 +1766,7 @@ export function OnuDetail() {
                   value={stats
                     ? `${comma(stats.min, 1)} · ${comma(stats.avg, 1)} · ${comma(stats.max, 1)}`
                     : "—"} />
-                <LegendRow color="bg-amber" label="OLT Rx 1310nm (min · rata-rata · maks)"
+                <LegendRow color="bg-ink" label="OLT Rx 1310nm (min · rata-rata · maks)"
                   value={oltStats
                     ? `${comma(oltStats.min, 1)} · ${comma(oltStats.avg, 1)} · ${comma(oltStats.max, 1)}`
                     : "—"} />
@@ -1978,7 +1978,7 @@ export function OnuDetail() {
             ? () => setModal({ kind: "voip-enable", port: 1 })
             : undefined} />
           <DRow label="IPTV" value={
-            <span className="inline-flex items-center rounded border border-amber/30 bg-amber/10 px-2 py-0.5 text-xs font-medium text-amber">
+            <span className="inline-flex items-center rounded border border-line bg-sunken px-2 py-0.5 text-xs font-medium text-muted">
               Segera
             </span>
           } onEdit={() => setModal({ kind: "iptv" })} />

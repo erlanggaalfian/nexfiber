@@ -282,7 +282,7 @@ export function Configured() {
         <p className="mb-2 text-muted" role="status">{note || downloadError}</p>
       )}
       {total > 50000 && (
-        <p className="mb-2 text-amber" role="status">
+        <p className="mb-2 text-warn" role="status">
           Export CSV hanya mengekspor 50.000 dari {nf.format(total)} baris (batas backend).
         </p>
       )}

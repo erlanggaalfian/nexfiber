@@ -248,7 +248,7 @@ export function Layout() {
         Langsung ke konten
       </a>
       {disconnected && (
-        <p className="bg-amber/15 px-4 py-2 text-center text-xs text-amber" role="status">
+        <p className="border-l-2 border-warn bg-sunken px-4 py-2 text-center text-xs text-warn" role="status">
           Koneksi update job terputus — pembaruan job mungkin tertunda sampai koneksi pulih.
         </p>
       )}

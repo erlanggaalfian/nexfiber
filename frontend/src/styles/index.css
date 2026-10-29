@@ -80,7 +80,7 @@
   --bg-surface: #ffffff;
   --bg-sunken: #efede8;
   --border: #d9d5cc;
-  --border-strong: #b4aea2;
+  --border-strong: #8c8476;
   --text: #1c1b18;
   --text-muted: #5b574e;
   --text-faint: #6b675b;
@@ -103,7 +103,7 @@
   --bg-sunken: #232420;
   --border: #33352f;
   /* DESIGN.md has no dark --border-strong; one step above --border keeps input edges visible. */
-  --border-strong: #4a4c45;
+  --border-strong: #6b6d64;
   --text: #e8e6df;
   --text-muted: #a9a69c;
   --text-faint: #8e8b82;
@@ -146,8 +146,7 @@
    - Header: latar tint --bg-sunken, label uppercase + tracking-wider +
      semibold, teks muted, satu garis bawah tegas --border-strong.
    - Baris: hanya hairline antar-baris lewat sel, baris terakhir tanpa
-     garis, hover tint --bg-sunken + transisi 150ms (aturan global tbody tr
-     di @layer base).
+     garis, hover tint 55% --bg-sunken (lihat :where(.tbl) tbody tr:hover).
    - Sel: padding lega px-6 py-4 (1.5rem horizontal, 1rem vertikal);
      .tbl--roomy menaikkan vertikal ke 1.25rem, horizontal tetap 1.5rem.
    - Kolom utama semibold TIDAK ditambahkan di sini untuk semua kolom:
@@ -204,9 +203,10 @@
   border-bottom: 0;
 }
 /* Hover baris adalah BAGIAN dari .tbl itu sendiri: semua tabel yang memakai
-   .tbl otomatis mendapat hover tanpa class per halaman/per baris. */
+   .tbl otomatis mendapat hover tanpa class per halaman/per baris.
+   Tint 55% --bg-sunken (permintaan user 2026-10-29: jangan sepekat warna penuh). */
 :where(.tbl) > tbody > tr:hover {
-  background: var(--bg-sunken);
+  background: color-mix(in srgb, var(--bg-sunken) 55%, var(--bg-surface));
 }
 
 .tbl--fixed {

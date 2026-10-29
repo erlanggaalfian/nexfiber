@@ -54,7 +54,7 @@ Dua warna inti + satu aksen + netral. Netral tidak dihitung sebagai warna inti (
 | `--bg-surface` | `#FFFFFF` | Tabel, panel, kartu. Alasan: kontras halus terhadap `--bg-app` memisahkan bidang tanpa perlu shadow. |
 | `--bg-sunken` | `#EFEDE8` | Header tabel, baris zebra opsional, kode blok. |
 | `--border` | `#D9D5CC` | Garis tabel dan panel. |
-| `--border-strong` | `#B4AEA2` | Pemisah struktural, batas input. |
+| `--border-strong` | `#8C8476` | Pemisah struktural, batas input (≥3:1 WCAG 1.4.11; dark `#6B6D64`). |
 | `--text` | `#1C1B18` | Teks utama. Kontras 17.2:1 di `--bg-surface`, 15.9:1 di `--bg-app`. |
 | `--text-muted` | `#5B574E` | Label, satuan, metadata. Kontras 7.2:1 / 6.7:1. |
 | `--text-faint` | `#6B675B` | Placeholder saja, tidak pernah untuk data. Kontras 5.7:1 / 5.2:1 / 4.8:1 di `--bg-sunken`. |
@@ -70,7 +70,7 @@ Dua warna inti + satu aksen + netral. Netral tidak dihitung sebagai warna inti (
 
 | Token | Hex | Pakai |
 |---|---|---|
-| `--amber` | `#B4540A` | Tombol aksi primer komit (Authorize, Reboot, Apply), penanda baris terpilih. Alasan: satu-satunya warna yang berarti "tindakan ini mengubah jaringan"; dilarang muncul di ikon, link, atau latar dekoratif. Teks putih di atasnya 4.98:1 (AA lolos); karena itu label tombol primer minimum 13px/600. Teks di atas amber wajib memakai token `--on-amber`, bukan `text-white` mentah (di dark mode amber jauh lebih terang, putih di atasnya gagal AA). Pengecualian Dashboard saja: sel urgent memakai aksen atas 2px token status (termasuk amber untuk Unconfigured sebagai "perlu tindakan", bukan kegagalan). |
+| `--amber` | `#B4540A` | Tombol aksi primer komit (Authorize, Reboot, Apply), penanda baris terpilih. Alasan: satu-satunya warna yang berarti "tindakan ini mengubah jaringan"; dilarang muncul di ikon, link, atau latar dekoratif. Teks putih di atasnya 4.98:1 (AA lolos); karena itu label tombol primer minimum 13px/600. Teks di atas amber wajib memakai token `--on-amber`, bukan `text-white` mentah (di dark mode amber jauh lebih terang, putih di atasnya gagal AA). Pengecualian Dashboard saja: sel urgent memakai aksen atas 2px token status (termasuk amber untuk Unconfigured sebagai "perlu tindakan", bukan kegagalan). Aturan tegas (2026-10-29): amber HANYA untuk aksi komit yang mengubah jaringan (Authorize, Reboot, Apply) dan penanda "perlu tindakan" (badge Unconfigured, counter) — dilarang untuk ikon, link, grafik, legend, marker dekoratif, teks peringatan UI (memakai `--st-warn`), atau badge informatif. |
 | `--teal-glow` | `#1D8A74` | **Baru.** Satu-satunya tambahan ekspresif: ring tipis 1px di kartu metric Dashboard saat hover (depth, §2.1), dan highlight garis atas 2px pada kartu yang baru menerima data real-time (sekali, hilang 2s). Tidak pernah dipakai di teks atau ikon (hanya border/ring tipis) agar tidak bersaing dengan `--fiber`/`--amber` sebagai bahasa aksi. |
 
 ### Status (bahasa data, bukan palet dekorasi)
@@ -80,11 +80,11 @@ Dipakai hanya untuk state perangkat, selalu berpasangan dengan teks/ikon (tidak 
 | Token | Hex | Arti | Kontras |
 |---|---|---|---|
 | `--st-up` | `#1F6B3A` | Online, Rx normal | 6.5:1 |
-| `--st-warn` | `#8A5B00` | Rx mendekati ambang, high CRC | 5.9:1 |
+| `--st-warn` | `#8A5B00` | Perangkat mendekati ambang (Rx mendekati ambang, high CRC) + peringatan UI | 5.9:1 |
 | `--st-down` | `#A02020` | LOS, Dying Gasp, offline | 7.7:1 |
 | `--st-idle` | `#5B574E` | Belum diotorisasi, disabled | 7.2:1 |
 
-Kontras diukur terhadap `--bg-surface` `#FFFFFF`; semua tetap di atas 4.5:1 terhadap `--bg-app` `#F7F6F3`.
+Kontras diukur terhadap `--bg-surface` `#FFFFFF`; semua tetap di atas 4.5:1 terhadap `--bg-app` `#F7F6F3`. Konsolidasi peringatan UI (2026-10-29): semua teks peringatan UI (banner koneksi terputus, catatan "Belum didukung", pesan diagnostik, peringatan batas export) masuk ke `--st-warn` lewat util `text-warn`/`bg-warn`/`border-warn` — maknanya diperluas jadi "peringatan UI + perangkat mendekati ambang"; amber tidak pernah dipakai untuk peringatan.
 
 Ambang Rx ONU (GPON, dBm) yang memetakan status, sebagai nilai default yang dapat dikonfigurasi per OLT:
 
@@ -120,6 +120,14 @@ Dark bukan default, tapi wajib ada dan wajib berfungsi penuh (R-21, R-34). Alasa
 | `--st-idle` | `#8E8B82` |
 
 Toggle: `Sistem / Terang / Gelap`, tersimpan per browser (localStorage) — bukan per pengguna (kolom per pengguna belum ada; itu pekerjaan backend). Tema diterapkan saat load dari nilai tersimpan, default awal Sistem, termasuk di halaman Login/Setup. Tabel gelap juga memuat `--border-strong: #4a4c45` dan `--text-faint: #8e8b82` (nilai yang sudah dipakai kode), serta token teks-di-atas-aksen `--on-amber` (terang `#ffffff`, gelap `#1b1c19`) dan `--on-fiber` (terang `#ffffff`, gelap `#131412`): tombol isi di dark mode memakai teks token ini, bukan putih. Keduanya diuji kontras sebelum rilis.
+
+### Hierarki tombol solid
+
+- `fiber` solid = CTA utama standar (Tambah / Simpan non-jaringan).
+- `primary` (`--amber`) solid = aksi komit ubah jaringan saja (Authorize, Reboot, Apply, dan sejenisnya).
+- `dangerSolid` = aksi destruktif.
+- `secondary` / `quiet` = aksi sekunder dan pendukung.
+- Satu baris aksi = satu tombol solid dominan. Bila satu baris/layar memuat dua tombol solid yang bersaing, yang bukan aksi komit diturunkan ke `secondary`. Definisi varian di `button.tsx` tidak berubah — aturan ini soal pemakaian per halaman.
 
 ### Larangan palet
 

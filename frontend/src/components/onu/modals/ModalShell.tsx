@@ -25,7 +25,7 @@ export const selectCls = field;
 export function Help({ children, warn }: { children: ReactNode; warn?: boolean }) {
   const Icon = warn ? Warning : Info;
   return (
-    <p className={`flex items-start gap-1.5 text-xs ${warn ? "text-amber" : "text-muted"}`}>
+    <p className={`flex items-start gap-1.5 text-xs ${warn ? "text-warn" : "text-muted"}`}>
       <Icon size={13} aria-hidden className="mt-0.5 shrink-0" />
       <span className="min-w-0">{children}</span>
     </p>
@@ -336,7 +336,7 @@ export function ModalShell({
     >
       {children}
       {unsupported && (
-        <p className="mt-2 text-xs text-amber" role="status">
+        <p className="mt-2 text-xs text-warn" role="status">
           Belum didukung{note ? ` — ${note}` : ""}
         </p>
       )}
@@ -404,7 +404,7 @@ export function ConfirmShell({
       footer={
         <>
           <Button size="md" variant="quiet" onClick={requestClose} className="max-md:order-2">{closeLabel}</Button>
-          <Button size="md" type="submit" variant={danger ? "dangerSolid" : "primary"}
+          <Button size="md" type="submit" variant={danger ? "dangerSolid" : "fiber"}
                   disabled={busy || disabled} className="max-md:order-1">
             {action}
           </Button>
