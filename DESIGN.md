@@ -216,7 +216,7 @@ Fokus: `outline: 2px solid var(--fiber); outline-offset: 1px` di light, `--amber
 
 | Varian | Tampilan | Pakai |
 |---|---|---|
-| Primer | isi `--amber`, teks `--on-amber`, radius-sm, hover `opacity-90` | Satu per layar, untuk aksi yang mengubah jaringan |
+| Primer | isi `--amber`, teks `--on-amber`, radius-md, hover `opacity-90` | Satu per layar, untuk aksi yang mengubah jaringan |
 | Sekunder | border `--border-strong`, teks `--ink`, hover `bg-sunken` | Aksi aman (Export, Refresh, Filter) |
 | Tenang | teks `--fiber`, tanpa border, hover underline | Aksi dalam baris tabel |
 | Destruktif | isi `--st-down` untuk aksi utama destruktif (Delete, Restore factory, dan aksi yang menghapus setelan pelanggan), border `--st-down` untuk varian garis, konfirmasi wajib | Deauthorize, Factory reset, Hapus user |
@@ -420,7 +420,7 @@ Kualitas sinyal   Critical 14 ▮  Weak 52 ▮  Fair 310 ▮  Good 4.436 ▮    
 - Contoh angka di wireframe hanya ilustrasi ukuran; build memakai data nyata atau sel kosong.
 - Mobile: strip jadi grid 2×2, baris sinyal jadi 2×2, tabel OLT jadi kartu (Nama, SNMP, ONU on/total), aktivitas 5 baris.
 - **Motion (§2.1)**: keempat sel strip muncul dengan `motion-entrance` + `motion-stagger` (urutan kiri→kanan, total ≤250ms) hanya saat halaman pertama dimuat, bukan tiap auto-refresh. Setiap sel `shadow-hover-lift` saat `:hover`/`:focus-visible`. Saat auto-refresh (60s) mengubah angka, sel yang berubah dapat garis atas 2px `--teal-glow` sekali, hilang 2s — bukan animasi angka berganti (hindari layout thrash).
-- **Triase**: sel urgent di strip/sinyal memakai garis atas 2px token status; sel netral tidak memakai aksen. Dot LOS memakai `--st-down` (bukan idle), dan tiap sel sinyal memakai subline "dari {total}".
+- **Triase**: sel urgent di strip/sinyal memakai garis atas 2px token status; sel netral tidak memakai aksen. Sel metrik urgent ("ONU Tidak Online", "Unconfigured") memakai tint latar sangat tipis (`bg-down/5`, `bg-amber/5`) **hanya saat nilainya > 0** — saat 0 sel tetap netral. Baris "Kualitas sinyal" adalah satu baris readout (bukan kartu): label + segmen klikabel berisi label, angka mono, dan mini-bar proporsional berwarna bucket; segmen yang berubah di auto-refresh ditandai titik `--teal-glow` 2 detik. Dot LOS memakai `--st-down` (bukan idle), dan tiap sel sinyal memakai subline "dari {total}".
 - **Tabel OLT**: baris bisa diklik penuh ke Detail OLT; kolom ONU memakai bar 48×4 seperti UsageBar; urutan: OLT tidak online dulu, lalu rasio ONU online terendah. Kartu mobile OLT memakai pola `MobileCard` (press) dan jadi link penuh, tetap 3 baris.
 - **Header**: Aktivitas memakai "Lihat semua" ke Logs; baris judul menampilkan waktu poll OLT terakhir (`last_poll_at`), bukan hanya waktu refresh halaman.
 
@@ -579,3 +579,57 @@ Sejak bahasa tabel berbasis pembatas 2026-10-29 (§8): bukan lagi kartu berkotak
 - Tanpa teks penjelas panjang, popup bantuan, garis pemisah berlebih, penomoran berulang, emoji.
 - Bisa dipakai penuh dengan keyboard, fokus terlihat.
 - Motion sesuai token §2.1 (durasi/easing tepat, sekali per kemunculan, tidak ada loop), properti animasi hanya `opacity`/`transform`, `prefers-reduced-motion: reduce` sudah diuji (motion hilang, layout tetap sama).
+
+## 15. Adopsi Base Design System vibekoding (2026-10-31)
+
+Diadopsi **pola, kontrak interaksi, dan skala peran** — bukan nilai hex warna. Warna tetap 100%
+palet Nexfiber §3 (instruksi user). Pemetaan peran: primary → `--fiber`, aksen → `--teal-glow`
+(hanya ring/garis 1–2px), aksi komit → `--amber`, status → `--st-*`, latar/teks/border → token netral.
+Skala primer 50–900 vibekoding tidak diwajibkan; token peran tunggal yang sudah teruji kontras cukup.
+
+Pola yang diadopsi (komponen di `frontend/src/components/ui/`, pola di halaman):
+- **Toast** (`ui/Toast.tsx`, `ToastProvider` di `Layout`): DESIGN §13 — maks 3, sukses/info hilang 5 detik,
+  error menetap sampai ditutup; desktop kanan bawah, mobile di atas bottom nav
+  (`calc(64px + env(safe-area-inset-bottom) + 12px)`).
+- **Switch** (`ui/Switch.tsx`): 48×28px, knob 22px, geser 20px, 200ms; track off `--border-strong`,
+  on `--fiber`; `role="switch"`. Track membulat penuh adalah kebutuhan fungsi, bukan pill.
+- **Filter collapsible mobile** (`ui/MobileFilterHead.tsx`, vibekoding §3.3): kepala "Filter · N aktif"
+  + chevron, `aria-expanded`; panel berisi kontrol filter halaman yang sama persis (DRY).
+  Desktop tidak berubah. Dipakai di Configured.
+- **Judul diketuk di mobile** (vibekoding §3.5): info "Diperbarui …" / "Poll OLT terakhir …"
+  pindah ke panel lipat di bawah judul pada <768px (collapsed-first); desktop tidak berubah.
+  Dipakai di Dashboard.
+- **Input mobile 16px**: aturan global di `styles/index.css` (<768px) — cegah auto-zoom iOS.
+- **Tangga bobot**: 800 hanya angka besar/H1 → 700 judul → 600 tombol/label/nama item → 400 body.
+  Deviasi terkunci DESIGN §4 dipertahankan (text-metric 600, judul text-xl/text-lg 600).
+- **Kontrak lipat**: ketuk judul → buka/tutup; ketuk link/tombol/input/checkbox di dalam item
+  tidak memicu aksi baris (klik maupun keyboard); `aria-expanded` di-toggle.
+
+Sengaja TIDAK diadopsi (Nexfiber menang): badge pill (§6), font Inter/body 16px (§4),
+glassmorphism/blur (§7, §11.1), breakpoint lipat 768px (tetap <1024px wilayah sentuh, §9),
+top bar 60px vibekoding, skala 50–900. Signal bar 4px adalah motif identitas — tidak diubah.
+
+### 15.1 Pengecualian tercatat (audit konsistensi 2026-10-31)
+
+- **Label mikro diagram/grafik** (§4): `text-[9px]`/`text-[10px]` pada label diagram hardware
+  (`OnuRearPanel`) dan label sumbu/keterangan grafik (`OnuDetail`) adalah pengecualian skala
+  yang disengaja — di bawah skala pun tetap terbaca sebagai anotasi, bukan teks baca.
+- **Amber di grafik — TIDAK ADA LAGI (aturan tegas 2026-10-29, commit 3fc5a55).**
+  Amber dibersihkan total dari grafik/legend/marker: upload = `ink`, download = `fiber`,
+  OLT Rx = `ink`, legend konsisten dengan garis. Amber HANYA untuk aksi komit yang mengubah
+  jaringan (Authorize, Reboot, Apply) dan penanda "perlu tindakan" (badge Unconfigured,
+  counter). Dilarang untuk ikon, link, grafik, legend, marker dekoratif, teks peringatan UI
+  (memakai `--st-warn`), atau badge informatif.
+- **`Bar` usage ≥100%** (§3): memakai `bg-down` sebagai enkoding peringatan data di sel yang sama
+  dengan angkanya — bukan state perangkat.
+- **Meta `theme-color`** (`lib/theme.ts`): hex literal dapat diterima — atribut meta butuh nilai
+  literal; nilainya sama dengan `--bg-surface` kedua tema.
+- **LED diagram hardware** (`OnuRearPanel`): `rounded-full` adalah pengecualian — diagram
+  hardware tidak dicakup sistem radius §6.
+- **Dua bobot border kartu**: `Panel` memakai hairline `border-line/60` (§6 de-boxing),
+  `TableCard`/`Section` memakai `border-line` penuh (§8) — keduanya keputusan tercatat.
+- **`dangerSolid` dark mode**: memakai `dark:text-on-fiber` (bukan token `on-down` yang belum ada) —
+  kontras lolos; ganti ke token khusus bila token `on-down` ditambahkan.
+- **Follow-up (bukan temuan)**: `useToast()`/`Switch` sudah tersedia (Toast terpasang di Layout)
+  tetapi belum dipakai di alur nyata. Pemakaian toast §13 butuh pelacakan origin job
+  (hanya toast bila user sudah pindah halaman) — itu fitur baru, di luar cakupan audit ini.

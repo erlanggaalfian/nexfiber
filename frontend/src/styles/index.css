@@ -336,3 +336,15 @@
     animation: none;
   }
 }
+
+/* Adopsi vibekoding §4.6: cegah auto-zoom iOS — semua field form minimal
+   16px di bawah 768px. Ditulis global di sini (bukan per komponen) supaya
+   satu aturan menutup semua input/select/textarea, termasuk yang memakai
+   konstanta bersama (crud.input, ModalShell.field). !important supaya menang
+   atas utility text-sm milik konstanta tersebut. Checkbox/radio ikut kena
+   aturan ini tapi tidak terpengaruh secara visual. */
+@media (width < 48rem) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}

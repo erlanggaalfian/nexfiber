@@ -296,7 +296,7 @@ function LastLogPopover(
     <Popover.Root>
       <Popover.Trigger asChild>
         <button type="button"
-                className="inline-flex items-center gap-1.5 rounded border border-line bg-sunken/40 px-2.5 py-1 text-xs font-medium text-fiber transition-colors hover:bg-sunken min-h-11 lg:min-h-0">
+                className="inline-flex items-center gap-1.5 rounded-sm border border-line bg-sunken/40 px-2.5 py-1 text-xs font-medium text-fiber transition-colors hover:bg-sunken min-h-11 lg:min-h-0">
           Log aksi terakhir
           <CaretDown size={12} aria-hidden />
         </button>
@@ -385,7 +385,7 @@ function PppoePassword({ password }: { password: string | null }) {
  *  text-fiber` untuk kedua baris (mock). */
 function IpLink({ ip, title }: { ip: string; title?: string }) {
   return (
-    <a className="inline-flex items-center gap-1 rounded border border-line bg-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-fiber hover:bg-surface"
+    <a className="inline-flex items-center gap-1 rounded-sm border border-line bg-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-fiber hover:bg-surface"
        href={`http://${ip}`}
        target="_blank" rel="noopener noreferrer" title={title}>
       {ip}
@@ -1116,7 +1116,7 @@ function PrimaryVlanModal({ serial, oltId, currentVlanId, onClose, onDone }: {
                 disabled={!selected || Number(selected) === currentVlanId}
                 onSubmit={() => save.mutate()}>
       <Field label="VLAN">
-        <select className="h-8 max-md:h-12 w-full rounded border border-line bg-surface px-2"
+        <select className="h-8 max-md:h-12 w-full rounded-sm border border-line bg-surface px-2"
                 value={selected} onChange={(e) => setSelected(e.target.value)}>
           <option value="">Pilih VLAN ...</option>
           {rows.map((v) => (
@@ -1399,6 +1399,8 @@ export function OnuDetail() {
         <p className="text-muted" role="status">{note}</p>
       )}
 
+      {/* Navigasi kembali (desktop saja — mobile sudah punya tombol ← di top bar, §11.1). */}
+      <Link to="/configured" className="mb-2 hidden text-sm text-fiber hover:underline md:inline-block">← Configured</Link>
       {/* Strip identitas: satu baris wrap di mobile, di atas blok Status. StatusBadge
           DIPINDAH ke sini dari blok Status (tidak diduplikasi); urutan section di bawah
           tidak berubah. Nama = customer_name, fallback name; chip SN gaya yang sama
@@ -1406,7 +1408,7 @@ export function OnuDetail() {
       <div className="entrance flex flex-wrap items-center gap-2 rounded-lg border border-line/60 bg-surface px-3 py-2">
         <span className="min-w-0 break-words text-base font-semibold">{d.customer_name || d.name || "—"}</span>
         <StatusBadge status={statusKey} reason={d.last_down_reason} withLabel />
-        <span className="shrink-0 rounded border border-line bg-sunken px-1.5 py-0.5 font-mono font-semibold text-fiber">{d.serial_number}</span>
+        <span className="shrink-0 rounded-sm border border-line bg-sunken px-1.5 py-0.5 font-mono font-semibold text-fiber">{d.serial_number}</span>
         <Link className="text-fiber hover:underline" to={`/olt/${d.olt_id}`}>{d.olt_name}</Link>
         <span className="font-mono text-xs text-muted">{onuIf}</span>
       </div>
@@ -1573,7 +1575,7 @@ export function OnuDetail() {
               ) : (
                 <>
                   {vlanList.map((v) => (
-                    <span key={v.vlan_id} className="inline-flex items-center rounded border border-line bg-sunken px-2 py-0.5 font-mono font-semibold text-ink"
+                    <span key={v.vlan_id} className="inline-flex items-center rounded-sm border border-line bg-sunken px-2 py-0.5 font-mono font-semibold text-ink"
                           title={v.name ?? undefined}>
                       VLAN {v.vlan_id}
                       {v.in_master === false && <span className="ml-0.5 text-warn">*</span>}
@@ -1729,7 +1731,7 @@ export function OnuDetail() {
           grafik sejajar lg:grid-cols-2 (menumpuk di bawah lg). Sumber data tetap endpoint
           histori/sinyal yang ada; grafik hanya menggambar sampel yang benar-benar tersimpan. */}
       <section className="entrance rounded-lg border border-line bg-surface p-4 shadow-xs">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
           <h2 className="flex items-center gap-2 text-base font-bold text-fiber"><TitleIcon title="Trafik & Histori Sinyal" />Trafik & Histori Sinyal</h2>
           <span className="font-mono text-xs text-muted">Trafik {RANGE_TITLE[range]} · Sinyal {RANGE_TITLE[srange]}</span>
         </div>
@@ -1890,7 +1892,7 @@ export function OnuDetail() {
                 );
               })}
             </div>
-            <span className="inline-block rounded border border-line bg-sunken px-2 py-0.5 text-xs text-muted">
+            <span className="inline-block rounded-sm border border-line bg-sunken px-2 py-0.5 text-xs text-muted">
               {d.port_configs?.eth && Object.keys(d.port_configs.eth).length > 0 ? "Terakhir ditulis Nexfiber" : "Belum dibaca dari OLT"}
             </span>
           </>
@@ -1951,7 +1953,7 @@ export function OnuDetail() {
                 );
               })}
             </div>
-            <span className="inline-block rounded border border-line bg-sunken px-2 py-0.5 text-xs text-muted">
+            <span className="inline-block rounded-sm border border-line bg-sunken px-2 py-0.5 text-xs text-muted">
               {d.port_configs?.wifi && Object.keys(d.port_configs.wifi).length > 0 ? "Terakhir ditulis Nexfiber" : "Perlu TR-069"}
             </span>
           </>

@@ -16,6 +16,7 @@ import {
 } from "../components/crud";
 import { PageTitle, RX_BUCKETS, SignalBar, StatusBadge, fmtAgo, nf } from "../components/data";
 import { Button } from "../components/ui/button";
+import { MobileFilterHead } from "../components/ui/MobileFilterHead";
 import {
   api, download, qsMulti,
   type BulkActionResult, type Olt, type OnuRow, type OnuType, type Page, type SpeedProfile,
@@ -201,6 +202,59 @@ export function Configured() {
     [onuTypeCatalog.data, rows],
   );
 
+  /* Kontrol filter dipakai dua cabang (DRY, tanpa salinan logika): desktop
+   * inline, mobile di dalam MobileFilterHead. Keduanya terikat state yang
+   * sama (searchText/multi/showMoreFilters/patch) sehingga perilaku filter
+   * identik — hanya wadahnya yang berbeda di bawah 768px. Fungsi render biasa
+   * (bukan komponen) supaya tidak me-remount dan input cari tidak kehilangan
+   * fokus saat mengetik. */
+  const filterControls = () => (
+    <>
+      <input
+        className={`${input} max-w-xs`}
+        placeholder="Nama, SN, alamat, PPPoE, external ID ..."
+        value={searchText}
+        aria-label="Cari ONU"
+        onChange={(e) => setSearchText(e.target.value)}
+      />
+      <MultiFilter label="OLT" value={multi.olt_id} onChange={(v) => patch({ olt_id: v })}
+        options={(olts.data ?? []).map((o) => ({ value: String(o.id), label: o.name }))} />
+      <MultiFilter label="Status" value={multi.status} onChange={(v) => patch({ status: v })}
+        options={STATUS_OPTIONS} />
+      <Button size="sm" onClick={() => setShowMoreFilters((v) => !v)} aria-expanded={showMoreFilters}>
+        {showMoreFilters ? "Sembunyikan filter" : "Filter lainnya"}
+      </Button>
+      {showMoreFilters && (
+        <>
+          <MultiFilter label="Sinyal" value={multi.signal} onChange={(v) => patch({ signal: v })}
+            options={SIGNAL_OPTIONS} />
+          <MultiFilter label="Tipe" value={multi.onu_type} onChange={(v) => patch({ onu_type: v })}
+            options={onuTypes} />
+          <MultiFilter label="Profile download" value={multi.download_speed_profile_id}
+            onChange={(v) => patch({ download_speed_profile_id: v })}
+            options={(profiles.data ?? []).filter((p) => p.direction === "download")
+              .map((p) => ({ value: String(p.id), label: p.name }))} />
+          <MultiFilter label="Profile upload" value={multi.upload_speed_profile_id}
+            onChange={(v) => patch({ upload_speed_profile_id: v })}
+            options={(profiles.data ?? []).filter((p) => p.direction === "upload")
+              .map((p) => ({ value: String(p.id), label: p.name }))} />
+          <MultiFilter label="VLAN" value={multi.vlan_id} onChange={(v) => patch({ vlan_id: v })}
+            options={(vlans.data ?? []).map((v) => ({ value: String(v.id), label: `VLAN ${v.vlan_id} · ${v.name}` }))} />
+          <MultiFilter label="Zone" value={multi.zone_id} onChange={(v) => patch({ zone_id: v })}
+            options={(zones.data ?? []).map((z) => ({ value: String(z.id), label: z.name }))} />
+          <MultiFilter label="Splitter" value={multi.splitter_id}
+            onChange={(v) => patch({ splitter_id: v })}
+            options={(splitters.data ?? []).map((s) => ({ value: String(s.id), label: s.name }))} />
+        </>
+      )}
+      {(activeChips.length > 0 || q) && (
+        <Button variant="quiet" size="sm" onClick={() => { setSearchText(""); setParams(new URLSearchParams(), { replace: true }); }}>
+          Reset
+        </Button>
+      )}
+    </>
+  );
+
   return (
     <>
       <PageTitle title="Configured">
@@ -221,50 +275,16 @@ export function Configured() {
         </Button>
       </PageTitle>
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <input
-          className={`${input} max-w-xs`}
-          placeholder="Nama, SN, alamat, PPPoE, external ID ..."
-          value={searchText}
-          aria-label="Cari ONU"
-          onChange={(e) => setSearchText(e.target.value)}
-        />
-        <MultiFilter label="OLT" value={multi.olt_id} onChange={(v) => patch({ olt_id: v })}
-          options={(olts.data ?? []).map((o) => ({ value: String(o.id), label: o.name }))} />
-        <MultiFilter label="Status" value={multi.status} onChange={(v) => patch({ status: v })}
-          options={STATUS_OPTIONS} />
-        <Button size="sm" onClick={() => setShowMoreFilters((v) => !v)} aria-expanded={showMoreFilters}>
-          {showMoreFilters ? "Sembunyikan filter" : "Filter lainnya"}
-        </Button>
-        {showMoreFilters && (
-          <>
-            <MultiFilter label="Sinyal" value={multi.signal} onChange={(v) => patch({ signal: v })}
-              options={SIGNAL_OPTIONS} />
-            <MultiFilter label="Tipe" value={multi.onu_type} onChange={(v) => patch({ onu_type: v })}
-              options={onuTypes} />
-            <MultiFilter label="Profile download" value={multi.download_speed_profile_id}
-              onChange={(v) => patch({ download_speed_profile_id: v })}
-              options={(profiles.data ?? []).filter((p) => p.direction === "download")
-                .map((p) => ({ value: String(p.id), label: p.name }))} />
-            <MultiFilter label="Profile upload" value={multi.upload_speed_profile_id}
-              onChange={(v) => patch({ upload_speed_profile_id: v })}
-              options={(profiles.data ?? []).filter((p) => p.direction === "upload")
-                .map((p) => ({ value: String(p.id), label: p.name }))} />
-            <MultiFilter label="VLAN" value={multi.vlan_id} onChange={(v) => patch({ vlan_id: v })}
-              options={(vlans.data ?? []).map((v) => ({ value: String(v.id), label: `VLAN ${v.vlan_id} · ${v.name}` }))} />
-            <MultiFilter label="Zone" value={multi.zone_id} onChange={(v) => patch({ zone_id: v })}
-              options={(zones.data ?? []).map((z) => ({ value: String(z.id), label: z.name }))} />
-            <MultiFilter label="Splitter" value={multi.splitter_id}
-              onChange={(v) => patch({ splitter_id: v })}
-              options={(splitters.data ?? []).map((s) => ({ value: String(s.id), label: s.name }))} />
-          </>
-        )}
-        {(activeChips.length > 0 || q) && (
-          <Button variant="quiet" size="sm" onClick={() => { setSearchText(""); setParams(new URLSearchParams(), { replace: true }); }}>
-            Reset
-          </Button>
-        )}
+      {/* Desktop (≥768px): baris filter inline — tidak berubah sama sekali. */}
+      <div className="mb-3 hidden flex-wrap items-center gap-2 md:flex">
+        {filterControls()}
       </div>
+      {/* Mobile (<768px): pola lipat adopsi vibekoding §3.3 — kepala "Filter · N aktif"
+          + panel berisi kontrol yang sama persis. Sebelumnya kontrol tampil inline
+          membungkus di mobile; perilaku filter tidak berubah, hanya wadahnya. */}
+      <MobileFilterHead activeCount={activeChips.length} className="mb-3">
+        {filterControls()}
+      </MobileFilterHead>
 
       {activeChips.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-1">

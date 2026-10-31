@@ -32,10 +32,11 @@ export function Help({ children, warn }: { children: ReactNode; warn?: boolean }
   );
 }
 
-/** Panel catatan penuh lebar (acuan `.attached-vlans-help`). */
+/** Panel catatan penuh lebar (acuan `.attached-vlans-help`): latar sunken tanpa
+ *  border sendiri (de-boxing §6 — sudah berada di dalam modal berborder). */
 export function HelpPanel({ children }: { children: ReactNode }) {
   return (
-    <div className="mt-2.5 space-y-1 rounded-sm border border-line bg-surface px-3 py-2.5">{children}</div>
+    <div className="mt-2.5 space-y-1 rounded-sm bg-sunken px-3 py-2.5">{children}</div>
   );
 }
 

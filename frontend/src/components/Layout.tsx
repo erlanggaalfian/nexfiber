@@ -8,6 +8,7 @@ import { useJobStream } from "../lib/jobs";
 import { HEADER, TABS, pageTitle, settingsFor } from "../lib/nav";
 import { THEMES, useTheme, type Theme } from "../lib/theme";
 import { fmtTime } from "./data";
+import { ToastProvider } from "./ui/Toast";
 
 const ROLE_LABEL = { superadmin: "Superadmin", admin: "Admin", user: "User" };
 const overlay = "z-50 rounded-md border bg-surface p-1 shadow-overlay";
@@ -243,6 +244,7 @@ export function Layout() {
   const { pathname } = useLocation();
   const isTab = TABS.some((t) => t.to === pathname);
   return (
+    <ToastProvider>
     <div className="min-h-dvh">
       <a href="#konten" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-surface focus:p-2">
         Langsung ke konten
@@ -259,5 +261,6 @@ export function Layout() {
       </main>
       {isTab && <BottomNav pending={pending} />}
     </div>
+    </ToastProvider>
   );
 }

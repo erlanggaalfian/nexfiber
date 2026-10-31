@@ -2,13 +2,14 @@ import type { ButtonHTMLAttributes } from "react";
 
 /* Aturan hover per keluarga: tombol isi (fiber/primary/dangerSolid) hover:opacity-90,
    tombol garis (secondary/danger) hover:bg-sunken, quiet hover:underline.
-   Teks di atas tombol isi: terang text-white, gelap token on-accent (dark:text-on-*)
-   dari index.css (--color-on-fiber/--color-on-amber). dangerSolid memakai
-   dark:text-on-fiber sebagai teks tinta gelap di atas merah terang tema gelap
-   (token on-down khusus belum tersedia). */
+   Teks di atas tombol isi memakai token on-accent (text-on-fiber/text-on-amber)
+   dari index.css — terang #ffffff, gelap tinta gelap (lolos AA di kedua tema).
+   dangerSolid memakai dark:text-on-fiber sebagai teks tinta gelap di atas merah
+   terang tema gelap (token on-down khusus belum tersedia; pengecualian tercatat
+   di DESIGN.md §3). */
 const VARIANTS = {
-  fiber: "bg-fiber text-white dark:text-on-fiber font-semibold border border-fiber hover:opacity-90",
-  primary: "bg-amber text-white dark:text-on-amber font-semibold border border-amber hover:opacity-90",
+  fiber: "bg-fiber text-on-fiber font-semibold border border-fiber hover:opacity-90",
+  primary: "bg-amber text-on-amber font-semibold border border-amber hover:opacity-90",
   secondary: "border border-line-strong text-ink hover:bg-sunken",
   quiet: "text-fiber hover:underline",
   danger: "border border-down text-down hover:bg-sunken",

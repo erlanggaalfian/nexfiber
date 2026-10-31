@@ -68,7 +68,9 @@ export function JobTrace({ jobId }: { jobId: number | null }) {
   const done = job ? DONE.has(job.status) : false;
   const failed = job?.status === "failed";
   return (
-    <div className={`mt-3 rounded-sm border px-3 py-2 text-xs ${failed ? "border-down" : ""}`}>
+    /* De-boxing §6: tanpa border sendiri (sudah di dalam modal berborder) —
+       latar sunken; status gagal tetap terbaca lewat teks text-down. */
+    <div className="mt-3 rounded-sm bg-sunken px-3 py-2 text-xs">
       <p className={failed ? "text-down" : "text-muted"}>
         Job #{jobId}: {job?.status ?? "menunggu"}
         {job?.error_message ? ` — ${job.error_message}` : ""}
@@ -103,6 +105,12 @@ export function MobileCard({ children, onClick }: { children: ReactNode; onClick
    *  Enter/Space, dengan tampilan dan press yang sama persis. */
   const onKeyDown = onClick
     ? (e: React.KeyboardEvent) => {
+        /* Kontrak lipat (adopsi vibekoding §3): interaksi keyboard pada konten
+         *  interaktif di dalam kartu (mis. checkbox pilih di kartu Configured)
+         *  tidak boleh memicu aksi baris — tanpa pengecualian ini, Space saat
+         *  fokus di checkbox malah menavigasi ke halaman detail. */
+        const t = e.target as HTMLElement | null;
+        if (t && t.closest("input, select, textarea, button, a, [contenteditable]")) return;
         if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); }
       }
     : undefined;

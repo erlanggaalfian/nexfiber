@@ -1,4 +1,4 @@
-import { ArrowClockwise } from "@phosphor-icons/react";
+import { ArrowClockwise, CaretDown } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -15,9 +15,12 @@ const sum = (r: Record<string, number>) => Object.values(r).reduce((a, b) => a +
  *  --teal-glow sekali saat nilainya berubah di auto-refresh, lalu hilang (timer di
  *  Dashboard, bukan loop). --teal-glow tidak punya utilitas Tailwind (tidak ada
  *  --color-teal-glow di @theme), jadi warnanya lewat var() inline, bukan kelas. */
-function Cell({ label, value, sub, to, accent, dot, changed }: {
+function Cell({ label, value, sub, to, accent, dot, changed, tint }: {
   label: string; value: number; sub?: ReactNode; to?: string;
   accent?: string; dot?: string; changed?: boolean;
+  /** Latar tipis untuk sel urgent — hanya aktif bila value > 0, supaya mata
+   *  tertarik ke angka yang butuh tindakan; saat 0 sel tetap netral. */
+  tint?: string;
 }) {
   // Strip pertama yang dirender yang menempel ke tepi atas sel (padding ditarik
   // balik dengan margin negatif); strip kedua menempel tepat di bawahnya.
@@ -33,6 +36,7 @@ function Cell({ label, value, sub, to, accent, dot, changed }: {
       )}
     </>
   );
+  const bg = tint && value > 0 ? tint : "bg-surface";
   const inner = (
     <>
       {strips}
@@ -47,9 +51,9 @@ function Cell({ label, value, sub, to, accent, dot, changed }: {
   // Tanpa `to` = bukan link (dipakai kartu OLT Aktif untuk role user, yang
   // tidak boleh membuka /settings/olts). Sebelumnya kartu itu selalu link ke
   // halaman yang ditolak role user.
-  if (!to) return <div className="block bg-surface p-3 lg:p-4">{inner}</div>;
+  if (!to) return <div className={`block ${bg} p-3 lg:p-4`}>{inner}</div>;
   return (
-    <Link to={to} className="hover-lift block bg-surface p-3 hover:bg-sunken lg:p-4">
+    <Link to={to} className={`hover-lift block ${bg} p-3 hover:bg-sunken lg:p-4`}>
       {inner}
     </Link>
   );
@@ -77,51 +81,54 @@ function Strip({ d, isManager, changed }: { d: Dash; isManager: boolean; changed
         value={notOnline}
         sub={`LOS ${nf.format(onu.los ?? 0)} · DG ${nf.format(onu.dying_gasp ?? 0)}`}
         to={`/configured?${notOnlineQuery}`}
-        accent="bg-down" dot="bg-down" changed={changed.has("notOnline")}
+        accent="bg-down" dot="bg-down" tint="bg-down/5" changed={changed.has("notOnline")}
       />
       <Cell label="Unconfigured" value={d.unconfigured} to="/unconfigured"
-            accent="bg-amber" dot="bg-amber" changed={changed.has("unconfigured")} />
+            accent="bg-amber" dot="bg-amber" tint="bg-amber/5" changed={changed.has("unconfigured")} />
     </div>
   );
 }
 
-/** Baris sinyal (PRD 3.4.2 c3): satu bucket per kolom, pakai RX_BUCKETS (sama dengan
- *  SignalBar di Configured.tsx) supaya label+warna tak pernah menyimpang. */
+/** Baris sinyal (PRD 3.4.2 c3, DESIGN §12.2): SATU BARIS, bukan kartu — label
+ *  "Kualitas sinyal" + segmen klikabel (label + angka + mini-bar proporsional).
+ *  Memakai RX_BUCKETS (sama dengan SignalBar di Configured) supaya label+warna
+ *  tak pernah menyimpang. Titik teal-glow kecil menandai segmen yang berubah
+ *  di auto-refresh (2 detik, timer di Dashboard — sama seperti strip). */
 function SignalRow({ onu_by_signal, changed }: { onu_by_signal: Record<string, number>; changed: ReadonlySet<string> }) {
   const los = onu_by_signal.los ?? 0;
   // Total = semua bucket + LOS (dihitung eksplisit, bukan sum() atas record, supaya
   // kunci lain yang mungkin dikirim backend tidak ikut terhitung ganda).
   const total = (onu_by_signal.good ?? 0) + (onu_by_signal.fair ?? 0)
     + (onu_by_signal.weak ?? 0) + (onu_by_signal.critical ?? 0) + los;
-  // Aksen hanya untuk sel urgent; Good netral tanpa aksen. Urutan strip sama dengan
-  // Cell: garis --teal-glow (berubah) dulu, lalu aksen status.
-  const signalCell = (key: string, label: string, dot: string, accent: string | undefined, value: number, to: string, cls = "") => (
-    <Link key={key} to={to} className={`hover-lift block bg-surface p-3 hover:bg-sunken lg:p-4 ${cls}`}>
-      {changed.has(key) && (
-        <span aria-hidden className="-mx-3 -mt-3 block h-0.5 lg:-mx-4 lg:-mt-4"
-              style={{ backgroundColor: "var(--teal-glow)" }} />
-      )}
-      {accent && (
-        <span aria-hidden
-              className={`-mx-3 block h-0.5 lg:-mx-4 ${changed.has(key) ? "" : "-mt-3 lg:-mt-4"} ${accent}`} />
-      )}
-      <p className="flex items-center gap-1.5 text-xs text-muted"><span className={`size-1.5 shrink-0 ${dot}`} aria-hidden />{label}</p>
-      <p className="font-mono text-metric font-semibold tabular-nums">{nf.format(value)}</p>
-      <p className="text-xs text-muted">dari {nf.format(total)}</p>
-    </Link>
-  );
+  const seg = (key: string, label: string, color: string, value: number, to: string) => {
+    const pct = total > 0 ? Math.min(value / total, 1) * 100 : 0;
+    return (
+      <Link key={key} to={to}
+            className="flex items-center gap-2 rounded-md px-2.5 py-1.5 hover:bg-sunken">
+        {changed.has(key) && (
+          <span aria-hidden className="size-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: "var(--teal-glow)" }} />
+        )}
+        <span className="text-xs text-muted">{label}</span>
+        <span className="font-mono text-sm font-semibold tabular-nums">{nf.format(value)}</span>
+        <span className="flex h-1 w-10 bg-sunken" aria-hidden>
+          <span className={`h-1 transition-[width] duration-300 ease-out motion-reduce:transition-none ${color}`}
+                style={{ width: `${pct}%` }} />
+        </span>
+      </Link>
+    );
+  };
   return (
-    <div className="stagger grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line/60 bg-line md:grid-cols-5">
+    <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
+      <span className="mr-1 text-xs font-semibold uppercase tracking-wider text-muted">Kualitas sinyal</span>
       {(Object.entries(RX_BUCKETS) as [RxBucket, (typeof RX_BUCKETS)[RxBucket]][]).map(
-        ([bucket, { label, color }]) => signalCell(
+        ([bucket, { label, color }]) => seg(
           bucket, label, color,
-          bucket === "critical" ? "bg-down" : bucket === "good" ? undefined : "bg-warn",
           onu_by_signal[bucket] ?? 0, `/configured?signal=${bucket}`,
         ),
       )}
-      {/* Sel ke-5 pada grid 2 kolom mobile: bentang penuh supaya tidak tersisa
-          slot kosong beralas bg-line di baris terakhir. */}
-      {signalCell("los", "LOS", "bg-down", "bg-down", los, "/configured?signal=los", "col-span-2 md:col-span-1")}
+      {seg("los", "LOS", "bg-down", los, "/configured?signal=los")}
+      <span className="ml-1 text-xs text-muted">dari {nf.format(total)} ONU</span>
     </div>
   );
 }
@@ -254,13 +261,10 @@ function DashboardSkeleton() {
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line/60 bg-line md:grid-cols-5">
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-1" aria-hidden>
+        <div className="mr-1 h-4 w-24 bg-sunken" />
         {Array.from({ length: 5 }, (_, i) => (
-          <div key={i} className="bg-surface p-3 lg:p-4">
-            <div className="h-4 bg-sunken" />
-            <div className="mt-2 h-7 bg-sunken" />
-            <div className="mt-1 h-4 bg-sunken" />
-          </div>
+          <div key={i} className="h-7 w-28 rounded-md bg-sunken" />
         ))}
       </div>
       <div className="rounded-lg border border-line/60 bg-surface p-3">
@@ -296,6 +300,17 @@ export function Dashboard() {
   // lalu dibersihkan (timer, bukan loop). Muat pertama tidak ditandai (prev null).
   const prevRef = useRef<Record<string, number> | null>(null);
   const [changed, setChanged] = useState<ReadonlySet<string>>(new Set());
+  /* Judul diketuk di mobile (adopsi vibekoding §3.5): info "Diperbarui …" /
+   * "Poll OLT terakhir …" disembunyikan di <768px dan muncul saat judul
+   * diketuk. Desktop tidak berubah. */
+  const [infoOpen, setInfoOpen] = useState(false);
+  // Ditarik ke variabel supaya teks yang sama tidak ditulis dua kali (DRY):
+  // dipakai di baris judul desktop dan di panel lipat mobile.
+  const updatedLabel = q.dataUpdatedAt ? fmtTime(new Date(q.dataUpdatedAt).toISOString()) : "—";
+  const pollLabel = q.data?.last_poll_at ? fmtTime(q.data.last_poll_at) : "—";
+  // OLT yang status poll terakhirnya bukan online — untuk banner "sebagian gagal"
+  // (§8 State data). Dihitung dari data yang sudah ada; tanpa mengarang.
+  const oltsGagal = (q.data?.olts ?? []).filter((o) => o.status !== "online");
   useEffect(() => {
     if (!q.data) return;
     const cur = dashboardSnapshot(q.data);
@@ -311,12 +326,39 @@ export function Dashboard() {
   return (
     <>
       <PageTitle title="Dashboard">
-        <span className="text-xs text-muted">Diperbarui {q.dataUpdatedAt ? fmtTime(new Date(q.dataUpdatedAt).toISOString()) : "—"}</span>
-        <span className="text-xs text-muted">Poll OLT terakhir {q.data?.last_poll_at ? fmtTime(q.data.last_poll_at) : "—"}</span>
+        {/* max-md:hidden: di mobile info ini pindah ke panel lipat di bawah judul
+            (collapsed-first), bukan hilang — desktop tidak berubah. */}
+        <span className="text-xs text-muted max-md:hidden">Diperbarui {updatedLabel}</span>
+        <span className="text-xs text-muted max-md:hidden">Poll OLT terakhir {pollLabel}</span>
         <Button onClick={() => q.refetch()} disabled={q.isFetching}>
           <ArrowClockwise size={16} /> Refresh
         </Button>
       </PageTitle>
+      {/* Mobile (<768px) saja: ketuk judul men-toggle baris info. Bukan <h1>
+          kedua — h1 PageTitle sudah sr-only di bawah lg, jadi ini <button>
+          teks biasa + chevron. Strip metrik, tabel OLT, dan activity feed di
+          bawahnya tidak disentuh. */}
+      <div className="mb-2 md:hidden">
+        <button
+          type="button"
+          onClick={() => setInfoOpen((v) => !v)}
+          aria-expanded={infoOpen}
+          className="flex min-h-12 w-full items-center justify-between gap-2 text-left"
+        >
+          <span className="text-xl font-semibold">Dashboard</span>
+          <CaretDown
+            size={16}
+            aria-hidden
+            className={`shrink-0 text-muted transition-transform duration-150 ease-out motion-reduce:transition-none ${infoOpen ? "rotate-180" : ""}`}
+          />
+        </button>
+        {infoOpen && (
+          <div className="space-y-0.5 pb-1 text-xs text-muted">
+            <p>Diperbarui {updatedLabel}</p>
+            <p>Poll OLT terakhir {pollLabel}</p>
+          </div>
+        )}
+      </div>
       {q.isPending ? (
         <DashboardSkeleton />
       ) : q.isError ? (
@@ -325,14 +367,22 @@ export function Dashboard() {
         // Tanpa stagger di parent (sebelumnya stagger bersarang: parent + Strip/
         // SignalRow, sehingga sel naik dua kali). Stagger hanya di dalam grid,
         // section memakai entrance biasa seperti TableCard/Panel.
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
           <Strip d={q.data} isManager={isManager} changed={changed} />
           <SignalRow onu_by_signal={q.data.onu_by_signal} changed={changed} />
+          {oltsGagal.length > 0 && (
+            <div role="alert" className="rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-sm">
+              <p className="font-semibold text-warn">
+                {oltsGagal.length} dari {q.data.olts.length} OLT gagal dipolling. Data di bawah mungkin kedaluwarsa.
+              </p>
+              <p className="mt-0.5 text-xs text-muted">{oltsGagal.map((o) => o.name).join(" · ")}</p>
+            </div>
+          )}
           <section className="entrance overflow-hidden rounded-lg border border-line bg-surface shadow-xs">
             <h2 className="border-b border-line-strong bg-sunken px-6 py-4 text-xs font-semibold uppercase tracking-wider text-muted">OLT</h2>
             <OltTable olts={q.data.olts} />
           </section>
-          <section className="entrance rounded-lg border border-line/60 bg-surface">
+          <section className="entrance rounded-lg border border-line/60 bg-surface shadow-xs">
             <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
               <h2 className="text-sm font-medium">Aktivitas terbaru</h2>
               <Link to="/logs" className="text-sm text-fiber hover:underline">Lihat semua</Link>

@@ -228,7 +228,7 @@ export function GraphData() {
           stats.refetch(); retention.refetch(); olts.refetch();
         }} />
       ) : (
-        <div data-graph-grid className="grid gap-4 lg:grid-cols-2">
+        <div data-graph-grid className="grid gap-3 lg:grid-cols-2">
           {(["traffic", "signal"] as Kind[]).map((kind) => (
             <GraphCard key={kind} kind={kind} retention={retention.data}
                        stat={stats.data?.find((row) => row.kind === kind)} olts={olts.data ?? []}

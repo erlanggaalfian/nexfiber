@@ -130,8 +130,11 @@ export function LocationModal(
         <input className={field} value={f.longitude} placeholder="106.816660" aria-label="Longitude"
                onChange={(e) => set("longitude", e.target.value)} />
       </Row>
-      {/* Acuan: tombol lokasi + tautan peta sebaris di bawah Longitude. */}
-      <div className="flex flex-wrap items-center gap-3 sm:pl-[25%]">
+      {/* Acuan: tombol lokasi + tautan peta sebaris di bawah Longitude.
+          Sejajar kolom kontrol Row (label col-span-3) via grid yang sama —
+          tanpa nilai arbitrary pl-[25%]. */}
+      <div className="sm:grid sm:grid-cols-12">
+        <div className="flex flex-wrap items-center gap-3 sm:col-span-9 sm:col-start-4">
         <Button size="md" onClick={locate}>Ambil lokasi saat ini</Button>
         {hasCoords && (
           <a className="text-sm text-fiber hover:underline" target="_blank" rel="noreferrer"
@@ -140,6 +143,7 @@ export function LocationModal(
           </a>
         )}
         {geoMsg && <span className="text-xs text-muted">{geoMsg}</span>}
+        </div>
       </div>
     </ModalShell>
   );

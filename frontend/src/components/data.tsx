@@ -100,7 +100,7 @@ export function Bar({ pct, tone = "bg-fiber", className = "w-12" }: { pct: numbe
  *  isinya sudah px-4 sendiri (Row) — tampilannya perlu dicek, bukan diasumsikan. */
 export function Panel({ title, action, children, className = "" }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={`entrance rounded-lg border border-line/60 bg-surface p-4 shadow-xs max-md:p-3 ${className}`}>
+    <section className={`entrance rounded-lg border border-line/60 bg-surface p-4 shadow-xs ${className}`}>
       {title && (
         <header className="flex items-center justify-between gap-2 pb-2">
           <h2 className="text-xs font-medium uppercase tracking-[0.02em] text-muted">{title}</h2>
@@ -127,7 +127,10 @@ export function Skeleton({ rows = 3, text }: { rows?: number; text: string }) {
     <div className="p-4" aria-busy>
       <p className="mb-2 text-muted">{text}</p>
       {Array.from({ length: Math.min(rows, 8) }, (_, i) => (
-        <div key={i} className="mb-1 h-8 rounded-sm bg-sunken" />
+        /* h-[42px]: setinggi baris tabel asli (§5/§8) supaya tinggi kartu tidak
+           berubah saat data datang. Semua pemakai Skeleton adalah konteks
+           tabel/daftar, jadi aman sebagai default global. */
+        <div key={i} className="mb-1 h-[42px] rounded-sm bg-sunken" />
       ))}
     </div>
   );

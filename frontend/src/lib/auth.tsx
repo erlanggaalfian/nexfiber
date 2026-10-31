@@ -67,7 +67,7 @@ function ChangePasswordForm({ onDone, title }: { onDone: () => void; title?: str
         </label>
         {error && <p className="mb-3 text-down" role="alert">{error}</p>}
         <button type="submit" disabled={busy}
-                className="h-8 max-md:h-12 w-full rounded-sm bg-fiber px-4 text-sm font-medium text-white disabled:opacity-50">
+                className="h-8 max-md:h-12 w-full rounded-sm bg-fiber px-4 text-sm font-medium text-white dark:text-on-fiber disabled:opacity-50">
           {busy ? "Menyimpan ..." : "Ganti password"}
         </button>
       </form>
